@@ -6,7 +6,7 @@ on:
       - main  # Deploy automatically when code is pushed to main branch
 
 permissions:
-  contents: read  # Required for using ${{ github.token }} to clone repo
+  contents: read
 
 jobs:
   deploy:
@@ -30,49 +30,49 @@ jobs:
         with:
           node-version: 20
 
-      # 📦 Step 3: Install dependencies (clean install)
+      # 📦 Step 3: Install dependencies
       - name: Install dependencies
         run: npm ci
 
-      # 🧹 Step 4: Run syntax validation
+      # 🧹 Step 4: Syntax validation
       - name: Syntax validation
         run: |
           echo "🔍 Checking Node.js syntax..."
           node --check index.js
 
-      # 🚀 Step 5: Deploy to EC2 via SSH
-      - name: Deploy application to EC2
+      # 🚀 Step 5: Deploy to EC2
+      - name: Deploy to EC2 via SSH
         run: |
           echo "${PRIVATE_KEY}" > private_key.pem
           chmod 600 private_key.pem
 
           echo "🔐 Connecting to EC2 and deploying..."
-          ssh -o StrictHostKeyChecking=no -i private_key.pem ${EC2_USER}@${EC2_HOST} << EOF
+          ssh -o StrictHostKeyChecking=no -i private_key.pem ${EC2_USER}@${EC2_HOST} << 'EOF'
             set -e
             echo "🚀 Deployment started on EC2..."
 
-            # Create or go to app directory
+            # Ensure the repo directory exists
             sudo mkdir -p /var/www/epi-backend
             sudo chown ubuntu:ubuntu /var/www/epi-backend
             cd /var/www/epi-backend
 
-            echo "🧹 Cleaning up temporary files to free space..."
+            echo "🧹 Cleaning up temporary files..."
             sudo rm -rf /tmp/* || true
             sudo journalctl --vacuum-time=3d || true
             echo "✅ Cleanup completed"
 
-            # Clean or update deployment folder
+            # Clone or update from GitHub using SSH
             if [ -d .git ]; then
-              echo "🔄 Existing repo found — pulling latest changes..."
+              echo "🔄 Repo found, pulling latest changes..."
               git fetch origin main
               git reset --hard origin/main
             elif [ "\$(ls -A .)" ]; then
-              echo "⚠️ Existing non-git folder found — clearing and recloning..."
+              echo "⚠️ Non-git directory found — clearing and recloning..."
               rm -rf *
-              git clone https://x-access-token:${{ github.token }}@github.com/nabeelanasaritsaoirse/epi-backend.git .
+              git clone git@github.com:nabeelanasaritsaoirse/epi-backend.git .
             else
               echo "📦 Cloning repository for the first time..."
-              git clone https://x-access-token:${{ github.token }}@github.com/nabeelanasaritsaoirse/epi-backend.git .
+              git clone git@github.com:nabeelanasaritsaoirse/epi-backend.git .
             fi
 
             echo "📦 Installing dependencies..."
@@ -88,16 +88,16 @@ jobs:
               FIREBASE_PRIVATE_KEY=${{ secrets.FIREBASE_PRIVATE_KEY }}
               RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}
               RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}
-              EOT
+            EOT
 
-            echo "🚦 Restarting PM2 process..."
+            echo "🚦 Restarting PM2..."
             pm2 restart epi-backend || pm2 start npm --name "epi-backend" -- start
             pm2 save
 
             echo "✅ Deployment completed successfully!"
           EOF
 
-      # 🧾 Step 6: Add deployment summary
+      # 🧾 Step 6: Deployment summary
       - name: Deployment summary
         if: success()
         run: |
