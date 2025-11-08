@@ -3,7 +3,10 @@ name: 🚀 Deploy Backend to AWS EC2
 on:
   push:
     branches:
-      - main  # Triggers deployment when code is pushed to main branch
+      - main  # Deploy automatically when code is pushed to main branch
+
+permissions:
+  contents: read  # Required for using ${{ github.token }} to clone repo
 
 jobs:
   deploy:
@@ -53,7 +56,12 @@ jobs:
             sudo chown ubuntu:ubuntu /var/www/epi-backend
             cd /var/www/epi-backend
 
-          # Clean or update deployment folder
+            echo "🧹 Cleaning up old temporary files to free space..."
+            sudo apt-get clean -y
+            sudo rm -rf /tmp/*
+            sudo journalctl --vacuum-time=3d
+
+            # Clean or update deployment folder
             if [ -d .git ]; then
               echo "🔄 Existing repo found — pulling latest changes..."
               git fetch origin main
@@ -61,27 +69,26 @@ jobs:
             elif [ "$(ls -A .)" ]; then
               echo "⚠️ Existing non-git folder found — clearing and recloning..."
               rm -rf *
-              git clone https://github.com/nabeelanasaritsaoirse/epi-backend.git .
+              git clone https://x-access-token:${{ github.token }}@github.com/nabeelanasaritsaoirse/epi-backend.git .
             else
               echo "📦 Cloning repository for the first time..."
-              git clone https://github.com/nabeelanasaritsaoirse/epi-backend.git .
+              git clone https://x-access-token:${{ github.token }}@github.com/nabeelanasaritsaoirse/epi-backend.git .
             fi
-
 
             echo "📦 Installing dependencies..."
             npm ci --omit=dev
 
             echo "⚙️ Writing environment variables..."
             cat <<EOT > .env
-                PORT=5000
-                MONGODB_URI=${{ secrets.MONGODB_URI }}
-                JWT_SECRET=${{ secrets.JWT_SECRET }}
-                FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }}
-                FIREBASE_CLIENT_EMAIL=${{ secrets.FIREBASE_CLIENT_EMAIL }}
-                FIREBASE_PRIVATE_KEY=${{ secrets.FIREBASE_PRIVATE_KEY }}
-                RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}
-                RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}
-                EOT
+              PORT=5000
+              MONGODB_URI=${{ secrets.MONGODB_URI }}
+              JWT_SECRET=${{ secrets.JWT_SECRET }}
+              FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }}
+              FIREBASE_CLIENT_EMAIL=${{ secrets.FIREBASE_CLIENT_EMAIL }}
+              FIREBASE_PRIVATE_KEY=${{ secrets.FIREBASE_PRIVATE_KEY }}
+              RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}
+              RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}
+              EOT
 
             echo "🚦 Restarting PM2 process..."
             pm2 restart epi-backend || pm2 start npm --name "epi-backend" -- start
@@ -99,9 +106,9 @@ jobs:
           echo "- **User:** ${{ secrets.EC2_USER }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Process:** epi-backend" >> $GITHUB_STEP_SUMMARY
           echo "- **Port:** 5000" >> $GITHUB_STEP_SUMMARY
-          echo "- **Status:** Deployed successfully via GitHub Actions 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** ✅ Successfully deployed via GitHub Actions 🚀" >> $GITHUB_STEP_SUMMARY
 
-      # # 💬 Step 7: Optional Microsoft Teams Notification
+      # 💬 Optional Microsoft Teams Notifications
       # - name: Notify Teams (Success)
       #   if: success()
       #   uses: toko-bifrost/ms-teams-deploy-card@v1
