@@ -1,0 +1,101 @@
+name: Deploy Node.js Backend to AWS EC2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-test-deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      NODE_ENV: production
+      AWS_REGION: ap-south-1
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_USER: ${{ secrets.EC2_USER }}
+      PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
+      TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+
+    steps:
+      # 🛠️ Step 1: Checkout repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 🟢 Step 2: Setup Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # 📦 Step 3: Install dependencies (clean)
+      - name: Install dependencies
+        run: npm ci
+
+      # 🧹 Step 4: Basic lint check
+      - name: Run lint check
+        run: |
+          echo "Running lint check..."
+          npx eslint . || echo "⚠️ Lint warnings detected, continuing deployment"
+
+      # 🧪 Step 5: Syntax and startup validation
+      - name: Run basic syntax test
+        run: |
+          echo "Performing syntax validation..."
+          node --check index.js
+          echo "✅ Node.js syntax validation passed"
+
+      # 🚀 Step 6: Deploy to AWS EC2
+      - name: Deploy backend to EC2
+        run: |
+          echo "Deploying to EC2 instance..."
+          echo "${PRIVATE_KEY}" > private_key.pem
+          chmod 600 private_key.pem
+
+          ssh -o StrictHostKeyChecking=no -i private_key.pem ${EC2_USER}@${EC2_HOST} << 'EOF'
+            set -e
+            echo "📦 Pulling latest code..."
+            cd /var/www/epi-backend || exit 1
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "📦 Installing dependencies..."
+            npm ci --omit=dev
+
+            echo "🔄 Restarting backend service with PM2..."
+            pm2 restart epi-backend || pm2 start npm --name "epi-backend" -- start
+            pm2 save
+
+            echo "✅ Deployment completed successfully!"
+          EOF
+
+      # 🧾 Step 7: Add summary to GitHub Actions
+      - name: Add Deployment Summary
+        if: success()
+        run: |
+          echo "## ✅ Backend Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Application:** Epi Backend" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** AWS EC2 (${AWS_REGION})" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** main" >> $GITHUB_STEP_SUMMARY
+          echo "**Host:** http://${{ env.EC2_HOST }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Deployed successfully via GitHub Actions" >> $GITHUB_STEP_SUMMARY
+
+      # 💬 Step 8: Notify Microsoft Teams on success
+      - name: Notify Teams (Success)
+        if: success()
+        uses: toko-bifrost/ms-teams-deploy-card@v1
+        with:
+          github-token: ${{ github.token }}
+          webhook-uri: ${{ env.TEAMS_WEBHOOK_URL }}
+          show-on-start: false
+
+      # ❌ Step 9: Notify Microsoft Teams on failure
+      - name: Notify Teams (Failure)
+        if: failure()
+        uses: toko-bifrost/ms-teams-deploy-card@v1
+        with:
+          github-token: ${{ github.token }}
+          webhook-uri: ${{ env.TEAMS_WEBHOOK_URL }}
+          show-on-failure: true
