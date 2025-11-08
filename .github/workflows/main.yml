@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-test-deploy:
-    runs-on: runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04
 
     env:
       NODE_ENV: production
