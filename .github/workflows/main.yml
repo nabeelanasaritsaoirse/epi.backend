@@ -56,10 +56,22 @@ jobs:
             sudo chown ubuntu:ubuntu /var/www/epi-backend
             cd /var/www/epi-backend
 
-            echo "🧹 Cleaning up old temporary files to free space..."
-            sudo apt-get clean -y
+           echo "🧹 Cleaning up old temporary files to free space..."
+            # Wait until apt/dpkg lock is free (max 60 seconds)
+            for i in {1..12}; do
+              if sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1 || sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1; then
+                echo "⏳ Waiting for apt/dpkg lock to be released..."
+                sleep 5
+              else
+                break
+              fi
+            done
+            
             sudo rm -rf /tmp/*
             sudo journalctl --vacuum-time=3d
+            sudo apt-get clean -y || true
+            echo "✅ Cleanup completed"
+
 
             # Clean or update deployment folder
             if [ -d .git ]; then
