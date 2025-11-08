@@ -39,28 +39,34 @@ jobs:
         run: |
           echo "🔍 Checking Node.js syntax..."
           node --check index.js
-
       # 🚀 Step 5: Deploy to EC2 via SSH
       - name: Deploy application to EC2
         run: |
           echo "${PRIVATE_KEY}" > private_key.pem
           chmod 600 private_key.pem
-
           echo "🔐 Connecting to EC2 and deploying..."
           ssh -o StrictHostKeyChecking=no -i private_key.pem ${EC2_USER}@${EC2_HOST} << 'EOF'
             set -e
             echo "🚀 Deployment started on EC2..."
-
             # Create or go to app directory
             sudo mkdir -p /var/www/epi-backend
             sudo chown ubuntu:ubuntu /var/www/epi-backend
             cd /var/www/epi-backend
-
-            echo "🧹 Cleaning up temporary files to free space..."
-            sudo rm -rf /tmp/* || true
-            sudo journalctl --vacuum-time=3d || true
-            echo "✅ Safe cleanup completed"
-
+           echo "🧹 Cleaning up old temporary files to free space..."
+            # Wait until apt/dpkg lock is free (max 60 seconds)
+            for i in {1..12}; do
+              if sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1 || sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1; then
+                echo "⏳ Waiting for apt/dpkg lock to be released..."
+                sleep 5
+              else
+                break
+              fi
+            done
+            
+            sudo rm -rf /tmp/*
+            sudo journalctl --vacuum-time=3d
+            sudo apt-get clean -y || true
+            echo "✅ Cleanup completed"
             # Clean or update deployment folder
             if [ -d .git ]; then
               echo "🔄 Existing repo found — pulling latest changes..."
@@ -74,10 +80,8 @@ jobs:
               echo "📦 Cloning repository for the first time..."
               git clone https://x-access-token:${{ github.token }}@github.com/nabeelanasaritsaoirse/epi-backend.git .
             fi
-
             echo "📦 Installing dependencies..."
             npm ci --omit=dev
-
             echo "⚙️ Writing environment variables..."
             cat <<EOT > .env
               PORT=5000
@@ -89,14 +93,11 @@ jobs:
               RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}
               RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}
               EOT
-
             echo "🚦 Restarting PM2 process..."
             pm2 restart epi-backend || pm2 start npm --name "epi-backend" -- start
             pm2 save
-
             echo "✅ Deployment completed successfully!"
           EOF
-
       # 🧾 Step 6: Add deployment summary
       - name: Deployment summary
         if: success()
@@ -107,7 +108,6 @@ jobs:
           echo "- **Process:** epi-backend" >> $GITHUB_STEP_SUMMARY
           echo "- **Port:** 5000" >> $GITHUB_STEP_SUMMARY
           echo "- **Status:** ✅ Successfully deployed via GitHub Actions 🚀" >> $GITHUB_STEP_SUMMARY
-
       # 💬 Optional Microsoft Teams Notifications
       # - name: Notify Teams (Success)
       #   if: success()
