@@ -53,15 +53,20 @@ jobs:
             sudo chown ubuntu:ubuntu /var/www/epi-backend
             cd /var/www/epi-backend
 
-            # Pull latest code or clone if not present
+          # Clean or update deployment folder
             if [ -d .git ]; then
-              echo "🔄 Pulling latest changes..."
+              echo "🔄 Existing repo found — pulling latest changes..."
               git fetch origin main
               git reset --hard origin/main
+            elif [ "$(ls -A .)" ]; then
+              echo "⚠️ Existing non-git folder found — clearing and recloning..."
+              rm -rf *
+              git clone https://github.com/nabeelanasaritsaoirse/epi-backend.git .
             else
-              echo "📦 Cloning repository..."
+              echo "📦 Cloning repository for the first time..."
               git clone https://github.com/nabeelanasaritsaoirse/epi-backend.git .
             fi
+
 
             echo "📦 Installing dependencies..."
             npm ci --omit=dev
