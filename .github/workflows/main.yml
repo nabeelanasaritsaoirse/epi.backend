@@ -1,4 +1,4 @@
-name: 🚀 Deploy Backend to AWS EC2
+name:  Deploy Backend to AWS EC2
 
 on:
   push:
@@ -20,46 +20,46 @@ jobs:
       NODE_ENV: production
 
     steps:
-      # 🛠️ Step 1: Checkout the repo
+      #  Step 1: Checkout the repo
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 🟢 Step 2: Setup Node.js
+      # Step 2: Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      # 📦 Step 3: Install dependencies
+      #  Step 3: Install dependencies
       - name: Install dependencies
         run: npm ci
 
-      # 🧹 Step 4: Syntax validation
+      #  Step 4: Syntax validation
       - name: Syntax validation
         run: |
           echo "🔍 Checking Node.js syntax..."
           node --check index.js
 
-     # 🚀 Step 5: Deploy to EC2 via SSH
+      #  Step 5: Deploy to EC2 via SSH
       - name: Deploy application to EC2
         run: |
           echo "${PRIVATE_KEY}" > private_key.pem
           chmod 600 private_key.pem
       
-          echo "🔐 Connecting to EC2 and deploying..."
+          echo "Connecting to EC2 and deploying..."
           ssh -o StrictHostKeyChecking=no -i private_key.pem ${EC2_USER}@${EC2_HOST} << 'EOF'
             set -e
-            echo "🚀 Deployment started on EC2..."
+            echo " Deployment started on EC2..."
       
             # Ensure the repo directory exists
             sudo mkdir -p /var/www/epi-backend
             sudo chown ubuntu:ubuntu /var/www/epi-backend
             cd /var/www/epi-backend
       
-            echo "🧹 Cleaning up temporary files..."
+            echo " Cleaning up temporary files..."
             sudo rm -rf /tmp/* || true
             sudo journalctl --vacuum-time=3d || true
-            echo "✅ Cleanup completed"
+            echo " Cleanup completed"
       
             # Check if repo already exists
             if [ -d .git ]; then
@@ -68,18 +68,18 @@ jobs:
               git fetch origin main
               git reset --hard origin/main
             elif [ "$(ls -A .)" ]; then
-              echo "⚠️ Non-git directory found — clearing and recloning..."
+              echo " Non-git directory found — clearing and recloning..."
               rm -rf *
               git clone git@github.com:nabeelanasaritsaoirse/epi-backend.git .
             else
-              echo "📦 Cloning repository for the first time..."
+              echo " Cloning repository for the first time..."
               git clone git@github.com:nabeelanasaritsaoirse/epi-backend.git .
             fi
       
-            echo "📦 Installing dependencies..."
+            echo " Installing dependencies..."
             npm ci --omit=dev
       
-            echo "⚙️ Writing environment variables..."
+            echo " Writing environment variables..."
             cat <<EOT > .env
               PORT=5000
               MONGODB_URI=${{ secrets.MONGODB_URI }}
@@ -91,13 +91,13 @@ jobs:
               RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}
             EOT
       
-            echo "🚦 Restarting PM2..."
+            echo " Restarting PM2..."
             pm2 restart epi-backend || pm2 start npm --name "epi-backend" -- start
             pm2 save
       
-            echo "✅ Deployment completed successfully!"
+            echo "Deployment completed successfully!"
           EOF
-      # ✅ Send email on successful deployment
+      #  Send email on successful deployment
       - name: Send Email (Success)
         if: success()
         uses: dawidd6/action-send-mail@v3
@@ -106,9 +106,9 @@ jobs:
           server_port: 465
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "✅ EPI Backend Deployment Successful"
+          subject: " EPI Backend Deployment Successful"
           body: |
-            🎉 The backend has been successfully deployed to AWS EC2.
+            The backend has been successfully deployed to AWS EC2.
       
             Details:
             - Host: ${{ secrets.EC2_HOST }}
@@ -117,7 +117,7 @@ jobs:
             - Commit: ${{ github.sha }}
             - Repository: ${{ github.repository }}
       
-            🚀 Deployment completed successfully via GitHub Actions!
+            Deployment completed successfully via GitHub Actions!
           to: "nabeelanasarit.saoirse@gmail.com"
           from: ${{ secrets.EMAIL_USERNAME }}
           secure: true
@@ -131,9 +131,9 @@ jobs:
           server_port: 465
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "❌ EPI Backend Deployment Failed"
+          subject: "EPI Backend Deployment Failed"
           body: |
-            ⚠️ The backend deployment to AWS EC2 has failed.
+            The backend deployment to AWS EC2 has failed.
       
             Details:
             - Host: ${{ secrets.EC2_HOST }}
