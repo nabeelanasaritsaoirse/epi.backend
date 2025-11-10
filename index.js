@@ -15,6 +15,7 @@ const orderRoutes = require('./routes/orders');
 const adminRoutes = require('./routes/admin');
 const referralRoutes = require('./routes/referralRoutes');
 const planRoutes = require('./routes/plans');
+const imageStoreRoutes = require('./routes/imageStore');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -22,7 +23,7 @@ const PORT = process.env.PORT || 5000;
 app.use(express.json());
 app.use(cors());
 
-// Initialize Firebase Admin
+Initialize Firebase Admin
 try {
   admin.initializeApp({
     credential: admin.credential.cert({
@@ -57,6 +58,9 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/referrals', referralRoutes);
 app.use('/api/plans', planRoutes);
+app.use('/api/images', imageStoreRoutes);
+
+
 
 app.get('/', (req, res) => {
   res.send('Epi Project API is running');
