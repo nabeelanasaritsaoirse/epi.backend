@@ -131,21 +131,20 @@ jobs:
             echo "-------------------------------------"
           EOF
 
-      - name: Deploy application to EC2
-        run: |
-          echo "Deployment completed successfully!"
-          echo "-----------------------------------"
-          echo "Your API is live at: http://${EC2_HOST}:5000"
       
-      - name: Add summary with clickable link
+      - name: 🧾 Add summary with clickable link
+        if: success()
         run: |
-          echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Backend deployed successfully to EC2!" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "🔗 **API Endpoint:** http://13.203.227.43:5000" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "🌐 [Click here to open the API](http://13.203.227.43:5000)" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## 🚀 Deployment Summary"
+            echo
+            echo "✅ Backend deployed successfully to EC2!"
+            echo
+            echo "🔗 **API Endpoint:** [http://13.203.227.43:5000](http://13.203.227.43:5000)"
+            echo
+            echo "---"
+            echo "🌐 **Direct Link:** [Click here to open the API](http://13.203.227.43:5000)"
+          } >> $GITHUB_STEP_SUMMARY
 
 
     # # ✅ Send Email on Success
