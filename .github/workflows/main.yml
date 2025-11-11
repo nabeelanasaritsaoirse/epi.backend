@@ -59,60 +59,70 @@ jobs:
           node --check index.js
 
       #  Step 7: Deploy to EC2 via SSH
-      - name: Deploy application to EC2
+      - name: 🚀 Deploy application to EC2
         run: |
+          # Save and secure private key for EC2 login
           echo "${PRIVATE_KEY}" > private_key.pem
           chmod 600 private_key.pem
-          
+      
           echo "Connecting to EC2 and deploying..."
           ssh -o StrictHostKeyChecking=no -i private_key.pem ${EC2_USER}@${EC2_HOST} << 'EOF'
             set -e
-            echo " Deployment started on EC2..."
+            echo "🚀 Deployment started on EC2..."
           
-            # Ensure the repo directory exists
+            # Ensure project directory exists
             sudo mkdir -p /var/www/epi-backend
             sudo chown ubuntu:ubuntu /var/www/epi-backend
             cd /var/www/epi-backend
-          
-            echo " Cleaning up temporary files..."
+      
+            echo "🧹 Cleaning up temporary files..."
             sudo rm -rf /tmp/* || true
             sudo journalctl --vacuum-time=3d || true
-            echo " Cleanup completed"
-          
-            # Check if repo already exists
+            echo "✅ Cleanup completed"
+      
+            # Configure Git to use the correct deploy key
+            echo "🔐 Setting up SSH config for GitHub..."
+            mkdir -p ~/.ssh
+            cat <<CONFIG > ~/.ssh/config
+            Host github.com
+                HostName github.com
+                User git
+                IdentityFile ~/.ssh/epi-backend
+                IdentitiesOnly yes
+            CONFIG
+      
+            # Ensure permissions
+            chmod 600 ~/.ssh/config
+      
+            # Pull latest repo version
             if [ -d .git ]; then
-              echo "🔄 Repo found — switching to SSH and pulling latest..."
-              git remote set-url origin git@github.com:nabeelanasaritsaoirse/epi-backend.git
+              echo "🔄 Repo found — pulling latest changes..."
               git fetch origin main
               git reset --hard origin/main
-            elif [ "$(ls -A .)" ]; then
-              echo " Non-git directory found — clearing and recloning..."
-              rm -rf *
-              git clone git@github.com:nabeelanasaritsaoirse/epi-backend.git .
             else
-              echo " Cloning repository for the first time..."
+              echo "🆕 Cloning repository for the first time..."
               git clone git@github.com:nabeelanasaritsaoirse/epi-backend.git .
             fi
-          
-            echo " Installing dependencies..."
+      
+            echo "📦 Installing dependencies..."
             npm ci --omit=dev
-          
-            echo " Writing environment variables..."
+      
+            echo "🧾 Writing environment variables..."
             cat > .env <<'ENVEND'
-          PORT=5000
-          MONGODB_URI=${{ secrets.MONGODB_URI }}
-          JWT_SECRET=${{ secrets.JWT_SECRET }}
-          FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }}
-          FIREBASE_CLIENT_EMAIL=${{ secrets.FIREBASE_CLIENT_EMAIL }}
-          FIREBASE_PRIVATE_KEY=${{ secrets.FIREBASE_PRIVATE_KEY }}
-          RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}
-          RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}
-          ENVEND
-          
-            echo " Restarting PM2..."
+            PORT=5000
+            MONGODB_URI=${{ secrets.MONGODB_URI }}
+            JWT_SECRET=${{ secrets.JWT_SECRET }}
+            FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }}
+            FIREBASE_CLIENT_EMAIL=${{ secrets.FIREBASE_CLIENT_EMAIL }}
+            FIREBASE_PRIVATE_KEY=${{ secrets.FIREBASE_PRIVATE_KEY }}
+            RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}
+            RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}
+            ENVEND
+            
+            echo "🔁 Restarting PM2..."
             pm2 restart epi-backend || pm2 start npm --name "epi-backend" -- start
             pm2 save
-          
+      
             echo ""
             echo "-------------------------------------"
             echo "✅ Deployment completed successfully!"
@@ -120,6 +130,7 @@ jobs:
             echo "🌐 Your API is live at: http://$PUBLIC_IP:5000"
             echo "-------------------------------------"
           EOF
+
       - name: Deploy application to EC2
         run: |
           echo "Deployment completed successfully!"
