@@ -115,56 +115,56 @@ jobs:
       
             echo "Deployment completed successfully!"
           EOF
-    # ✅ Send Email on Success
-      - name: Send Email (Success)
-        if: success()
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          secure: true
-          username: ${{ secrets.EMAIL_USERNAME }}
-          password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "✅ EPI Backend Deployment Successful"
-          body: |
-            🎉 The backend has been successfully deployed to AWS EC2.
+    # # ✅ Send Email on Success
+    #   - name: Send Email (Success)
+    #     if: success()
+    #     uses: dawidd6/action-send-mail@v3
+    #     with:
+    #       server_address: smtp.gmail.com
+    #       server_port: 465
+    #       secure: true
+    #       username: ${{ secrets.EMAIL_USERNAME }}
+    #       password: ${{ secrets.EMAIL_PASSWORD }}
+    #       subject: "✅ EPI Backend Deployment Successful"
+    #       body: |
+    #         🎉 The backend has been successfully deployed to AWS EC2.
       
-            **Details:**
-            - Host: ${{ secrets.EC2_HOST }}
-            - User: ${{ secrets.EC2_USER }}
-            - Environment: Production
-            - Commit: ${{ github.sha }}
-            - Repository: ${{ github.repository }}
-            - Run URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    #         **Details:**
+    #         - Host: ${{ secrets.EC2_HOST }}
+    #         - User: ${{ secrets.EC2_USER }}
+    #         - Environment: Production
+    #         - Commit: ${{ github.sha }}
+    #         - Repository: ${{ github.repository }}
+    #         - Run URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       
-            🚀 Deployment completed successfully via GitHub Actions!
-          to: "nabeelanasarit.saoirse@gmail.com"
-          from: ${{ secrets.EMAIL_USERNAME }}
-          nodemailerdebug: true
+    #         🚀 Deployment completed successfully via GitHub Actions!
+    #       to: "nabeelanasarit.saoirse@gmail.com"
+    #       from: ${{ secrets.EMAIL_USERNAME }}
+    #       nodemailerdebug: true
       
-      # ❌ Send Email on Failure
-      - name: Send Email (Failure)
-        if: failure()
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          secure: true
-          username: ${{ secrets.EMAIL_USERNAME }}
-          password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "❌ EPI Backend Deployment Failed"
-          body: |
-            ⚠️ The backend deployment to AWS EC2 has failed.
+    #   # ❌ Send Email on Failure
+    #   - name: Send Email (Failure)
+    #     if: failure()
+    #     uses: dawidd6/action-send-mail@v3
+    #     with:
+    #       server_address: smtp.gmail.com
+    #       server_port: 465
+    #       secure: true
+    #       username: ${{ secrets.EMAIL_USERNAME }}
+    #       password: ${{ secrets.EMAIL_PASSWORD }}
+    #       subject: "❌ EPI Backend Deployment Failed"
+    #       body: |
+    #         ⚠️ The backend deployment to AWS EC2 has failed.
       
-            **Details:**
-            - Host: ${{ secrets.EC2_HOST }}
-            - User: ${{ secrets.EC2_USER }}
-            - Branch: ${{ github.ref }}
-            - Commit: ${{ github.sha }}
-            - Workflow: ${{ github.workflow }}
-            - Run URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    #         **Details:**
+    #         - Host: ${{ secrets.EC2_HOST }}
+    #         - User: ${{ secrets.EC2_USER }}
+    #         - Branch: ${{ github.ref }}
+    #         - Commit: ${{ github.sha }}
+    #         - Workflow: ${{ github.workflow }}
+    #         - Run URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       
-            Please review the logs in GitHub Actions to identify the issue.
-          to: "nabeelanasarit.saoirse@gmail.com"
-          from: ${{ secrets.EMAIL_USERNAME }}
-          nodemailerdebug: true
+    #         Please review the logs in GitHub Actions to identify the issue.
+    #       to: "nabeelanasarit.saoirse@gmail.com"
+    #       from: ${{ secrets.EMAIL_USERNAME }}
+    #       nodemailerdebug: true
