@@ -128,12 +128,13 @@ jobs:
       
       - name: Add summary with clickable link
         run: |
+          LINK="http://${EC2_HOST}:5000"
           {
             echo "## 🚀 Deployment Summary"
             echo ""
             echo "✅ Backend deployed successfully to EC2!"
             echo ""
-            echo "[🌐 View Live API](http://${EC2_HOST}:5000)"
+            echo "🌐 [View Live API](${LINK})"
           } >> $GITHUB_STEP_SUMMARY
 
     # # ✅ Send Email on Success
