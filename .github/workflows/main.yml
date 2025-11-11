@@ -128,13 +128,14 @@ jobs:
       
       - name: Add summary with clickable link
         run: |
-          {
-            echo "## 🚀 Deployment Summary"
-            echo ""
-            echo "✅ Backend deployed successfully to EC2!"
-            echo ""
-            echo "🌐 [View Live API](http://13.203.227.43:5000)"
-          } >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Backend deployed successfully to EC2!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 **API Endpoint:** http://13.203.227.43:5000" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🌐 [Click here to open the API](http://13.203.227.43:5000)" >> $GITHUB_STEP_SUMMARY
+
 
     # # ✅ Send Email on Success
     #   - name: Send Email (Success)
