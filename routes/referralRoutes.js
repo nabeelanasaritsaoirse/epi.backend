@@ -1162,5 +1162,74 @@ router.get("/wallet/:userId", async (req, res) => {
     });
   }
 });
+// Get all referrals for main referral page (Screen 1)
+router.get("/list/:referrerId", async (req, res) => {
+  try {
+    const { referrerId } = req.params;
+    if (!referrerId) {
+      return res.status(400).json({
+        success: false,
+        error: "referrerId is required",
+      });
+    }
+
+    const result = await referralController.getReferralList(referrerId);
+    res.json(result);
+  } catch (error) {
+    console.error("Error fetching referral list:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message || "Failed to fetch referral list",
+    });
+  }
+});
+
+// Get specific referred user details (Screen 2)
+router.get("/friend/:referredUserId", async (req, res) => {
+  try {
+    const { referredUserId } = req.params;
+    if (!referredUserId) {
+      return res.status(400).json({
+        success: false,
+        error: "referredUserId is required",
+      });
+    }
+
+    const result = await referralController.getReferredUserDetails(referredUserId);
+    res.json(result);
+  } catch (error) {
+    console.error("Error fetching referred user details:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message || "Failed to fetch referred user details",
+    });
+  }
+});
+
+// Get detailed product info for a referred user (Screen 3)
+router.get("/product/:referredUserId/:productId", async (req, res) => {
+  try {
+    const { referredUserId, productId } = req.params;
+
+    if (!referredUserId || !productId) {
+      return res.status(400).json({
+        success: false,
+        error: "referredUserId and productId are required",
+      });
+    }
+
+    const result = await referralController.getReferralProductDetails(
+      referredUserId,
+      productId
+    );
+    res.json(result);
+  } catch (error) {
+    console.error("Error fetching referral product details:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message || "Failed to fetch product-level referral details",
+    });
+  }
+});
 
 module.exports = router;
