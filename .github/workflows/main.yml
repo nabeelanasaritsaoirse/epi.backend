@@ -130,10 +130,9 @@ jobs:
         run: |
           echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**✅ Backend deployed successfully to EC2!**" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Backend deployed successfully to EC2!**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "[🌐 View Live API](http://${EC2_HOST}:5000)" >> $GITHUB_STEP_SUMMARY
-
+          echo "[🌐 **View Live API**](http://${EC2_HOST}:5000)" >> $GITHUB_STEP_SUMMARY
 
     # # ✅ Send Email on Success
     #   - name: Send Email (Success)
