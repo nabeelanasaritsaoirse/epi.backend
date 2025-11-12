@@ -23,19 +23,19 @@ router.get('/:categoryId/with-subcategories', categoryController.getCategoryWith
 router.get('/:categoryId', categoryController.getCategoryById);
 
 /**
- * Admin routes
+ * Admin routes (No authentication required)
  */
 
 // Create category
-router.post('/', verifyToken, isAdmin, categoryController.createCategory);
+router.post('/', categoryController.createCategory);
 
 // Update category
-router.put('/:categoryId', verifyToken, isAdmin, categoryController.updateCategory);
+router.put('/:categoryId', categoryController.updateCategory);
 
 // Delete category
-router.delete('/:categoryId', verifyToken, isAdmin, categoryController.deleteCategory);
+router.delete('/:categoryId', categoryController.deleteCategory);
 
 // Bulk reorder categories
-router.put('/bulk/reorder', verifyToken, isAdmin, categoryController.reorderCategories);
+router.put('/bulk/reorder', categoryController.reorderCategories);
 
 module.exports = router;

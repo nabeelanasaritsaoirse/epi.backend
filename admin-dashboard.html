@@ -1,0 +1,1589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EPI Admin Dashboard - Categories & Products</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        /* Config Section */
+        .config-section {
+            background: #f8f9fa;
+            padding: 20px 30px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+        }
+
+        .config-group {
+            flex: 1;
+            min-width: 250px;
+        }
+
+        .config-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+            font-size: 0.95rem;
+        }
+
+        .config-group input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 0.95rem;
+            transition: border-color 0.3s;
+        }
+
+        .config-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 5px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-test {
+            background: #28a745;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+
+        .btn-test:hover {
+            background: #218838;
+        }
+
+        /* Main Content */
+        .content {
+            display: flex;
+            min-height: calc(100vh - 400px);
+        }
+
+        /* Sidebar Navigation */
+        .sidebar {
+            width: 250px;
+            background: #2c3e50;
+            padding: 20px;
+            border-right: 1px solid #e0e0e0;
+            overflow-y: auto;
+        }
+
+        .nav-item {
+            padding: 12px 16px;
+            margin: 8px 0;
+            border-radius: 6px;
+            cursor: pointer;
+            color: #ecf0f1;
+            font-weight: 500;
+            transition: all 0.3s;
+            border-left: 4px solid transparent;
+        }
+
+        .nav-item:hover {
+            background: rgba(102, 126, 234, 0.2);
+            border-left-color: #667eea;
+        }
+
+        .nav-item.active {
+            background: #667eea;
+            border-left-color: #667eea;
+            color: white;
+        }
+
+        .nav-title {
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            color: #95a5a6;
+            font-weight: 700;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            padding: 0 16px;
+        }
+
+        /* Main Panel */
+        .main-panel {
+            flex: 1;
+            overflow-y: auto;
+            padding: 30px;
+        }
+
+        .panel {
+            display: none;
+        }
+
+        .panel.active {
+            display: block;
+        }
+
+        .panel-title {
+            font-size: 1.8rem;
+            color: #2c3e50;
+            margin-bottom: 25px;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 15px;
+        }
+
+        /* Forms */
+        .form-section {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #2c3e50;
+        }
+
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 0.95rem;
+            font-family: inherit;
+            transition: border-color 0.3s;
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 5px rgba(102, 126, 234, 0.3);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .form-row-3 {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 20px;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 0.95rem;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #218838;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #c82333;
+        }
+
+        .btn-small {
+            padding: 8px 16px;
+            font-size: 0.85rem;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        /* Tables */
+        .table-container {
+            overflow-x: auto;
+            margin-top: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        thead {
+            background: #667eea;
+            color: white;
+        }
+
+        th {
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+
+        td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        tbody tr:hover {
+            background: #f8f9fa;
+        }
+
+        /* Variants */
+        .variants-section {
+            background: white;
+            border: 2px dashed #ddd;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .variant-item {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            border-left: 4px solid #667eea;
+        }
+
+        .variant-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .variant-header h4 {
+            color: #2c3e50;
+        }
+
+        .btn-remove {
+            background: #dc3545;
+            color: white;
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+
+        .btn-remove:hover {
+            background: #c82333;
+        }
+
+        /* Alert Messages */
+        .alert {
+            padding: 15px 20px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .alert.show {
+            display: block;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        /* Output Panel */
+        .output-panel {
+            background: #1e1e1e;
+            color: #00ff00;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            margin-top: 20px;
+            border: 1px solid #333;
+        }
+
+        .output-panel-title {
+            font-weight: bold;
+            color: #ffff00;
+            margin-bottom: 10px;
+        }
+
+        /* Statistics Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .stat-card h3 {
+            font-size: 0.95rem;
+            opacity: 0.9;
+            margin-bottom: 10px;
+        }
+
+        .stat-card .value {
+            font-size: 2rem;
+            font-weight: bold;
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal-header {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #666;
+        }
+
+        .modal-close:hover {
+            color: #000;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .content {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                width: 100%;
+                border-right: none;
+                border-bottom: 1px solid #e0e0e0;
+                display: flex;
+                overflow-x: auto;
+            }
+
+            .nav-item {
+                white-space: nowrap;
+            }
+
+            .form-row,
+            .form-row-3 {
+                grid-template-columns: 1fr;
+            }
+
+            .header h1 {
+                font-size: 1.8rem;
+            }
+
+            .config-section {
+                flex-direction: column;
+            }
+
+            .config-group {
+                min-width: 100%;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Scrollbar Styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #667eea;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #5568d3;
+        }
+
+        .success-badge {
+            background: #d4edda;
+            color: #155724;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .error-badge {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .json-output {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🚀 EPI Admin Dashboard</h1>
+            <p>Complete Category & Product Management with Variants</p>
+        </div>
+
+        <!-- Config Section -->
+        <div class="config-section">
+            <div class="config-group">
+                <label>API Base URL</label>
+                <input type="text" id="apiBaseUrl" value="http://localhost:3000/api" placeholder="http://localhost:3000/api">
+            </div>
+            <div class="config-group">
+                <label>Admin JWT Token (Optional - for category management & admin endpoints)</label>
+                <input type="password" id="adminToken" placeholder="Paste your JWT token here...">
+            </div>
+            <button class="btn btn-test" onclick="testConnection()">Test Connection</button>
+        </div>
+        <div style="background: #d1ecf1; color: #0c5460; padding: 12px 30px; border-top: 1px solid #bee5eb; font-size: 0.9rem;">
+            ℹ️ <strong>Note:</strong> Both product and category creation do NOT require authentication. You can create both without providing a JWT token.
+        </div>
+
+        <!-- Alert Messages -->
+        <div id="alertContainer"></div>
+
+        <!-- Main Content -->
+        <div class="content">
+            <!-- Sidebar Navigation -->
+            <div class="sidebar">
+                <div class="nav-title">📊 Dashboard</div>
+                <div class="nav-item active" onclick="switchPanel('dashboard')">Dashboard</div>
+
+                <div class="nav-title">📂 Categories</div>
+                <div class="nav-item" onclick="switchPanel('categoryList')">View Categories</div>
+                <div class="nav-item" onclick="switchPanel('createCategory')">Create Category</div>
+
+                <div class="nav-title">📦 Products</div>
+                <div class="nav-item" onclick="switchPanel('productList')">View Products</div>
+                <div class="nav-item" onclick="switchPanel('createProduct')">Create Product</div>
+
+                <div class="nav-title">🧪 Testing</div>
+                <div class="nav-item" onclick="switchPanel('testEndpoints')">Test Endpoints</div>
+            </div>
+
+            <!-- Main Panel -->
+            <div class="main-panel">
+                <!-- Dashboard Panel -->
+                <div id="dashboard" class="panel active">
+                    <h2 class="panel-title">📊 Dashboard Overview</h2>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <h3>Total Categories</h3>
+                            <div class="value" id="totalCategories">-</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Total Products</h3>
+                            <div class="value" id="totalProducts">-</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Products in Stock</h3>
+                            <div class="value" id="inStockProducts">-</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Low Stock Products</h3>
+                            <div class="value" id="lowStockProducts">-</div>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" onclick="loadDashboardStats()">Refresh Stats</button>
+                    <div id="dashboardOutput"></div>
+                </div>
+
+                <!-- Category List Panel -->
+                <div id="categoryList" class="panel">
+                    <h2 class="panel-title">📂 Categories</h2>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="loadCategories()">Refresh Categories</button>
+                        <button class="btn btn-secondary" onclick="switchPanel('createCategory')">+ New Category</button>
+                    </div>
+                    <div id="categoryTableContainer" class="table-container" style="margin-top: 20px;"></div>
+                </div>
+
+                <!-- Create Category Panel -->
+                <div id="createCategory" class="panel">
+                    <h2 class="panel-title">➕ Create Category</h2>
+                    <div class="form-section">
+                        <div class="form-group">
+                            <label>Category Name *</label>
+                            <input type="text" id="catName" placeholder="e.g., Electronics, Fashion, Home">
+                        </div>
+                        <div class="form-group">
+                            <label>Description</label>
+                            <textarea id="catDesc" placeholder="Brief description of the category"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Parent Category (leave empty for main category)</label>
+                            <select id="parentCatId">
+                                <option value="">-- No Parent (Main Category) --</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Display Order</label>
+                                <input type="number" id="catOrder" value="1" min="1">
+                            </div>
+                            <div class="form-group">
+                                <label>Category Image URL</label>
+                                <input type="text" id="catImageUrl" placeholder="https://example.com/image.jpg">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>SEO Title</label>
+                            <input type="text" id="catSeoTitle" placeholder="SEO title for search engines">
+                        </div>
+                        <div class="form-group">
+                            <label>SEO Description</label>
+                            <textarea id="catSeoDesc" placeholder="Meta description for SEO"></textarea>
+                        </div>
+                        <div class="btn-group">
+                            <button class="btn btn-primary" onclick="createCategory()">Create Category</button>
+                            <button class="btn btn-secondary" onclick="resetCategoryForm()">Reset</button>
+                        </div>
+                    </div>
+                    <div id="createCategoryOutput"></div>
+                </div>
+
+                <!-- Product List Panel -->
+                <div id="productList" class="panel">
+                    <h2 class="panel-title">📦 Products</h2>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Search Product</label>
+                            <input type="text" id="productSearch" placeholder="Search by name..." onkeyup="loadProducts()">
+                        </div>
+                        <div class="form-group">
+                            <label>Filter by Category</label>
+                            <select id="productCategoryFilter" onchange="loadProducts()">
+                                <option value="">-- All Categories --</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="loadProducts()">Refresh Products</button>
+                        <button class="btn btn-secondary" onclick="switchPanel('createProduct')">+ New Product</button>
+                    </div>
+                    <div id="productTableContainer" class="table-container" style="margin-top: 20px;"></div>
+                </div>
+
+                <!-- Create Product Panel -->
+                <div id="createProduct" class="panel">
+                    <h2 class="panel-title">➕ Create Product</h2>
+                    <div class="form-section">
+                        <h3 style="color: #2c3e50; margin-bottom: 15px;">Basic Information</h3>
+                        <div class="form-group">
+                            <label>Product Name *</label>
+                            <input type="text" id="prodName" placeholder="e.g., iPhone 14, Nike Running Shoes">
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Brand</label>
+                                <input type="text" id="prodBrand" placeholder="Brand name">
+                            </div>
+                            <div class="form-group">
+                                <label>SKU</label>
+                                <input type="text" id="prodSku" placeholder="Auto-generated if left empty">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Short Description *</label>
+                                <textarea id="prodDescShort" placeholder="Brief description"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label>Long Description</label>
+                                <textarea id="prodDescLong" placeholder="Detailed description"></textarea>
+                            </div>
+                        </div>
+
+                        <h3 style="color: #2c3e50; margin: 25px 0 15px 0; border-top: 1px solid #ddd; padding-top: 20px;">Category & Pricing</h3>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Main Category *</label>
+                                <select id="mainCategoryId" onchange="populateSubcategories()">
+                                    <option value="">-- Select Main Category --</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Sub Category</label>
+                                <select id="subCategoryId">
+                                    <option value="">-- No Sub Category --</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-row-3">
+                            <div class="form-group">
+                                <label>Regular Price *</label>
+                                <input type="number" id="prodPrice" placeholder="99.99" step="0.01" min="0">
+                            </div>
+                            <div class="form-group">
+                                <label>Sale Price</label>
+                                <input type="number" id="prodSalePrice" placeholder="Optional" step="0.01" min="0">
+                            </div>
+                            <div class="form-group">
+                                <label>Stock Quantity *</label>
+                                <input type="number" id="prodStock" placeholder="50" min="0">
+                            </div>
+                        </div>
+
+                        <h3 style="color: #2c3e50; margin: 25px 0 15px 0; border-top: 1px solid #ddd; padding-top: 20px;">Product Variants</h3>
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="hasVariants" onchange="toggleVariantsSection()">
+                                This product has variants (colors, sizes, etc.)
+                            </label>
+                        </div>
+
+                        <div id="variantsSection" style="display: none;">
+                            <div class="variants-section">
+                                <h4 style="margin-bottom: 15px;">Add Variants</h4>
+                                <div id="variantsList"></div>
+                                <button type="button" class="btn btn-secondary" onclick="addVariantField()">+ Add Variant</button>
+                            </div>
+                        </div>
+
+                        <h3 style="color: #2c3e50; margin: 25px 0 15px 0; border-top: 1px solid #ddd; padding-top: 20px;">Payment Plan (Installments)</h3>
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="enablePaymentPlan">
+                                Enable Payment Plan (Installments)
+                            </label>
+                        </div>
+                        <div id="paymentPlanSection" style="display: none;">
+                            <div class="form-row-3">
+                                <div class="form-group">
+                                    <label>Min Down Payment</label>
+                                    <input type="number" id="minDownPayment" placeholder="100" step="0.01" min="0">
+                                </div>
+                                <div class="form-group">
+                                    <label>Max Down Payment</label>
+                                    <input type="number" id="maxDownPayment" placeholder="500" step="0.01" min="0">
+                                </div>
+                                <div class="form-group">
+                                    <label>Interest Rate (%)</label>
+                                    <input type="number" id="interestRate" placeholder="0" step="0.01" min="0">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Min Installment Days</label>
+                                    <input type="number" id="minInstallmentDays" placeholder="30" min="1">
+                                </div>
+                                <div class="form-group">
+                                    <label>Max Installment Days</label>
+                                    <input type="number" id="maxInstallmentDays" placeholder="365" min="1">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="btn-group" style="margin-top: 30px;">
+                            <button class="btn btn-primary" onclick="createProduct()">Create Product</button>
+                            <button class="btn btn-secondary" onclick="resetProductForm()">Reset</button>
+                        </div>
+                        <div style="background: #e7f3ff; border-left: 4px solid #2196F3; padding: 12px; margin-top: 20px; border-radius: 4px; font-size: 0.9rem; color: #0c47a6;">
+                            <strong>ℹ️ Note:</strong> Product creation does NOT require authentication. You can create products without providing a JWT token. Same applies to categories.
+                        </div>
+                    </div>
+                    <div id="createProductOutput"></div>
+                </div>
+
+                <!-- Test Endpoints Panel -->
+                <div id="testEndpoints" class="panel">
+                    <h2 class="panel-title">🧪 Test Endpoints</h2>
+                    <div class="form-section">
+                        <h3 style="color: #2c3e50; margin-bottom: 15px;">Quick Endpoint Tester</h3>
+                        <div class="form-group">
+                            <label>Select Endpoint</label>
+                            <select id="endpointSelect" onchange="updateEndpointTest()">
+                                <option value="">-- Select an Endpoint --</option>
+                                <optgroup label="Categories (Public)">
+                                    <option value="get-cat-dropdown">GET /categories/dropdown/all (Dropdown List)</option>
+                                    <option value="get-cats">GET /categories (All Categories)</option>
+                                    <option value="search-cats">GET /categories/search/{query} (Search)</option>
+                                </optgroup>
+                                <optgroup label="Categories (Admin)">
+                                    <option value="create-cat">POST /categories (Create)</option>
+                                    <option value="update-cat">PUT /categories/{id} (Update)</option>
+                                    <option value="delete-cat">DELETE /categories/{id} (Delete)</option>
+                                </optgroup>
+                                <optgroup label="Products (Public)">
+                                    <option value="get-prods">GET /products (List with filters)</option>
+                                    <option value="get-prod">GET /products/{id} (Get One)</option>
+                                    <option value="search-prods">GET /products/search (Advanced Search)</option>
+                                    <option value="prod-stats">GET /products/stats (Statistics)</option>
+                                </optgroup>
+                                <optgroup label="Products (Create/Update)">
+                                    <option value="create-prod">POST /products (Create)</option>
+                                    <option value="update-prod">PUT /products/{id} (Update)</option>
+                                    <option value="delete-prod">DELETE /products/{id} (Delete)</option>
+                                </optgroup>
+                            </select>
+                        </div>
+
+                        <div id="testInputs"></div>
+
+                        <div class="btn-group">
+                            <button class="btn btn-primary" onclick="executeTest()">Execute Request</button>
+                            <button class="btn btn-secondary" onclick="clearTestOutput()">Clear Output</button>
+                        </div>
+                    </div>
+                    <div id="testOutput" class="output-panel" style="display: none;">
+                        <div class="output-panel-title">📤 Response:</div>
+                        <div id="testOutputContent"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================
+        // GLOBAL VARIABLES & UTILITIES
+        // ============================================
+        let categoriesCache = [];
+        let productsCache = [];
+        let variantCount = 0;
+
+        // Get API config
+        function getConfig() {
+            return {
+                baseUrl: document.getElementById('apiBaseUrl').value || 'http://localhost:3000/api',
+                token: document.getElementById('adminToken').value || null
+            };
+        }
+
+        // Show alert
+        function showAlert(message, type = 'success') {
+            const alertContainer = document.getElementById('alertContainer');
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} show`;
+            alertDiv.textContent = message;
+            alertContainer.appendChild(alertDiv);
+            setTimeout(() => alertDiv.remove(), 5000);
+        }
+
+        // API Call Helper
+        async function apiCall(endpoint, method = 'GET', data = null, requiresAuth = false) {
+            const config = getConfig();
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+
+            if (requiresAuth && config.token) {
+                headers['Authorization'] = `Bearer ${config.token}`;
+            }
+
+            const options = {
+                method,
+                headers
+            };
+
+            if (data && (method === 'POST' || method === 'PUT')) {
+                options.body = JSON.stringify(data);
+            }
+
+            try {
+                const response = await fetch(`${config.baseUrl}${endpoint}`, options);
+                const result = await response.json();
+                return { success: response.ok, status: response.status, data: result };
+            } catch (error) {
+                return { success: false, status: 0, error: error.message };
+            }
+        }
+
+        // Switch Panel
+        function switchPanel(panelName) {
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            
+            document.getElementById(panelName).classList.add('active');
+            event.target.closest('.nav-item').classList.add('active');
+
+            if (panelName === 'categoryList') loadCategories();
+            else if (panelName === 'productList') loadProducts();
+            else if (panelName === 'dashboard') loadDashboardStats();
+        }
+
+        // Test Connection
+        async function testConnection() {
+            const result = await apiCall('/categories/dropdown/all');
+            if (result.success) {
+                showAlert('✅ Connection successful!', 'success');
+            } else {
+                showAlert('❌ Connection failed! Check URL and MongoDB connection.', 'error');
+            }
+        }
+
+        // ============================================
+        // CATEGORY FUNCTIONS
+        // ============================================
+
+        // Load Categories
+        async function loadCategories() {
+            const result = await apiCall('/categories');
+            
+            if (result.success && result.data.data) {
+                categoriesCache = result.data.data;
+                renderCategoryTable(categoriesCache);
+                populateCategorySelects();
+            } else {
+                document.getElementById('categoryTableContainer').innerHTML = '<p>Failed to load categories</p>';
+            }
+        }
+
+        // Render Category Table
+        function renderCategoryTable(categories) {
+            let html = '<table><thead><tr><th>Name</th><th>Slug</th><th>Status</th><th>Display Order</th><th>Subcategories</th><th>Actions</th></tr></thead><tbody>';
+            
+            categories.forEach(cat => {
+                const status = cat.isActive ? '<span class="success-badge">Active</span>' : '<span class="error-badge">Inactive</span>';
+                const subCount = cat.subCategories ? cat.subCategories.length : 0;
+                
+                html += `<tr>
+                    <td>${cat.name}</td>
+                    <td><code>${cat.slug}</code></td>
+                    <td>${status}</td>
+                    <td>${cat.displayOrder || 0}</td>
+                    <td>${subCount}</td>
+                    <td>
+                        <button class="btn btn-small btn-primary" onclick="editCategory('${cat._id}')">Edit</button>
+                        <button class="btn btn-small btn-danger" onclick="deleteCategory('${cat._id}')">Delete</button>
+                    </td>
+                </tr>`;
+            });
+
+            html += '</tbody></table>';
+            document.getElementById('categoryTableContainer').innerHTML = html;
+        }
+
+        // Create Category
+        async function createCategory() {
+            const name = document.getElementById('catName').value;
+            const description = document.getElementById('catDesc').value;
+            const parentId = document.getElementById('parentCatId').value;
+            const displayOrder = parseInt(document.getElementById('catOrder').value) || 1;
+            const imageUrl = document.getElementById('catImageUrl').value;
+            const seoTitle = document.getElementById('catSeoTitle').value;
+            const seoDesc = document.getElementById('catSeoDesc').value;
+
+            if (!name) {
+                showAlert('Category name is required', 'error');
+                return;
+            }
+
+            const payload = {
+                name,
+                description,
+                displayOrder,
+                parentCategoryId: parentId || null
+            };
+
+            if (imageUrl) {
+                payload.image = {
+                    url: imageUrl,
+                    altText: name
+                };
+            }
+
+            if (seoTitle || seoDesc) {
+                payload.meta = {
+                    title: seoTitle || name,
+                    description: seoDesc || description
+                };
+            }
+
+            const result = await apiCall('/categories', 'POST', payload, false);
+            const output = document.getElementById('createCategoryOutput');
+
+            if (result.success) {
+                showAlert('✅ Category created successfully!', 'success');
+                output.innerHTML = `<div class="json-output">${JSON.stringify(result.data, null, 2)}</div>`;
+                resetCategoryForm();
+                setTimeout(() => loadCategories(), 1000);
+            } else {
+                output.innerHTML = `<div class="json-output">${JSON.stringify(result.data, null, 2)}</div>`;
+                showAlert('❌ ' + (result.data?.message || 'Failed to create category'), 'error');
+            }
+        }
+
+        // Delete Category
+        async function deleteCategory(catId) {
+            if (!confirm('Are you sure you want to delete this category?')) return;
+
+            const result = await apiCall(`/categories/${catId}`, 'DELETE', null, false);
+            
+            if (result.success) {
+                showAlert('✅ Category deleted successfully!', 'success');
+                loadCategories();
+            } else {
+                showAlert('❌ Failed to delete category', 'error');
+            }
+        }
+
+        // Reset Category Form
+        function resetCategoryForm() {
+            document.getElementById('catName').value = '';
+            document.getElementById('catDesc').value = '';
+            document.getElementById('parentCatId').value = '';
+            document.getElementById('catOrder').value = '1';
+            document.getElementById('catImageUrl').value = '';
+            document.getElementById('catSeoTitle').value = '';
+            document.getElementById('catSeoDesc').value = '';
+        }
+
+        // Populate Category Selects
+        async function populateCategorySelects() {
+            const result = await apiCall('/categories/dropdown/all');
+            
+            if (result.success && result.data.data) {
+                const categories = result.data.data.filter(c => !c.parentCategoryId);
+                
+                // Populate parent category select
+                let html = '<option value="">-- No Parent (Main Category) --</option>';
+                categories.forEach(cat => {
+                    html += `<option value="${cat._id}">${cat.name}</option>`;
+                });
+                document.getElementById('parentCatId').innerHTML = html;
+
+                // Populate main category select for products
+                let prodHtml = '<option value="">-- Select Main Category --</option>';
+                categories.forEach(cat => {
+                    prodHtml += `<option value="${cat._id}">${cat.name}</option>`;
+                });
+                document.getElementById('mainCategoryId').innerHTML = prodHtml;
+
+                // Populate filter select
+                let filterHtml = '<option value="">-- All Categories --</option>';
+                categories.forEach(cat => {
+                    filterHtml += `<option value="${cat._id}">${cat.name}</option>`;
+                });
+                document.getElementById('productCategoryFilter').innerHTML = filterHtml;
+            }
+        }
+
+        // Populate Subcategories
+        function populateSubcategories() {
+            const mainCatId = document.getElementById('mainCategoryId').value;
+            const mainCat = categoriesCache.find(c => c._id === mainCatId);
+            let html = '<option value="">-- No Sub Category --</option>';
+
+            if (mainCat && mainCat.subCategories) {
+                mainCat.subCategories.forEach(sub => {
+                    html += `<option value="${sub._id}">${sub.name}</option>`;
+                });
+            }
+
+            document.getElementById('subCategoryId').innerHTML = html;
+        }
+
+        // ============================================
+        // PRODUCT FUNCTIONS
+        // ============================================
+
+        // Toggle Variants Section
+        function toggleVariantsSection() {
+            const hasVariants = document.getElementById('hasVariants').checked;
+            document.getElementById('variantsSection').style.display = hasVariants ? 'block' : 'none';
+            if (hasVariants && document.getElementById('variantsList').innerHTML === '') {
+                addVariantField();
+            }
+        }
+
+        // Toggle Payment Plan Section
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('enablePaymentPlan').addEventListener('change', function() {
+                document.getElementById('paymentPlanSection').style.display = this.checked ? 'block' : 'none';
+            });
+        });
+
+        // Add Variant Field
+        function addVariantField() {
+            variantCount++;
+            const html = `
+                <div class="variant-item" id="variant-${variantCount}">
+                    <div class="variant-header">
+                        <h4>Variant ${variantCount}</h4>
+                        <button type="button" class="btn-remove" onclick="removeVariantField(${variantCount})">Remove</button>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Color</label>
+                            <input type="text" class="variant-color" placeholder="e.g., Black, Red, Blue">
+                        </div>
+                        <div class="form-group">
+                            <label>Size</label>
+                            <input type="text" class="variant-size" placeholder="e.g., S, M, L, XL">
+                        </div>
+                        <div class="form-group">
+                            <label>Material</label>
+                            <input type="text" class="variant-material" placeholder="e.g., Cotton, Silk">
+                        </div>
+                    </div>
+                    <div class="form-row-3">
+                        <div class="form-group">
+                            <label>Price *</label>
+                            <input type="number" class="variant-price" placeholder="99.99" step="0.01" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Sale Price</label>
+                            <input type="number" class="variant-salePrice" placeholder="Optional" step="0.01">
+                        </div>
+                        <div class="form-group">
+                            <label>Stock *</label>
+                            <input type="number" class="variant-stock" placeholder="50" min="0" required>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <textarea class="variant-desc" placeholder="Short description for this variant"></textarea>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('variantsList').insertAdjacentHTML('beforeend', html);
+        }
+
+        // Remove Variant Field
+        function removeVariantField(id) {
+            const element = document.getElementById(`variant-${id}`);
+            if (element) element.remove();
+        }
+
+        // Get Variants Data
+        function getVariantsData() {
+            const variants = [];
+            document.querySelectorAll('.variant-item').forEach((item, idx) => {
+                const color = item.querySelector('.variant-color').value;
+                const size = item.querySelector('.variant-size').value;
+                const material = item.querySelector('.variant-material').value;
+                const price = parseFloat(item.querySelector('.variant-price').value);
+                const salePrice = item.querySelector('.variant-salePrice').value ? parseFloat(item.querySelector('.variant-salePrice').value) : undefined;
+                const stock = parseInt(item.querySelector('.variant-stock').value);
+                const desc = item.querySelector('.variant-desc').value;
+
+                if (!price || isNaN(price)) {
+                    showAlert(`Variant ${idx + 1}: Price is required`, 'error');
+                    return;
+                }
+
+                variants.push({
+                    attributes: {
+                        color: color || undefined,
+                        size: size || undefined,
+                        material: material || undefined
+                    },
+                    price,
+                    salePrice,
+                    stock,
+                    description: desc ? { short: desc } : undefined
+                });
+            });
+
+            return variants;
+        }
+
+        // Create Product
+        async function createProduct() {
+            const name = document.getElementById('prodName').value;
+            const brand = document.getElementById('prodBrand').value;
+            const shortDesc = document.getElementById('prodDescShort').value;
+            const longDesc = document.getElementById('prodDescLong').value;
+            const mainCatId = document.getElementById('mainCategoryId').value;
+            const subCatId = document.getElementById('subCategoryId').value;
+            const price = parseFloat(document.getElementById('prodPrice').value);
+            const salePrice = document.getElementById('prodSalePrice').value ? parseFloat(document.getElementById('prodSalePrice').value) : undefined;
+            const stock = parseInt(document.getElementById('prodStock').value);
+            const hasVariants = document.getElementById('hasVariants').checked;
+
+            if (!name || !mainCatId || isNaN(price)) {
+                showAlert('Name, Category, and Price are required', 'error');
+                return;
+            }
+
+            // Get main category info
+            const mainCat = categoriesCache.find(c => c._id === mainCatId);
+            if (!mainCat) {
+                showAlert('Invalid category selected', 'error');
+                return;
+            }
+
+            const subCat = mainCat.subCategories?.find(c => c._id === subCatId);
+
+            const payload = {
+                name,
+                brand,
+                description: {
+                    short: shortDesc,
+                    long: longDesc
+                },
+                pricing: {
+                    regularPrice: price,
+                    salePrice
+                },
+                availability: {
+                    stockQuantity: stock,
+                    lowStockLevel: Math.ceil(stock * 0.2)
+                },
+                category: {
+                    mainCategoryId,
+                    mainCategoryName: mainCat.name,
+                    subCategoryId: subCat?._id,
+                    subCategoryName: subCat?.name
+                },
+                status: 'published'
+            };
+
+            if (hasVariants) {
+                const variants = getVariantsData();
+                if (variants.length === 0) {
+                    showAlert('At least one variant is required', 'error');
+                    return;
+                }
+                payload.hasVariants = true;
+                payload.variants = variants;
+            }
+
+            // Add payment plan if enabled
+            if (document.getElementById('enablePaymentPlan').checked) {
+                payload.paymentPlan = {
+                    enabled: true,
+                    minDownPayment: parseFloat(document.getElementById('minDownPayment').value) || 0,
+                    maxDownPayment: parseFloat(document.getElementById('maxDownPayment').value) || price,
+                    minInstallmentDays: parseInt(document.getElementById('minInstallmentDays').value) || 30,
+                    maxInstallmentDays: parseInt(document.getElementById('maxInstallmentDays').value) || 365,
+                    interestRate: parseFloat(document.getElementById('interestRate').value) || 0
+                };
+            }
+
+            const result = await apiCall('/products', 'POST', payload, false);
+            const output = document.getElementById('createProductOutput');
+
+            if (result.success) {
+                showAlert('✅ Product created successfully!', 'success');
+                output.innerHTML = `<div class="json-output">${JSON.stringify(result.data, null, 2)}</div>`;
+                resetProductForm();
+                setTimeout(() => loadProducts(), 1000);
+            } else {
+                output.innerHTML = `<div class="json-output">${JSON.stringify(result.data, null, 2)}</div>`;
+                showAlert('❌ ' + (result.data?.message || 'Failed to create product'), 'error');
+            }
+        }
+
+        // Load Products
+        async function loadProducts() {
+            const search = document.getElementById('productSearch').value;
+            const category = document.getElementById('productCategoryFilter').value;
+            
+            let endpoint = '/products?page=1&limit=20';
+            if (search) endpoint += `&search=${encodeURIComponent(search)}`;
+            if (category) endpoint += `&category=${category}`;
+
+            const result = await apiCall(endpoint);
+            
+            if (result.success && result.data.data) {
+                productsCache = result.data.data;
+                renderProductTable(productsCache);
+            } else {
+                document.getElementById('productTableContainer').innerHTML = '<p>Failed to load products</p>';
+            }
+        }
+
+        // Render Product Table
+        function renderProductTable(products) {
+            let html = '<table><thead><tr><th>Name</th><th>Brand</th><th>Category</th><th>Price</th><th>Stock</th><th>Variants</th><th>Actions</th></tr></thead><tbody>';
+            
+            products.forEach(prod => {
+                const variantCount = prod.variants ? prod.variants.length : 0;
+                const category = prod.category?.mainCategoryName || 'N/A';
+                
+                html += `<tr>
+                    <td>${prod.name}</td>
+                    <td>${prod.brand || 'N/A'}</td>
+                    <td>${category}</td>
+                    <td>$${prod.pricing?.regularPrice || 0}</td>
+                    <td>${prod.availability?.stockQuantity || 0}</td>
+                    <td>${variantCount > 0 ? `<span class="success-badge">${variantCount}</span>` : '-'}</td>
+                    <td>
+                        <button class="btn btn-small btn-primary" onclick="viewProduct('${prod._id}')">View</button>
+                        <button class="btn btn-small btn-danger" onclick="deleteProduct('${prod._id}')">Delete</button>
+                    </td>
+                </tr>`;
+            });
+
+            html += '</tbody></table>';
+            document.getElementById('productTableContainer').innerHTML = html;
+        }
+
+        // View Product Details
+        async function viewProduct(prodId) {
+            const result = await apiCall(`/products/${prodId}`);
+            
+            if (result.success && result.data.data) {
+                const prod = result.data.data;
+                const modal = document.createElement('div');
+                modal.className = 'modal show';
+                
+                let variantsHtml = '';
+                if (prod.variants && prod.variants.length > 0) {
+                    variantsHtml = '<h4>Variants:</h4><ul>';
+                    prod.variants.forEach((v, idx) => {
+                        variantsHtml += `<li>
+                            Variant ${idx + 1}: Color=${v.attributes?.color || 'N/A'}, 
+                            Size=${v.attributes?.size || 'N/A'}, 
+                            Price=$${v.price}, 
+                            Stock=${v.stock}
+                        </li>`;
+                    });
+                    variantsHtml += '</ul>';
+                }
+
+                modal.innerHTML = `
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            ${prod.name}
+                            <button class="modal-close" onclick="this.closest('.modal').remove()">×</button>
+                        </div>
+                        <p><strong>Brand:</strong> ${prod.brand}</p>
+                        <p><strong>Price:</strong> $${prod.pricing?.regularPrice}</p>
+                        <p><strong>Stock:</strong> ${prod.availability?.stockQuantity}</p>
+                        <p><strong>Description:</strong> ${prod.description?.short}</p>
+                        ${variantsHtml}
+                        <pre>${JSON.stringify(prod, null, 2)}</pre>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+            }
+        }
+
+        // Delete Product
+        async function deleteProduct(prodId) {
+            if (!confirm('Are you sure you want to delete this product?')) return;
+
+            const result = await apiCall(`/products/${prodId}`, 'DELETE');
+            
+            if (result.success) {
+                showAlert('✅ Product deleted successfully!', 'success');
+                loadProducts();
+            } else {
+                showAlert('❌ Failed to delete product', 'error');
+            }
+        }
+
+        // Reset Product Form
+        function resetProductForm() {
+            document.getElementById('prodName').value = '';
+            document.getElementById('prodBrand').value = '';
+            document.getElementById('prodDescShort').value = '';
+            document.getElementById('prodDescLong').value = '';
+            document.getElementById('mainCategoryId').value = '';
+            document.getElementById('subCategoryId').value = '';
+            document.getElementById('prodPrice').value = '';
+            document.getElementById('prodSalePrice').value = '';
+            document.getElementById('prodStock').value = '';
+            document.getElementById('hasVariants').checked = false;
+            document.getElementById('variantsList').innerHTML = '';
+            document.getElementById('variantsSection').style.display = 'none';
+            document.getElementById('enablePaymentPlan').checked = false;
+            document.getElementById('paymentPlanSection').style.display = 'none';
+            variantCount = 0;
+        }
+
+        // ============================================
+        // DASHBOARD & STATS
+        // ============================================
+
+        async function loadDashboardStats() {
+            const [catsResult, statsResult] = await Promise.all([
+                apiCall('/categories'),
+                apiCall('/products/stats')
+            ]);
+
+            if (catsResult.success) {
+                document.getElementById('totalCategories').textContent = catsResult.data.data?.length || 0;
+            }
+
+            if (statsResult.success) {
+                const stats = statsResult.data.data;
+                document.getElementById('totalProducts').textContent = stats.totalProducts || 0;
+                document.getElementById('inStockProducts').textContent = stats.inStockProducts || 0;
+                document.getElementById('lowStockProducts').textContent = stats.lowStockProducts || 0;
+            }
+        }
+
+        // ============================================
+        // TEST ENDPOINTS
+        // ============================================
+
+        function updateEndpointTest() {
+            const endpoint = document.getElementById('endpointSelect').value;
+            const inputsDiv = document.getElementById('testInputs');
+            inputsDiv.innerHTML = '';
+
+            const testConfigs = {
+                'get-cat-dropdown': {
+                    name: 'Get Categories Dropdown',
+                    method: 'GET',
+                    endpoint: '/categories/dropdown/all',
+                    inputs: []
+                },
+                'get-cats': {
+                    name: 'Get All Categories',
+                    method: 'GET',
+                    endpoint: '/categories',
+                    inputs: []
+                },
+                'search-cats': {
+                    name: 'Search Categories',
+                    method: 'GET',
+                    endpoint: '/categories/search/{query}',
+                    inputs: [{ name: 'query', type: 'text', placeholder: 'Search term' }]
+                },
+                'create-cat': {
+                    name: 'Create Category',
+                    method: 'POST',
+                    endpoint: '/categories',
+                    inputs: [
+                        { name: 'name', type: 'text', placeholder: 'Category name', required: true },
+                        { name: 'description', type: 'text', placeholder: 'Description' }
+                    ],
+                    requiresAuth: true
+                },
+                'get-prods': {
+                    name: 'Get All Products',
+                    method: 'GET',
+                    endpoint: '/products',
+                    inputs: []
+                },
+                'search-prods': {
+                    name: 'Search Products',
+                    method: 'GET',
+                    endpoint: '/products/search?q={query}',
+                    inputs: [{ name: 'query', type: 'text', placeholder: 'Search term' }]
+                },
+                'prod-stats': {
+                    name: 'Product Statistics',
+                    method: 'GET',
+                    endpoint: '/products/stats',
+                    inputs: []
+                }
+            };
+
+            const config = testConfigs[endpoint];
+            if (!config) return;
+
+            config.inputs.forEach(input => {
+                const html = `
+                    <div class="form-group">
+                        <label>${input.name}</label>
+                        <input type="text" class="test-input" data-name="${input.name}" placeholder="${input.placeholder}" ${input.required ? 'required' : ''}>
+                    </div>
+                `;
+                inputsDiv.insertAdjacentHTML('beforeend', html);
+            });
+
+            window.currentTestConfig = config;
+        }
+
+        async function executeTest() {
+            if (!window.currentTestConfig) {
+                showAlert('Please select an endpoint', 'error');
+                return;
+            }
+
+            const config = window.currentTestConfig;
+            let endpoint = config.endpoint;
+
+            // Replace placeholders with user inputs
+            document.querySelectorAll('.test-input').forEach(input => {
+                endpoint = endpoint.replace(`{${input.dataset.name}}`, encodeURIComponent(input.value));
+            });
+
+            const result = await apiCall(endpoint, config.method, null, config.requiresAuth);
+            
+            document.getElementById('testOutput').style.display = 'block';
+            document.getElementById('testOutputContent').textContent = JSON.stringify(result.data, null, 2);
+        }
+
+        function clearTestOutput() {
+            document.getElementById('testOutput').style.display = 'none';
+            document.getElementById('testOutputContent').textContent = '';
+        }
+
+        // ============================================
+        // INITIALIZATION
+        // ============================================
+
+        document.addEventListener('DOMContentLoaded', () => {
+            populateCategorySelects();
+            loadDashboardStats();
+        });
+    </script>
+</body>
+</html>
