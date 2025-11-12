@@ -29,8 +29,8 @@ jobs:
           conflict_label_name: "⚠️ merge conflict"
           conflict_comment: "🚨 Merge conflict detected! Please sync your branch with the base branch."
           detect_merge_changes: false
-          max_retries: 3
-          wait_ms: 5000
+          max_retries: 10
+          wait_ms: 15000
 
   # ----------------------------------------------------------
   # Job 2: Find unresolved conflict markers in code
