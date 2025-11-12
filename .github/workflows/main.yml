@@ -7,7 +7,9 @@ on:
       - main  # Deploy automatically when code is pushed to main branch
 
 permissions:
-  contents: read
+  contents: write   # Required for tagging new releases
+  issues: read
+  pull-requests: read
 
 jobs:
   deploy:
@@ -38,7 +40,13 @@ jobs:
             echo "⚠️ npm ci failed — falling back to npm install..."
             npm install
           }
-
+          
+      # - name: Run semantic-release
+      #   id: version
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #   run: |
+      #     npx semantic-release --branches main --no-ci || echo "No release needed"
 
       # # ✅ Step 4: Linting check (ESLint)
       # - name: Run ESLint
