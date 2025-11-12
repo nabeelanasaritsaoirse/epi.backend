@@ -66,10 +66,20 @@ const variantSchema = new mongoose.Schema({
     color: String,
     material: String
   },
+  // Optional human-readable description for the variant
+  description: {
+    short: { type: String },
+    long: { type: String }
+  },
+  // Pricing for the variant
   price: { type: Number, required: true, min: 0 },
   salePrice: { type: Number, min: 0 },
+  // Variant-level installment/payment plan (optional)
+  paymentPlan: installmentSchema,
+  // Stock & images
   stock: { type: Number, default: 0, min: 0 },
-  images: [imageSchema]
+  images: [imageSchema],
+  isActive: { type: Boolean, default: true }
 });
 
 // FIXED: Remove required: true from finalPrice
@@ -130,8 +140,17 @@ const productSchema = new mongoose.Schema({
     specifications: mongoose.Schema.Types.Mixed
   },
   category: {
-    main: { type: String, required: true },
-    sub: { type: String }
+    mainCategoryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Category',
+      required: true
+    },
+    mainCategoryName: { type: String, required: true },
+    subCategoryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Category'
+    },
+    subCategoryName: String
   },
   brand: { type: String, required: true },
   sku: { type: String, unique: true, sparse: true },
