@@ -81,3 +81,22 @@ jobs:
         run: |
           echo "Merge conflict markers found in code!"
           exit 1
+
+      # ----------------------------------------------------------
+  # Job 3: Create GitHub Issue if conflicts are found
+  # ----------------------------------------------------------
+  create_issue_on_failure:
+    name: 📝 Create Issue for Detected Conflicts
+    runs-on: ubuntu-latest
+    needs: [label_conflicts, conflict_finder]
+    if: failure()  # Runs only when previous jobs fail
+
+    steps:
+      - name: 🧾 Create issue for merge conflicts
+        uses: peter-evans/create-issue-from-file@v4
+        with:
+          title: "⚠️ Merge Conflict Detected in PR #${{ github.event.pull_request.number }}"
+          content-filepath: .github/ISSUE_TEMPLATES/conflict-report.md
+          labels: "⚠️ merge conflict, automation"
+          assignees: ${{ github.actor }}
+
