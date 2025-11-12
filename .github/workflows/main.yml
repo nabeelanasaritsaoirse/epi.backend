@@ -30,9 +30,14 @@ jobs:
         with:
           node-version: 20
 
-      #  Step 3: Install dependencies
-      - name: Install dependencies
-        run: npm ci
+      - name: Install dependencies (auto-fallback)
+        run: |
+          echo "📦 Installing dependencies..."
+          npm ci || {
+            echo "⚠️ npm ci failed — falling back to npm install..."
+            npm install
+          }
+
 
       # # ✅ Step 4: Linting check (ESLint)
       # - name: Run ESLint

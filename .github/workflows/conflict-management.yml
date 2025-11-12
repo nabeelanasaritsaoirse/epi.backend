@@ -1,0 +1,55 @@
+name: 🧩 GitHub Conflict Management
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - main
+      - dev
+      - feature/**
+
+jobs:
+  # ----------------------------------------------------------
+  # Job 1: Label any PRs that currently have merge conflicts
+  # ----------------------------------------------------------
+  label_conflicts:
+    name: Label PRs with Conflicts
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🏷️ Label conflicting PRs
+        uses: prince-chrismc/label-merge-conflicts-action@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          conflict_label_name: "⚠️ merge conflict"
+          conflict_comment: "🚨 Merge conflict detected! Please sync your branch with the base branch."
+          detect_merge_changes: false
+          max_retries: 10
+          wait_ms: 15000
+
+  # ----------------------------------------------------------
+  # Job 2: Find unresolved conflict markers in code
+  # ----------------------------------------------------------
+  conflict_finder:
+    name: Check for leftover merge markers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 🔍 Scan for conflict markers
+        uses: olivernybroe/action-conflict-finder@v4.0
+
+      - name: ✅ Report success
+        if: success()
+        run: echo "No merge conflict markers found in code."
+
+      - name: ❌ Fail if conflicts found
+        if: failure()
+        run: |
+          echo "Merge conflict markers found in code!"
+          exit 1
