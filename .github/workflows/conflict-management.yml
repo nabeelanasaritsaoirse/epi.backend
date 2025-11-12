@@ -1,4 +1,5 @@
 name: 🧩 GitHub Conflict Management
+run-name: "🚀 GitHub Conflict Management triggered by ${{ github.actor }} on branch ${{ github.ref_name }}"
 
 permissions:
   contents: read
@@ -8,11 +9,11 @@ permissions:
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-  push:
-    branches:
-      - main
-      - dev
-      - feature/**
+  # push:
+  #   branches:
+  #     - main
+  #     - dev
+  #     - feature/**
 
 jobs:
   # ----------------------------------------------------------
