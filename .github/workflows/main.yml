@@ -151,15 +151,19 @@ jobs:
         run: |
           {
             echo "## 🚀 Deployment Summary"
-            echo
-            echo "✅ Backend deployed successfully to EC2!"
-            echo
+            echo ""
+            echo "✅ **Backend deployed successfully to AWS EC2!**"
+            echo ""
             echo "🔗 **API Endpoint:** [http://13.203.227.43:5000](http://13.203.227.43:5000)"
-            echo
+            echo ""
             echo "---"
-            echo "🌐 **Direct Link:** [Click here to open the API](http://13.203.227.43:5000)"
+            echo "🌐 [**Click here to open the API in your browser**](http://13.203.227.43:5000)"
+            echo ""
+            echo "🕒 **Deployed at:** $(date '+%Y-%m-%d %H:%M:%S')"
+            echo ""
+            echo "📦 **Commit:** \`${{ github.sha }}\`"
+            echo "🔧 **Branch:** \`${{ github.ref_name }}\`"
           } >> $GITHUB_STEP_SUMMARY
-
 
     # # ✅ Send Email on Success
     #   - name: Send Email (Success)
