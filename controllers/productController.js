@@ -52,6 +52,42 @@ exports.createProduct = async (req, res) => {
       createdAt: new Date(),
       updatedAt: new Date()
     };
+    // Handle variants if provided
+    productData.hasVariants = !!req.body.hasVariants;
+    if (productData.hasVariants) {
+      if (!Array.isArray(req.body.variants) || req.body.variants.length === 0) {
+        return res.status(400).json({ success: false, message: 'variants array is required when hasVariants is true' });
+      }
+
+      // Normalize variants: ensure variantId and sku exist, validate price
+      const normalizedVariants = req.body.variants.map((v, idx) => {
+        const timestamp = Date.now().toString().slice(-6);
+        const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+        const variantId = v.variantId || `VAR${timestamp}${random}`;
+
+        const skuBase = req.body.sku || req.body.productId || `PROD${timestamp}`;
+        const sku = v.sku || `${skuBase}-${idx + 1}-${variantId.slice(-4)}`;
+
+        if (v.price === undefined || v.price === null) {
+          throw new Error(`Each variant must include a price. Missing for variant at index ${idx}`);
+        }
+
+        return {
+          variantId,
+          sku,
+          attributes: v.attributes || {},
+          description: v.description || {},
+          price: v.price,
+          salePrice: v.salePrice,
+          paymentPlan: v.paymentPlan || {},
+          stock: v.stock || 0,
+          images: v.images || [],
+          isActive: v.isActive !== undefined ? v.isActive : true
+        };
+      });
+
+      productData.variants = normalizedVariants;
+    }
 
     const product = new Product(productData);
     await product.save();
@@ -242,27 +278,59 @@ exports.getProductById = async (req, res) => {
 
 exports.updateProduct = async (req, res) => {
   try {
-    const updated = await Product.findOneAndUpdate(
-      { productId: req.params.productId },
-      req.body,
-      { 
-        new: true, 
-        runValidators: true 
-      }
-    );
-
-    if (!updated) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Product not found" 
-      });
+    const product = await Product.findOne({ productId: req.params.productId });
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
     }
 
-    res.json({ 
-      success: true, 
-      message: "Product updated successfully",
-      data: updated 
+    // If variants provided, normalize and replace
+    if (req.body.hasVariants !== undefined) {
+      product.hasVariants = !!req.body.hasVariants;
+    }
+
+    if (req.body.variants) {
+      if (!Array.isArray(req.body.variants)) {
+        return res.status(400).json({ success: false, message: 'variants must be an array' });
+      }
+
+      const normalizedVariants = req.body.variants.map((v, idx) => {
+        const timestamp = Date.now().toString().slice(-6);
+        const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+        const variantId = v.variantId || `VAR${timestamp}${random}`;
+        const skuBase = req.body.sku || product.sku || product.productId || `PROD${timestamp}`;
+        const sku = v.sku || `${skuBase}-${idx + 1}-${variantId.slice(-4)}`;
+
+        if (v.price === undefined || v.price === null) {
+          throw new Error(`Each variant must include a price. Missing for variant at index ${idx}`);
+        }
+
+        return {
+          variantId,
+          sku,
+          attributes: v.attributes || {},
+          description: v.description || {},
+          price: v.price,
+          salePrice: v.salePrice,
+          paymentPlan: v.paymentPlan || {},
+          stock: v.stock || 0,
+          images: v.images || [],
+          isActive: v.isActive !== undefined ? v.isActive : true
+        };
+      });
+
+      product.variants = normalizedVariants;
+    }
+
+    // Merge other top-level fields (safe shallow merge)
+    const updatableFields = ['name','description','brand','pricing','availability','regionalPricing','regionalSeo','regionalAvailability','relatedProducts','paymentPlan','origin','referralBonus','images','project','dimensions','warranty','seo','status'];
+    updatableFields.forEach(field => {
+      if (req.body[field] !== undefined) product[field] = req.body[field];
     });
+
+    product.updatedAt = new Date();
+    await product.save();
+
+    res.json({ success: true, message: 'Product updated successfully', data: product });
   } catch (error) {
     if (error.code === 11000) {
       return res.status(400).json({

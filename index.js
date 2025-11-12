@@ -9,6 +9,7 @@ const connectDB = require('./config/database'); // ✅ Use centralized DB connec
 // Import routes
 const authRoutes = require('./routes/auth');
 const productRoutes = require('./routes/products');
+const categoryRoutes = require('./routes/categoryRoutes');
 const userRoutes = require('./routes/users');
 const walletRoutes = require('./routes/wallet');
 const paymentRoutes = require('./routes/payments');
@@ -83,6 +84,7 @@ try {
 
 // ====== Routes ======
 app.use('/api/auth', authRoutes);
+app.use('/api/categories', categoryRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/wallet', walletRoutes);
