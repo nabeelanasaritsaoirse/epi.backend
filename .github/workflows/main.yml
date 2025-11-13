@@ -138,9 +138,10 @@ jobs:
       #  Step 7: Deploy to EC2 via SSH
       - name: 🚀 Deploy application to EC2
         run: |
-          cat << 'EOF' > private_key.pem
-                    ${{ secrets.EC2_SSH_KEY }}
-                    EOF
+          cat << EOF > ~/.ssh/deploy_key
+          ${{ secrets.EC2_GITHUB_DEPLOY_KEY }}
+          EOF
+
           chmod 600 private_key.pem
 
           chmod 600 private_key.pem
