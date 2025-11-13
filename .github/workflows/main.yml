@@ -4,7 +4,8 @@ run-name: "🚀 Deployment triggered by ${{ github.actor }} on branch ${{ github
 on:
   push:
     branches:
-      - main  # Deploy automatically when code is pushed to main branch
+      - main 
+      - dev # Deploy automatically when code is pushed to main branch
 
 permissions:
   contents: write   # Required for tagging new releases
@@ -20,6 +21,7 @@ jobs:
       EC2_HOST: ${{ secrets.EC2_HOST }}
       EC2_USER: ${{ secrets.EC2_USER }}
       PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
+      EC2_GITHUB_DEPLOY_KEY: ${{ secrets.EC2_GITHUB_DEPLOY_KEY }}
       NODE_ENV: production
 
     steps:
@@ -95,8 +97,16 @@ jobs:
 
           echo "🔐 Setting up SSH config for GitHub..."
           mkdir -p ~/.ssh
-
-          cat << CONFIG_EOF > ~/.ssh/config
+          
+          # Write GitHub deploy key
+          cat << "KEYEOF" > ~/.ssh/deploy_key
+          ${EC2_GITHUB_DEPLOY_KEY}
+          KEYEOF
+          
+          chmod 600 ~/.ssh/deploy_key
+          
+          # Write SSH config
+          cat << "CONFIG_EOF" > ~/.ssh/config
           Host github.com
               HostName github.com
               User git
@@ -105,7 +115,7 @@ jobs:
           CONFIG_EOF
           
           chmod 600 ~/.ssh/config
-          
+
           # Pull latest repo version
           if [ -d .git ]; then
             echo "🔄 Repo found — pulling latest changes..."
