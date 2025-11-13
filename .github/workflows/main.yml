@@ -72,10 +72,77 @@ jobs:
         run: |
           echo "🔍 Checking Node.js syntax..."
           node --check index.js
+
+      # - name: 🚀 Deploy application to EC2
+      #   run: |
+      #     # Write EC2 private SSH key (for login)
+      #     cat << 'EOF' > private_key.pem
+      # ${{ secrets.EC2_SSH_KEY }}
+      # EOF
+      #     chmod 600 private_key.pem
+      
+      #     echo "Connecting to EC2 and deploying..."
+      #     ssh -o StrictHostKeyChecking=no -i private_key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'DEPLOY_EOF'
+      #     set -e
+      
+      #     echo "🚀 Deployment started on EC2..."
+      #     sudo mkdir -p /var/www/epi-backend
+      #     sudo chown ubuntu:ubuntu /var/www/epi-backend
+      #     cd /var/www/epi-backend
+      
+      #     echo "🔐 Setting up SSH config for GitHub..."
+      #     mkdir -p ~/.ssh
+      
+      #     # Write deploy key for pulling GitHub repoa
+      #     cat << 'EOF' > ~/.ssh/deploy_key
+      # ${{ secrets.DEPLOY_KEY }} 
+      # EOF
+      #     chmod 600 ~/.ssh/deploy_key
+      
+      #     cat << 'SSH_CONFIG_EOF' > ~/.ssh/config
+      #     Host github.com
+      #         HostName github.com
+      #         User git
+      #         IdentityFile ~/.ssh/deploy_key
+      #         IdentitiesOnly yes
+      #     SSH_CONFIG_EOF
+      
+      #     chmod 600 ~/.ssh/config
+      
+      #     if [ -d .git ]; then
+      #       echo "🔄 Repo found — pulling latest changes..."
+      #       git remote set-url origin git@github.com:nabeelanasaritsaoirse/epi.backend.git
+      #       git fetch origin main
+      #       git reset --hard origin/main
+      #     else
+      #       echo "🆕 Cloning repository for the first time..."
+      #       git clone git@github.com:nabeelanasaritsaoirse/epi.backend.git .
+      #     fi
+      
+      #     echo "📦 Installing dependencies..."
+      #     npm ci --omit=dev
+      
+      #     echo "🔁 Restarting PM2..."
+      #     if pm2 describe epi-backend > /dev/null; then
+      #         pm2 restart epi-backend
+      #     else
+      #         pm2 start index.js --name epi-backend
+      #     fi
+      
+      #     pm2 save
+      #     echo "Deployment complete!"
+      #     DEPLOY_EOF
+
+
+          
       #  Step 7: Deploy to EC2 via SSH
       - name: 🚀 Deploy application to EC2
         run: |
-          echo "${{ secrets.EC2_SSH_KEY }}" > private_key.pem
+          cat << 'EOF' > private_key.pem
+                    ${{ secrets.EC2_SSH_KEY }}
+                    EOF
+          chmod 600 private_key.pem
+
           chmod 600 private_key.pem
           echo "Connecting to EC2 and deploying..."
           ssh -o StrictHostKeyChecking=no -i private_key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'DEPLOY_EOF'
@@ -94,8 +161,14 @@ jobs:
           echo "🔐 Setting up SSH config for GitHub..."
           mkdir -p ~/.ssh
 
-          echo "${DEPLOY_KEY}" > ~/.ssh/deploy_key
+          cat << 'EOF' > ~/.ssh/deploy_key
+          ${DEPLOY_KEY}
+          EOF
           chmod 600 ~/.ssh/deploy_key
+
+          
+          mkdir -p ~/.ssh
+    
           
           cat << 'SSH_CONFIG_EOF' > ~/.ssh/config
           Host github.com
