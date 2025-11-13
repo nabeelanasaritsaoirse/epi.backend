@@ -74,75 +74,71 @@ jobs:
       #  Step 7: Deploy to EC2 via SSH
       - name: 🚀 Deploy application to EC2
         run: |
-          echo "${PRIVATE_KEY}" > private_key.pem
+          echo "${{ secrets.EC2_SSH_KEY }}" > private_key.pem
           chmod 600 private_key.pem
-      
           echo "Connecting to EC2 and deploying..."
-          ssh -o StrictHostKeyChecking=no -i private_key.pem ${EC2_USER}@${EC2_HOST} << 'EOF'
-      set -e
-      echo "🚀 Deployment started on EC2..."
+          ssh -o StrictHostKeyChecking=no -i private_key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'DEPLOY_EOF'
+          set -e
+          echo "🚀 Deployment started on EC2..."
+          sudo mkdir -p /var/www/epi-backend
+          sudo chown ubuntu:ubuntu /var/www/epi-backend
+          cd /var/www/epi-backend
       
-      sudo mkdir -p /var/www/epi-backend
-      sudo chown ubuntu:ubuntu /var/www/epi-backend
-      cd /var/www/epi-backend
+          echo "🧹 Cleaning up temporary files..."
+          sudo rm -rf /tmp/* || true
+          sudo journalctl --vacuum-time=3d || true
+          echo "✅ Cleanup completed"
       
-      echo "🧹 Cleaning up temporary files..."
-      sudo rm -rf /tmp/* || true
-      sudo journalctl --vacuum-time=3d || true
-      echo "✅ Cleanup completed"
+          echo "🔐 Setting up SSH config for GitHub..."
+          mkdir -p ~/.ssh
+          cat << 'SSH_CONFIG_EOF' > ~/.ssh/config
+          Host github.com
+              HostName github.com
+              User git
+              IdentityFile ~/.ssh/epi-backend
+              IdentitiesOnly yes
+          SSH_CONFIG_EOF
       
-      echo "🔐 Setting up SSH config for GitHub..."
-      mkdir -p ~/.ssh
-      cat <<CONFIG_EOF > ~/.ssh/config
-      Host github.com
-          HostName github.com
-          User git
-          IdentityFile ~/.ssh/epi-backend
-          IdentitiesOnly yes
-      CONFIG_EOF
+          chmod 600 ~/.ssh/config
       
-      chmod 600 ~/.ssh/config
+          if [ -d .git ]; then
+            echo "🔄 Repo found — pulling latest changes..."
+            git fetch origin main
+            git reset --hard origin/main
+          else
+            echo "🆕 Cloning repository for the first time..."
+            git clone git@github.com:nabeelanasaritsaoirse/epi-backend.git .
+          fi
       
-      if [ -d .git ]; then
-        echo "🔄 Repo found — pulling latest changes..."
-        git fetch origin main
-        git reset --hard origin/main
-      else
-        echo "🆕 Cloning repository for the first time..."
-        git clone git@github.com:nabeelanasaritsaoirse/epi-backend.git .
-      fi
+          echo "📦 Installing dependencies..."
+          npm ci --omit=dev
       
-      echo "📦 Installing dependencies..."
-      npm ci --omit=dev
+          echo "🧾 Writing environment variables..."
+          cat > .env << 'ENV_EOF'
+          PORT=5000
+          MONGODB_URI=${{ secrets.MONGODB_URI }}
+          JWT_SECRET=${{ secrets.JWT_SECRET }}
+          FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_CLIENT_EMAIL=${{ secrets.FIREBASE_CLIENT_EMAIL }}
+          FIREBASE_PRIVATE_KEY=${{ secrets.FIREBASE_PRIVATE_KEY }}
+          RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}
+          RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}
+          ENV_EOF
       
-      echo "🧾 Writing environment variables..."
-      cat <<ENVEND > .env
-      PORT=5000
-      MONGODB_URI=${MONGODB_URI}
-      JWT_SECRET=${JWT_SECRET}
-      FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID}
-      FIREBASE_CLIENT_EMAIL=${FIREBASE_CLIENT_EMAIL}
-      FIREBASE_PRIVATE_KEY=${FIREBASE_PRIVATE_KEY}
-      RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
-      RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
-      ENVEND
+          echo "🔁 Restarting PM2..."
+          if pm2 describe epi-backend > /dev/null; then
+            pm2 restart epi-backend
+          else
+            pm2 start index.js --name epi-backend
+          fi
       
-      echo "🔁 Restarting PM2..."
-      if pm2 describe epi-backend > /dev/null; then
-        pm2 restart epi-backend
-      else
-        pm2 start index.js --name epi-backend
-      fi
-      
-      pm2 save
-      
-      echo "-------------------------------------"
-      echo "✅ Deployment completed successfully!"
-      PUBLIC_IP=$(curl -s http://checkip.amazonaws.com)
-      echo "🌐 Your API is live at: http://$PUBLIC_IP:5000"
-      echo "-------------------------------------"
-      EOF
-      
+          pm2 save
+          echo "-------------------------------------"
+          echo "✅ Deployment completed successfully!"
+          PUBLIC_IP=$(curl -s http://checkip.amazonaws.com)
+          echo "🌐 Your API is live at: http://$PUBLIC_IP:5000"
+          echo "-------------------------------------"
+          DEPLOY_EOF
 
                 
       # - name: 🧾 Add summary with clickable link
