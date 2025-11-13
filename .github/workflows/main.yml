@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - main 
-      - dev # Deploy automatically when code is pushed to main branch
+      
 
 permissions:
   contents: write   # Required for tagging new releases
