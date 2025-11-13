@@ -74,7 +74,7 @@ jobs:
       #  Step 7: Deploy to EC2 via SSH
       - name: 🚀 Deploy application to EC2
         run: |
-         # Save and secure private key for EC2 login
+          # Save and secure private key for EC2 login
           echo "${PRIVATE_KEY}" > private_key.pem
           chmod 600 private_key.pem
           
@@ -92,11 +92,11 @@ jobs:
           sudo rm -rf /tmp/* || true
           sudo journalctl --vacuum-time=3d || true
           echo "✅ Cleanup completed"
-          
-          # Configure Git to use the correct deploy key
+
           echo "🔐 Setting up SSH config for GitHub..."
           mkdir -p ~/.ssh
-          cat <<CONFIG_EOF > ~/.ssh/config
+
+          cat << CONFIG_EOF > ~/.ssh/config
           Host github.com
               HostName github.com
               User git
@@ -120,7 +120,7 @@ jobs:
           npm ci --omit=dev
           
           echo "🧾 Writing environment variables..."
-          cat > .env <<'ENVEND'
+          cat > .env << 'ENVEND'
           PORT=5000
           MONGODB_URI=${MONGODB_URI}
           JWT_SECRET=${JWT_SECRET}
@@ -130,26 +130,23 @@ jobs:
           RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
           RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
           ENVEND
-          
-          # Restart PM2 correctly
+
+          echo "🔁 Restarting PM2..."
           if pm2 describe epi-backend > /dev/null; then
-            echo "🔁 Restarting existing PM2 process..."
             pm2 restart epi-backend
           else
-            echo "🆕 Starting PM2 for the first time..."
             pm2 start index.js --name epi-backend
           fi
-          
+
           pm2 save
-          
-          echo ""
+
           echo "-------------------------------------"
           echo "✅ Deployment completed successfully!"
           PUBLIC_IP=$(curl -s http://checkip.amazonaws.com)
           echo "🌐 Your API is live at: http://$PUBLIC_IP:5000"
-          echo "-------"
+          echo "-------------------------------------"
           EOF
-                
+
       # - name: 🧾 Add summary with clickable link
       #   if: success()
       #   run: |
