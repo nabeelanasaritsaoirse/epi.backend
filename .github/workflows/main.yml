@@ -4,7 +4,8 @@ run-name: "🚀 Deployment triggered by ${{ github.actor }} on branch ${{ github
 on:
   push:
     branches:
-      - main  # Deploy automatically when code is pushed to main branch
+      - main 
+      
 
 permissions:
   contents: write   # Required for tagging new releases
@@ -20,6 +21,7 @@ jobs:
       EC2_HOST: ${{ secrets.EC2_HOST }}
       EC2_USER: ${{ secrets.EC2_USER }}
       PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
+      EC2_GITHUB_DEPLOY_KEY: ${{ secrets.EC2_GITHUB_DEPLOY_KEY }}
       NODE_ENV: production
 
     steps:
@@ -79,7 +81,7 @@ jobs:
           chmod 600 private_key.pem
           
           echo "Connecting to EC2 and deploying..."
-          ssh -o StrictHostKeyChecking=no -i private_key.pem ${EC2_USER}@${EC2_HOST} << 'EOF'
+          ssh -o StrictHostKeyChecking=no -i private_key.pem ${EC2_USER}@${EC2_HOST} << EOF
           set -e
           echo "🚀 Deployment started on EC2..."
           
@@ -95,7 +97,15 @@ jobs:
 
           echo "🔐 Setting up SSH config for GitHub..."
           mkdir -p ~/.ssh
-
+          
+          # Write GitHub deploy key
+          cat << KEYEOF > ~/.ssh/deploy_key
+          ${EC2_GITHUB_DEPLOY_KEY}
+          KEYEOF
+          
+          chmod 600 ~/.ssh/deploy_key
+          
+          # Write SSH config
           cat << CONFIG_EOF > ~/.ssh/config
           Host github.com
               HostName github.com
@@ -103,8 +113,8 @@ jobs:
               IdentityFile ~/.ssh/deploy_key
               IdentitiesOnly yes
           CONFIG_EOF
-          
           chmod 600 ~/.ssh/config
+
           
           # Pull latest repo version
           if [ -d .git ]; then
