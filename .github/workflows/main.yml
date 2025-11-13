@@ -115,7 +115,7 @@ jobs:
               git reset --hard origin/main
             else
               echo "🆕 Cloning repository for the first time..."
-              git clone git@github.com:nabeelanasaritsaoirse/epi-backend.git .
+              git clone git@github.com:nabeelanasaritsaoirse/epi.backend.git .
             fi
       
             echo "📦 Installing dependencies..."
