@@ -75,10 +75,10 @@ jobs:
       #  Step 7: Deploy to EC2 via SSH
       - name: 🚀 Deploy application to EC2
         run: |
-          # Save and secure private key for EC2 login
+         # Save and secure private key for EC2 login
           echo "${PRIVATE_KEY}" > private_key.pem
           chmod 600 private_key.pem
-      
+          
           echo "Connecting to EC2 and deploying..."
           ssh -o StrictHostKeyChecking=no -i private_key.pem ${EC2_USER}@${EC2_HOST} << 'EOF'
             set -e
@@ -88,26 +88,25 @@ jobs:
             sudo mkdir -p /var/www/epi-backend
             sudo chown ubuntu:ubuntu /var/www/epi-backend
             cd /var/www/epi-backend
-      
+          
             echo "🧹 Cleaning up temporary files..."
             sudo rm -rf /tmp/* || true
             sudo journalctl --vacuum-time=3d || true
             echo "✅ Cleanup completed"
-      
+          
             # Configure Git to use the correct deploy key
             echo "🔐 Setting up SSH config for GitHub..."
             mkdir -p ~/.ssh
-            cat <<CONFIG > ~/.ssh/config
-            Host github.com
-                HostName github.com
-                User git
-                IdentityFile ~/.ssh/epi-backend
-                IdentitiesOnly yes
-            CONFIG_EOF
-      
-            # Ensure permissions
+            cat <<CONFIG_EOF > ~/.ssh/config
+          Host github.com
+              HostName github.com
+              User git
+              IdentityFile ~/.ssh/epi-backend
+              IdentitiesOnly yes
+          CONFIG_EOF
+          
             chmod 600 ~/.ssh/config
-      
+          
             # Pull latest repo version
             if [ -d .git ]; then
               echo "🔄 Repo found — pulling latest changes..."
@@ -117,35 +116,39 @@ jobs:
               echo "🆕 Cloning repository for the first time..."
               git clone git@github.com:nabeelanasaritsaoirse/epi-backend.git .
             fi
-      
+          
             echo "📦 Installing dependencies..."
             npm ci --omit=dev
-      
+          
             echo "🧾 Writing environment variables..."
             cat > .env <<'ENVEND'
-            PORT=5000
-            MONGODB_URI=${{ secrets.MONGODB_URI }}
-            JWT_SECRET=${{ secrets.JWT_SECRET }}
-            FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }}
-            FIREBASE_CLIENT_EMAIL=${{ secrets.FIREBASE_CLIENT_EMAIL }}
-            FIREBASE_PRIVATE_KEY=${{ secrets.FIREBASE_PRIVATE_KEY }}
-            RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}
-            RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}
-            ENVEND
-            
-            echo "🔁 Restarting PM2..."
-            pm2 restart epi-backend || pm2 start npm --name "epi-backend" -- start
+          PORT=5000
+          MONGODB_URI=${{ secrets.MONGODB_URI }}
+          JWT_SECRET=${{ secrets.JWT_SECRET }}
+          FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_CLIENT_EMAIL=${{ secrets.FIREBASE_CLIENT_EMAIL }}
+          FIREBASE_PRIVATE_KEY=${{ secrets.FIREBASE_PRIVATE_KEY }}
+          RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}
+          RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}
+          ENVEND
+          
+            # Restart PM2 correctly
+            if pm2 describe epi-backend > /dev/null; then
+              echo "🔁 Restarting existing PM2 process..."
+              pm2 restart epi-backend
+            else
+              echo "🆕 Starting PM2 for the first time..."
+              pm2 start index.js --name epi-backend
+            fi
+          
             pm2 save
-      
+          
             echo ""
             echo "-------------------------------------"
             echo "✅ Deployment completed successfully!"
             PUBLIC_IP=$(curl -s http://checkip.amazonaws.com)
             echo "🌐 Your API is live at: http://$PUBLIC_IP:5000"
-            echo "-------------------------------------"
-          EOF
-
-
+            echo "-------
 
       
       # - name: 🧾 Add summary with clickable link
