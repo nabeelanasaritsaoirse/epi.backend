@@ -1,13 +1,13 @@
-name: Deploy Backend to AWS EC2
+name:  Deploy Backend to AWS EC2
 run-name: "🚀 Deployment triggered by ${{ github.actor }} on branch ${{ github.ref_name }}"
 
 on:
   push:
     branches:
-      - main
+      - main  # Deploy automatically when code is pushed to main branch
 
 permissions:
-  contents: write
+  contents: write   # Required for tagging new releases
   issues: read
   pull-requests: read
 
@@ -23,9 +23,11 @@ jobs:
       NODE_ENV: production
 
     steps:
+      #  Step 1: Checkout the repo
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Step 2: Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -34,36 +36,67 @@ jobs:
       - name: Install dependencies (auto-fallback)
         run: |
           echo "📦 Installing dependencies..."
-          npm ci || npm install
+          npm ci || {
+            echo "⚠️ npm ci failed — falling back to npm install..."
+            npm install
+          }
+          
+      # - name: Run semantic-release
+      #   id: version
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #   run: |
+      #     npx semantic-release --branches main --no-ci || echo "No release needed"
 
+      # # ✅ Step 4: Linting check (ESLint)
+      # - name: Run ESLint
+      #   run: |
+      #     echo "🧹 Running ESLint..."
+      #     npx eslint . --ext .js,.mjs,.cjs || {
+      #       echo "❌ ESLint found issues!"
+      #       exit 1
+      #     }
+
+      # # ✅ Step 5: Run tests
+      # - name: Run Tests
+      #   run: |
+      #     echo "🧪 Running test suite..."
+      #     npm test || {
+      #       echo "❌ Tests failed!"
+      #       exit 1
+      #     }
+
+      #  Step 6: Syntax validation
       - name: Syntax validation
         run: |
           echo "🔍 Checking Node.js syntax..."
           node --check index.js
-
+      #  Step 7: Deploy to EC2 via SSH
       - name: 🚀 Deploy application to EC2
         run: |
-          # Save private key
+         # Save and secure private key for EC2 login
           echo "${PRIVATE_KEY}" > private_key.pem
           chmod 600 private_key.pem
-
+          
           echo "Connecting to EC2 and deploying..."
           ssh -o StrictHostKeyChecking=no -i private_key.pem ${EC2_USER}@${EC2_HOST} << 'EOF'
-          set -e
-          echo "🚀 Deployment started on EC2..."
+            set -e
+            echo "🚀 Deployment started on EC2..."
           
-          sudo mkdir -p /var/www/epi-backend
-          sudo chown ubuntu:ubuntu /var/www/epi-backend
-          cd /var/www/epi-backend
+            # Ensure project directory exists
+            sudo mkdir -p /var/www/epi-backend
+            sudo chown ubuntu:ubuntu /var/www/epi-backend
+            cd /var/www/epi-backend
           
-          echo "🧹 Cleaning up temporary files..."
-          sudo rm -rf /tmp/* || true
-          sudo journalctl --vacuum-time=3d || true
-          echo "✅ Cleanup completed"
+            echo "🧹 Cleaning up temporary files..."
+            sudo rm -rf /tmp/* || true
+            sudo journalctl --vacuum-time=3d || true
+            echo "✅ Cleanup completed"
           
-          echo "🔐 Setting up SSH config for GitHub..."
-          mkdir -p ~/.ssh
-          cat <<CONFIG_EOF > ~/.ssh/config
+            # Configure Git to use the correct deploy key
+            echo "🔐 Setting up SSH config for GitHub..."
+            mkdir -p ~/.ssh
+            cat <<CONFIG_EOF > ~/.ssh/config
           Host github.com
               HostName github.com
               User git
@@ -71,23 +104,23 @@ jobs:
               IdentitiesOnly yes
           CONFIG_EOF
           
-          chmod 600 ~/.ssh/config
+            chmod 600 ~/.ssh/config
           
-          # Pull latest repo version
-          if [ -d .git ]; then
-            echo "🔄 Repo found — pulling latest changes..."
-            git fetch origin main
-            git reset --hard origin/main
-          else
-            echo "🆕 Cloning repository..."
-            git clone git@github.com:nabeelanasaritsaoirse/epi-backend.git .
-          fi
+            # Pull latest repo version
+            if [ -d .git ]; then
+              echo "🔄 Repo found — pulling latest changes..."
+              git fetch origin main
+              git reset --hard origin/main
+            else
+              echo "🆕 Cloning repository for the first time..."
+              git clone git@github.com:nabeelanasaritsaoirse/epi-backend.git .
+            fi
           
-          echo "📦 Installing dependencies..."
-          npm ci --omit=dev
+            echo "📦 Installing dependencies..."
+            npm ci --omit=dev
           
-          echo "🧾 Writing environment variables..."
-          cat <<ENVEND > .env
+            echo "🧾 Writing environment variables..."
+            cat > .env <<'ENVEND'
           PORT=5000
           MONGODB_URI=${{ secrets.MONGODB_URI }}
           JWT_SECRET=${{ secrets.JWT_SECRET }}
@@ -98,18 +131,93 @@ jobs:
           RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}
           ENVEND
           
-          echo "🔁 Restarting PM2..."
-          if pm2 describe epi-backend > /dev/null; then
+            # Restart PM2 correctly
+            if pm2 describe epi-backend > /dev/null; then
+              echo "🔁 Restarting existing PM2 process..."
               pm2 restart epi-backend
-          else
+            else
+              echo "🆕 Starting PM2 for the first time..."
               pm2 start index.js --name epi-backend
-          fi
+            fi
           
-          pm2 save
+            pm2 save
           
-          echo "-------------------------------------"
-          echo "✅ Deployment completed successfully!"
-          PUBLIC_IP=$(curl -s http://checkip.amazonaws.com)
-          echo "🌐 Your API is live at: http://$PUBLIC_IP:5000"
-          echo "-------------------------------------"
-          EOF
+            echo ""
+            echo "-------------------------------------"
+            echo "✅ Deployment completed successfully!"
+            PUBLIC_IP=$(curl -s http://checkip.amazonaws.com)
+            echo "🌐 Your API is live at: http://$PUBLIC_IP:5000"
+            echo "-------
+      
+      # - name: 🧾 Add summary with clickable link
+      #   if: success()
+      #   run: |
+      #     {
+      #       echo "## 🚀 Deployment Summary"
+      #       echo ""
+      #       echo "✅ **Backend deployed successfully to AWS EC2!**"
+      #       echo ""
+      #       echo "🔗 **API Endpoint:** [http://13.203.227.43:5000](http://13.203.227.43:5000)"
+      #       echo ""
+      #       echo "[🌐 Click here to open the API in your browser](http://13.203.227.43:5000)"
+      #       echo ""
+      #       echo "🕒 **Deployed at:** $(date '+%Y-%m-%d %H:%M:%S')"
+      #       echo ""
+      #       echo "📦 **Commit:** \`${{ github.sha }}\`"
+      #       echo "🔧 **Branch:** \`${{ github.ref_name }}\`"
+      #     } >> $GITHUB_STEP_SUMMARY
+
+
+    # # ✅ Send Email on Success
+    #   - name: Send Email (Success)
+    #     if: success()
+    #     uses: dawidd6/action-send-mail@v3
+    #     with:
+    #       server_address: smtp.gmail.com
+    #       server_port: 465
+    #       secure: true
+    #       username: ${{ secrets.EMAIL_USERNAME }}
+    #       password: ${{ secrets.EMAIL_PASSWORD }}
+    #       subject: "✅ EPI Backend Deployment Successful"
+    #       body: |
+    #         🎉 The backend has been successfully deployed to AWS EC2.
+      
+    #         **Details:**
+    #         - Host: ${{ secrets.EC2_HOST }}
+    #         - User: ${{ secrets.EC2_USER }}
+    #         - Environment: Production
+    #         - Commit: ${{ github.sha }}
+    #         - Repository: ${{ github.repository }}
+    #         - Run URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      
+    #         🚀 Deployment completed successfully via GitHub Actions!
+    #       to: "nabeelanasarit.saoirse@gmail.com"
+    #       from: ${{ secrets.EMAIL_USERNAME }}
+    #       nodemailerdebug: true
+      
+    #   # ❌ Send Email on Failure
+    #   - name: Send Email (Failure)
+    #     if: failure()
+    #     uses: dawidd6/action-send-mail@v3
+    #     with:
+    #       server_address: smtp.gmail.com
+    #       server_port: 465
+    #       secure: true
+    #       username: ${{ secrets.EMAIL_USERNAME }}
+    #       password: ${{ secrets.EMAIL_PASSWORD }}
+    #       subject: "❌ EPI Backend Deployment Failed"
+    #       body: |
+    #         ⚠️ The backend deployment to AWS EC2 has failed.
+      
+    #         **Details:**
+    #         - Host: ${{ secrets.EC2_HOST }}
+    #         - User: ${{ secrets.EC2_USER }}
+    #         - Branch: ${{ github.ref }}
+    #         - Commit: ${{ github.sha }}
+    #         - Workflow: ${{ github.workflow }}
+    #         - Run URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      
+    #         Please review the logs in GitHub Actions to identify the issue.
+    #       to: "nabeelanasarit.saoirse@gmail.com"
+    #       from: ${{ secrets.EMAIL_USERNAME }}
+    #       nodemailerdebug: true
