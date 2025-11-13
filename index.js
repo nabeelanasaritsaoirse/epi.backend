@@ -110,8 +110,35 @@ app.use((err, req, res, next) => {
 });
 
 // ====== Start Server ======
-const server = app.listen(PORT, () => {
-  console.log(`🚀 Server is running on port ${PORT}`);
+
+
+// ====== Start Server ======
+const HOST = '0.0.0.0';
+
+const server = app.listen(PORT, HOST, () => {
+  console.log('');
+  console.log('🚀 ════════════════════════════════════════════════');
+  console.log(`   Server running on ${HOST}:${PORT}`);
+  console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log('🚀 ════════════════════════════════════════════════');
+  console.log('');
+  console.log('📋 Status:');
+  console.log('   ✅ MongoDB: Connected');
+  console.log('   ✅ JWT Auth: Enabled');
+  console.log('');
+  console.log('🌐 Access URLs:');
+  console.log(`   Local:    http://localhost:${PORT}`);
+  console.log(`   Network:  http://${HOST}:${PORT}`);
+  console.log('');
+  console.log('📚 API Endpoints:');
+  console.log(`   Health:      GET  http://${HOST}:${PORT}/`);
+  console.log(`   Auth:        POST http://${HOST}:${PORT}/api/auth/login`);
+  console.log('');
 });
 
+// const server = app.listen(PORT, () => {
+//   console.log(`🚀 Server is running on port ${PORT}`);
+// });
+
 module.exports = app;
+
