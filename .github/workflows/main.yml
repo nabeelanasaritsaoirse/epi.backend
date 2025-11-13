@@ -101,14 +101,15 @@ jobs:
       
           chmod 600 ~/.ssh/config
       
-          if [ -d .git ]; then
-            echo "🔄 Repo found — pulling latest changes..."
-            git fetch origin main
-            git reset --hard origin/main
-          else
-            echo "🆕 Cloning repository for the first time..."
-            git clone git@github.com:nabeelanasaritsaoirse/epi-backend.git .
-          fi
+            # Pull latest repo version
+            if [ -d .git ]; then
+              echo "🔄 Repo found — pulling latest changes..."
+              git fetch origin main
+              git reset --hard origin/main
+            else
+              echo "🆕 Cloning repository for the first time..."
+              git clone git@github.com:nabeelanasaritsaoirse/epi.backend.git .
+            fi
       
           echo "📦 Installing dependencies..."
           npm ci --omit=dev
