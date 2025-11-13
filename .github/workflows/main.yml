@@ -80,21 +80,23 @@ jobs:
           
           echo "Connecting to EC2 and deploying..."
           ssh -o StrictHostKeyChecking=no -i private_key.pem ${EC2_USER}@${EC2_HOST} << 'EOF'
-            set -e
-            echo "🚀 Deployment started on EC2..."
+          set -e
+          echo "🚀 Deployment started on EC2..."
           
-            # Ensure project directory exists
-            sudo mkdir -p /var/www/epi-backend
-            sudo chown ubuntu:ubuntu /var/www/epi-backend
-            cd /var/www/epi-backend
+          # Ensure project directory exists
+          sudo mkdir -p /var/www/epi-backend
+          sudo chown ubuntu:ubuntu /var/www/epi-backend
+          cd /var/www/epi-backend
           
-            # Cleanup
-            sudo rm -rf /tmp/* || true
-            sudo journalctl --vacuum-time=3d || true
+          echo "🧹 Cleaning up temporary files..."
+          sudo rm -rf /tmp/* || true
+          sudo journalctl --vacuum-time=3d || true
+          echo "✅ Cleanup completed"
           
-            # SSH config for GitHub
-            mkdir -p ~/.ssh
-            cat <<CONFIG_EOF > ~/.ssh/config
+          # Configure Git to use the correct deploy key
+          echo "🔐 Setting up SSH config for GitHub..."
+          mkdir -p ~/.ssh
+          cat <<CONFIG_EOF > ~/.ssh/config
           Host github.com
               HostName github.com
               User git
@@ -102,21 +104,23 @@ jobs:
               IdentitiesOnly yes
           CONFIG_EOF
           
-            chmod 600 ~/.ssh/config
+          chmod 600 ~/.ssh/config
           
-            # Pull repo
-            if [ -d .git ]; then
-              git fetch origin main
-              git reset --hard origin/main
-            else
-              git clone git@github.com:nabeelanasaritsaoirse/epi-backend.git .
-            fi
+          # Pull latest repo version
+          if [ -d .git ]; then
+            echo "🔄 Repo found — pulling latest changes..."
+            git fetch origin main
+            git reset --hard origin/main
+          else
+            echo "🆕 Cloning repository for the first time..."
+            git clone git@github.com:nabeelanasaritsaoirse/epi-backend.git .
+          fi
           
-            # Install and deploy
-            npm ci --omit=dev
+          echo "📦 Installing dependencies..."
+          npm ci --omit=dev
           
-            # Write .env
-            cat > .env <<'ENVEND'
+          echo "🧾 Writing environment variables..."
+          cat > .env <<'ENVEND'
           PORT=5000
           MONGODB_URI=${MONGODB_URI}
           JWT_SECRET=${JWT_SECRET}
@@ -127,16 +131,25 @@ jobs:
           RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
           ENVEND
           
-            # PM2
-            if pm2 describe epi-backend > /dev/null; then
-              pm2 restart epi-backend
-            else
-              pm2 start index.js --name epi-backend
-            fi
-            pm2 save
+          # Restart PM2 correctly
+          if pm2 describe epi-backend > /dev/null; then
+            echo "🔁 Restarting existing PM2 process..."
+            pm2 restart epi-backend
+          else
+            echo "🆕 Starting PM2 for the first time..."
+            pm2 start index.js --name epi-backend
+          fi
           
-            echo "✅ Deployment completed!"
+          pm2 save
+          
+          echo ""
+          echo "-------------------------------------"
+          echo "✅ Deployment completed successfully!"
+          PUBLIC_IP=$(curl -s http://checkip.amazonaws.com)
+          echo "🌐 Your API is live at: http://$PUBLIC_IP:5000"
+          echo "-------"
           EOF
+
           
                 
       # - name: 🧾 Add summary with clickable link
