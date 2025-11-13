@@ -1,9 +1,12 @@
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const session = require('express-session');
-const connectDB = require('./config/db');
-const wishlistRoutes = require('./routes/wishlistRoutes');
-const cartRoutes = require('./routes/cartRoutes');
+const connectDB = require('./config/db'); // keep your DB connector
+const wishlistRoutes = require('./routes/wishlistRoutes'); // optional - keep if exists
+const cartRoutes = require('./routes/cartRoutes'); // optional - keep if exists
+
+// NEW: categories router (ensure the path is correct relative to this file)
+const categoriesRouter = require('./routes/categories');
 
 // Initialize DB connection
 connectDB();
@@ -12,6 +15,7 @@ const app = express();
 
 // Middleware
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
 // Basic session setup (for simulation purposes). In production use a secure store.
@@ -27,7 +31,6 @@ app.use(session({
 if (process.env.SIMULATE_USER_ID) {
   app.use((req, res, next) => {
     try {
-      // set in session and cookie for compatibility
       req.session.userId = req.session.userId || process.env.SIMULATE_USER_ID;
       res.cookie('userId', req.session.userId, { httpOnly: true });
     } catch (e) { /* ignore */ }
@@ -35,12 +38,16 @@ if (process.env.SIMULATE_USER_ID) {
   });
 }
 
-// Mount routes (routes expose endpoints like /wishlist/add/:productId etc.)
+// Mount routers
+app.use('/api/categories', categoriesRouter);
+
+// Keep your other mounts if they exist
 app.use('/', wishlistRoutes);
 app.use('/', cartRoutes);
 
-// Health check
-app.get('/health', (req, res) => res.json({ success: true, message: 'OK' }));
+// debug / health checks
+app.get('/ping', (req, res) => res.send('pong'));
+app.get('/api/ping', (req, res) => res.json({ success: true, message: 'api pong' }));
 
 // 404
 app.use((req, res) => {
