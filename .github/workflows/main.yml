@@ -81,7 +81,7 @@ jobs:
           chmod 600 private_key.pem
           
           echo "Connecting to EC2 and deploying..."
-          ssh -o StrictHostKeyChecking=no -i private_key.pem ${EC2_USER}@${EC2_HOST} << EOF
+          ssh -o StrictHostKeyChecking=no -i private_key.pem ${EC2_USER}@${EC2_HOST} << 'EOF'
           set -e
           echo "🚀 Deployment started on EC2..."
           
@@ -97,12 +97,12 @@ jobs:
 
           echo "🔐 Setting up SSH config for GitHub..."
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
           
           # Write GitHub deploy key
           cat << KEYEOF > ~/.ssh/deploy_key
           ${EC2_GITHUB_DEPLOY_KEY}
           KEYEOF
-          
           chmod 600 ~/.ssh/deploy_key
           
           # Write SSH config
@@ -114,7 +114,13 @@ jobs:
               IdentitiesOnly yes
           CONFIG_EOF
           chmod 600 ~/.ssh/config
+          
+          # Avoid "Are you sure you want to continue"
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
 
+          # GitHub auth test
+          git ls-remote git@github.com:nabeelanasaritsaoirse/epi.backend.git || { echo "❌ GitHub auth failed"; exit 1; }
           
           # Pull latest repo version
           if [ -d .git ]; then
@@ -127,7 +133,7 @@ jobs:
           fi
           
           echo "📦 Installing dependencies..."
-          npm ci --omit=dev
+          npm ci --omit=dev || npm install --omit=dev
           
           echo "🧾 Writing environment variables..."
           cat > .env << ENVEND
@@ -151,13 +157,9 @@ jobs:
           fi
           pm2 save
 
-
-          pm2 save
-
           echo "-------------------------------------"
           echo "✅ Deployment completed successfully!"
-          PUBLIC_IP=$(curl -s http://checkip.amazonaws.com)
-          echo "🌐 Your API is live at: http://$PUBLIC_IP:5000"
+          echo "🌐 API running at: http://${EC2_HOST}:5000"
           echo "-------------------------------------"
           EOF
 
@@ -168,16 +170,14 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "✅ **Backend deployed successfully to AWS EC2!**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "🔗 **API Endpoint:** [http://13.203.227.43:5000](http://13.203.227.43:5000)" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 **API Endpoint:** [http://${{ secrets.EC2_HOST }}:5000](http://${{ secrets.EC2_HOST }}:5000)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "[🌐 Click here to open the API in your browser](http://13.203.227.43:5000)" >> $GITHUB_STEP_SUMMARY
+          echo "[🌐 Click here to open the API in your browser](http://${{ secrets.EC2_HOST }}:5000)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "🕒 **Deployed at:** $(date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "📦 **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "🔧 **Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
-
-
 
     # # ✅ Send Email on Success
     #   - name: Send Email (Success)
