@@ -41,6 +41,36 @@ router.get('/:userId', verifyToken, isAdmin, async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
+// Update user (admin only)
+router.put('/admin/:userId', verifyToken, isAdmin, async (req, res) => {
+  try {
+    const updates = {
+      name: req.body.name,
+      email: req.body.email,
+      phoneNumber: req.body.phoneNumber,
+      role: req.body.role,
+      isActive: req.body.isActive,
+      referralLimit: req.body.referralLimit,
+      updatedAt: new Date()
+    };
+
+    const user = await User.findByIdAndUpdate(
+      req.params.userId,
+      updates,
+      { new: true }
+    ).select('-__v');
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.status(200).json(user);
+
+  } catch (error) {
+    console.error("Error updating user:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
 
 // Update user KYC status (admin only)
 router.put('/:userId/kyc/:documentId', async (req, res) => {
@@ -1138,5 +1168,6 @@ router.put('/:userId/kyc-details/verify', verifyToken, isAdmin, async (req, res)
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
+
 
 module.exports = router; 
