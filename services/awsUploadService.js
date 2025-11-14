@@ -139,7 +139,13 @@ const uploadSingleFileToS3 = async (file, folder, resizeWidth = 480) => {
 
     const s3Url = await uploadToS3(resizedBuffer, folder, fileName);
 
-    return s3Url;
+    return {
+      url: s3Url,
+      key: `${folder}${fileName}`,
+      mimeType: 'image/jpeg',
+      size: resizedBuffer.length,
+      originalName: file.originalname
+    };
   } catch (error) {
     console.error('Error in uploadSingleFileToS3:', error);
     throw new Error(`Upload Single File Error: ${error.message}`);
@@ -158,9 +164,9 @@ const uploadMultipleFilesToS3 = async (files, folder, resizeWidth = 480) => {
 
     const uploadPromises = files.map(file => uploadSingleFileToS3(file, folder, resizeWidth));
 
-    const urls = await Promise.all(uploadPromises);
+    const results = await Promise.all(uploadPromises);
 
-    return urls;
+    return results; // array of {url,key,mimeType,size,originalName}
   } catch (error) {
     console.error('Error in uploadMultipleFilesToS3:', error);
     throw new Error(`Upload Multiple Files Error: ${error.message}`);
