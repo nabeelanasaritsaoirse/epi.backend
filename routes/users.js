@@ -5,7 +5,107 @@ const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const Product = require('../models/Product');
 
-// Admin routes
+
+// CREATE NEW USER (ADMIN ONLY)
+router.post('/admin/create', verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { name, email, password, phoneNumber, role, referralLimit } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: 'Name, email and password are required' });
+    }
+
+    // Check if email exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: 'Email already exists' });
+    }
+
+    // IMPORTANT: Admin-created users MUST have firebaseUid.
+    // We will auto-generate a random one so your model does not break.
+    const randomFirebaseUid = 'admin-created-' + Math.random().toString(36).substring(2);
+
+    const newUser = new User({
+      name,
+      email,
+      firebaseUid: randomFirebaseUid,
+      phoneNumber: phoneNumber || '',
+      role: role || 'user',
+      referralLimit: referralLimit || 50
+    });
+
+    await newUser.save();
+
+    res.status(201).json({
+      success: true,
+      message: 'User created successfully',
+      user: newUser
+    });
+
+  } catch (error) {
+    console.error('Error creating user:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// UPDATE USER (ADMIN ONLY)
+router.put('/admin/:userId', verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { name, email, phoneNumber, role, isActive, referralLimit } = req.body;
+
+    const updates = {};
+
+    if (name !== undefined) updates.name = name;
+    if (email !== undefined) updates.email = email;
+    if (phoneNumber !== undefined) updates.phoneNumber = phoneNumber;
+    if (role !== undefined) updates.role = role;
+    if (isActive !== undefined) updates.isActive = isActive;
+    if (referralLimit !== undefined) updates.referralLimit = referralLimit;
+
+    updates.updatedAt = Date.now();
+
+    const updatedUser = await User.findByIdAndUpdate(
+      req.params.userId,
+      { $set: updates },
+      { new: true }
+    ).select('-__v');
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'User updated successfully',
+      user: updatedUser
+    });
+
+  } catch (error) {
+    console.error('Error updating user:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// DELETE USER (ADMIN ONLY)
+router.delete('/admin/:userId', verifyToken, isAdmin, async (req, res) => {
+  try {
+    const user = await User.findByIdAndDelete(req.params.userId);
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'User deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 
 // Get all users (admin only)
 router.get('/', verifyToken, isAdmin, async (req, res) => {
