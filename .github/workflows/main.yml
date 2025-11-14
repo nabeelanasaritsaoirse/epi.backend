@@ -154,21 +154,23 @@ jobs:
           EOF
           echo "🌐 Your API is live at: http://${EC2_HOST}:5000"
 
-      - name: 🧾 Add summary with clickable link
+          
+      - name: 🧾 Add summary with clickable links
         if: success()
         run: |
-          echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 Backend Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ **Backend deployed successfully to AWS EC2!**" >> $GITHUB_STEP_SUMMARY
+          
+          echo "**🔹 API Domain (GoDaddy DNS):**" >> $GITHUB_STEP_SUMMARY
+          echo "[https://api.epielio.com](https://api.epielio.com)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "🔗 **API Endpoint:** [http://${{ secrets.EC2_HOST }}:5000](http://${{ secrets.EC2_HOST }}:5000)" >> $GITHUB_STEP_SUMMARY
+  
+          echo "**🔹 PM2 Process Status:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`pm2 status epi-backend\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "[🌐 Click here to open the API in your browser](http://${{ secrets.EC2_HOST }}:5000)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "🕒 **Deployed at:** $(date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "📦 **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "🔧 **Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+  
+          echo "✅ Backend deployment completed successfully!" >> $GITHUB_STEP_SUMMARY
+
 
     # # ✅ Send Email on Success
     #   - name: Send Email (Success)
