@@ -157,23 +157,22 @@ jobs:
           echo "-------------------------------------"
           EOF
 
-      # - name: 🧾 Add summary with clickable link
-      #   if: success()
-      #   run: |
-      #     {
-      #       echo "## 🚀 Deployment Summary"
-      #       echo ""
-      #       echo "✅ **Backend deployed successfully to AWS EC2!**"
-      #       echo ""
-      #       echo "🔗 **API Endpoint:** [http://13.203.227.43:5000](http://13.203.227.43:5000)"
-      #       echo ""
-      #       echo "[🌐 Click here to open the API in your browser](http://13.203.227.43:5000)"
-      #       echo ""
-      #       echo "🕒 **Deployed at:** $(date '+%Y-%m-%d %H:%M:%S')"
-      #       echo ""
-      #       echo "📦 **Commit:** \`${{ github.sha }}\`"
-      #       echo "🔧 **Branch:** \`${{ github.ref_name }}\`"
-      #     } >> $GITHUB_STEP_SUMMARY
+      - name: 🧾 Add summary with clickable link
+        if: success()
+        run: |
+          echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Backend deployed successfully to AWS EC2!**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 **API Endpoint:** [http://13.203.227.43:5000](http://13.203.227.43:5000)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "[🌐 Click here to open the API in your browser](http://13.203.227.43:5000)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🕒 **Deployed at:** $(date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📦 **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "🔧 **Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+
 
 
     # # ✅ Send Email on Success
