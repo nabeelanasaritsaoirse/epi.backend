@@ -145,10 +145,12 @@ jobs:
 
           echo "🔁 Restarting PM2..."
           if pm2 describe epi-backend > /dev/null; then
-            pm2 restart epi-backend
+            pm2 restart epi-backend --update-env
           else
             pm2 start index.js --name epi-backend
           fi
+          pm2 save
+
 
           pm2 save
 
