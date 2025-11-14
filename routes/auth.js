@@ -61,7 +61,25 @@ router.post("/login", async (req, res) => {
         console.log('User created. ID:', user._id);
       } catch (saveError) {
         if (saveError.code === 11000) {
+          // Duplicate key error - check if user exists with this email or firebaseUid
+          console.log('Duplicate key error. Checking for existing user...');
+
+          // Try to find by firebaseUid first
           user = await User.findOne({ firebaseUid: uid });
+
+          // If not found by firebaseUid, try by email
+          if (!user && decodedToken.email) {
+            user = await User.findOne({ email: decodedToken.email });
+
+            // If user exists with this email but different firebaseUid, update the firebaseUid
+            if (user) {
+              console.log('User exists with this email but different firebaseUid. Updating firebaseUid...');
+              user.firebaseUid = uid;
+              await user.save();
+              console.log('FirebaseUid updated successfully');
+            }
+          }
+
           if (!user) throw saveError;
         } else {
           throw saveError;
@@ -115,7 +133,6 @@ router.post("/login", async (req, res) => {
     });
   }
 });
-
 router.post("/refresh-token", verifyRefreshToken, async (req, res) => {
   try {
     const tokens = generateTokens(req.user._id.toString(), req.user.role);
@@ -956,5 +973,6 @@ router.put("/:userId/agree-terms", verifyToken, async (req, res) => {
     });
   }
 });
+
 
 module.exports = router;
