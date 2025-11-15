@@ -3,6 +3,7 @@ const router = express.Router();
 const { verifyToken, isAdmin } = require("../middlewares/auth");
 const User = require("../models/User");
 const admin = require("firebase-admin");
+const jwt = require("jsonwebtoken");
 
 
 // Admin Login (Email + Password)
