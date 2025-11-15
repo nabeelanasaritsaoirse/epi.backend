@@ -290,7 +290,7 @@
 //   return {
 
 
-////////////new code ///////////////
+//////////// NEW CODE (FIXED & CLEANED) /////////////
 const admin = require('firebase-admin');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
@@ -322,6 +322,8 @@ const generateTokens = (userId, role) => {
   };
 };
 
+
+// 🔥 VERIFY FIREBASE TOKEN (for mobile users)
 exports.verifyFirebaseToken = async (req, res, next) => {
   try {
     const token = req.headers.authorization?.split('Bearer ')[1];
@@ -358,32 +360,14 @@ exports.verifyFirebaseToken = async (req, res, next) => {
       await user.save();
     }
     
-    if (!user) {
-      return res.status(404).json({ 
-        success: false,
-        message: 'User not found' 
-      });
-    }
-    
     req.user = user;
     next();
+
   } catch (error) {
     if (error.code === 'auth/id-token-expired') {
-      return res.status(401).json({ 
-        success: false,
-        message: 'Token expired. Please login again',
-        code: 'TOKEN_EXPIRED'
-      });
+      return res.status(401).json({ success: false, message: 'Token expired', code: 'TOKEN_EXPIRED' });
     }
-    
-    if (error.code === 'auth/argument-error') {
-      return res.status(401).json({ 
-        success: false,
-        message: 'Invalid token format',
-        code: 'INVALID_TOKEN'
-      });
-    }
-    
+
     return res.status(401).json({ 
       success: false,
       message: 'Authentication failed',
@@ -392,6 +376,9 @@ exports.verifyFirebaseToken = async (req, res, next) => {
   }
 };
 
+
+
+// 🔥 VERIFY NORMAL JWT TOKEN (Admin + Web Users)
 exports.verifyToken = async (req, res, next) => {
   try {
     const token = req.headers.authorization?.split('Bearer ')[1];
@@ -405,16 +392,19 @@ exports.verifyToken = async (req, res, next) => {
     }
     
     const decoded = jwt.verify(token, JWT_SECRET);
-    
-    if (decoded.type === 'refresh') {
-      return res.status(401).json({ 
+
+    // ⭐ FIX: ADMIN LOGIN USES "id", not "userId"
+    const userId = decoded.userId || decoded.id;
+
+    if (!userId) {
+      return res.status(401).json({
         success: false,
-        message: 'Invalid token type. Use access token',
-        code: 'INVALID_TOKEN_TYPE'
+        message: "Invalid token payload",
+        code: "INVALID_PAYLOAD"
       });
     }
-    
-    const user = await User.findById(decoded.userId);
+
+    const user = await User.findById(userId);
     
     if (!user) {
       return res.status(404).json({ 
@@ -434,21 +424,14 @@ exports.verifyToken = async (req, res, next) => {
     
     req.user = user;
     next();
+
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ 
-        success: false,
-        message: 'Token expired. Please refresh',
-        code: 'TOKEN_EXPIRED'
-      });
+      return res.status(401).json({ success: false, message: 'Token expired', code: 'TOKEN_EXPIRED' });
     }
     
     if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({ 
-        success: false,
-        message: 'Invalid token',
-        code: 'INVALID_TOKEN'
-      });
+      return res.status(401).json({ success: false, message: 'Invalid token', code: 'INVALID_TOKEN' });
     }
     
     return res.status(401).json({ 
@@ -459,6 +442,9 @@ exports.verifyToken = async (req, res, next) => {
   }
 };
 
+
+
+// 🔥 VERIFY REFRESH TOKEN
 exports.verifyRefreshToken = async (req, res, next) => {
   try {
     const { refreshToken } = req.body;
@@ -501,23 +487,12 @@ exports.verifyRefreshToken = async (req, res, next) => {
     
     req.user = user;
     next();
+
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ 
-        success: false,
-        message: 'Refresh token expired. Please login again',
-        code: 'REFRESH_TOKEN_EXPIRED'
-      });
+      return res.status(401).json({ success: false, message: 'Refresh token expired', code: 'REFRESH_TOKEN_EXPIRED' });
     }
-    
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({ 
-        success: false,
-        message: 'Invalid refresh token',
-        code: 'INVALID_REFRESH_TOKEN'
-      });
-    }
-    
+
     return res.status(401).json({ 
       success: false,
       message: 'Token verification failed',
@@ -526,6 +501,9 @@ exports.verifyRefreshToken = async (req, res, next) => {
   }
 };
 
+
+
+// 🔥 CHECK ADMIN
 exports.isAdmin = (req, res, next) => {
   if (req.user && req.user.role === 'admin') {
     next();
@@ -538,4 +516,6 @@ exports.isAdmin = (req, res, next) => {
   }
 };
 
+
+// EXPORT TOKENS
 exports.generateTokens = generateTokens;

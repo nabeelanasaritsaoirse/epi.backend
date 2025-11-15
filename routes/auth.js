@@ -5,7 +5,6 @@ const User = require("../models/User");
 const admin = require("firebase-admin");
 const jwt = require("jsonwebtoken");
 
-
 // Admin Login (Email + Password)
 router.post("/admin-login", async (req, res) => {
   try {
@@ -50,7 +49,7 @@ router.post("/admin-login", async (req, res) => {
     // 🔥 Generate JWT token
     const token = jwt.sign(
       {
-        id: adminUser._id,
+        userId: adminUser._id, // ⭐ FIXED
         email: adminUser.email,
         role: adminUser.role,
       },
@@ -67,9 +66,8 @@ router.post("/admin-login", async (req, res) => {
         name: adminUser.name,
         email: adminUser.email,
         role: adminUser.role,
-      }
+      },
     });
-
   } catch (error) {
     console.error("Admin login error:", error);
     res.status(500).json({
@@ -79,9 +77,6 @@ router.post("/admin-login", async (req, res) => {
     });
   }
 });
-
-
-
 
 // Login with Firebase token
 router.post("/login", async (req, res) => {
@@ -161,26 +156,34 @@ router.put("/profile", verifyToken, async (req, res) => {
 router.put("/:userId/bank-details", async (req, res) => {
   try {
     const userId = req.params.userId;
-    const { accountNumber, ifscCode, accountHolderName, upiId, bankName, branchName, isDefault } = req.body;
-    
+    const {
+      accountNumber,
+      ifscCode,
+      accountHolderName,
+      upiId,
+      bankName,
+      branchName,
+      isDefault,
+    } = req.body;
+
     // Find user
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
-    
+
     const newBankDetails = {
-      accountNumber: accountNumber || '',
-      ifscCode: ifscCode || '',
-      accountHolderName: accountHolderName || '',
-      bankName: bankName || '',
-      branchName: branchName || '',
-      upiId: upiId || '',
+      accountNumber: accountNumber || "",
+      ifscCode: ifscCode || "",
+      accountHolderName: accountHolderName || "",
+      bankName: bankName || "",
+      branchName: branchName || "",
+      upiId: upiId || "",
       isDefault: isDefault || false,
       createdAt: new Date(),
-      updatedAt: new Date()
+      updatedAt: new Date(),
     };
-    
+
     // If isDefault is true, set all other bank accounts to isDefault: false
     if (isDefault) {
       await User.updateOne(
@@ -188,7 +191,7 @@ router.put("/:userId/bank-details", async (req, res) => {
         { $set: { "bankDetails.$[].isDefault": false } }
       );
     }
-    
+
     // Add new bank details to the array
     const updatedUser = await User.findByIdAndUpdate(
       userId,
@@ -209,10 +212,14 @@ router.post("/:userId/kyc", async (req, res) => {
     const userId = req.params.userId;
     const { documents, aadharCardNumber, panCardNumber } = req.body;
 
-    if ((!documents || !Array.isArray(documents) || documents.length === 0) && 
-        !aadharCardNumber && !panCardNumber) {
-      return res.status(400).json({ 
-        message: "Please provide at least one document or ID information (Aadhar/PAN)" 
+    if (
+      (!documents || !Array.isArray(documents) || documents.length === 0) &&
+      !aadharCardNumber &&
+      !panCardNumber
+    ) {
+      return res.status(400).json({
+        message:
+          "Please provide at least one document or ID information (Aadhar/PAN)",
       });
     }
 
@@ -221,70 +228,73 @@ router.post("/:userId/kyc", async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
-    
+
     const updates = {};
-    
+
     // Process ID information if provided
     if (aadharCardNumber || panCardNumber) {
       // Initialize kycDetails if it doesn't exist
       if (!user.kycDetails) {
         updates.kycDetails = {
-          aadharCardNumber: '',
-          panCardNumber: '',
+          aadharCardNumber: "",
+          panCardNumber: "",
           aadharVerified: false,
-          panVerified: false
+          panVerified: false,
         };
       }
-      
+
       // Validate Aadhar format
       if (aadharCardNumber) {
         if (!/^\d{12}$/.test(aadharCardNumber)) {
-          return res.status(400).json({ message: "Aadhar Card Number must be 12 digits" });
+          return res
+            .status(400)
+            .json({ message: "Aadhar Card Number must be 12 digits" });
         }
-        updates['kycDetails.aadharCardNumber'] = aadharCardNumber;
-        updates['kycDetails.aadharVerified'] = false;
+        updates["kycDetails.aadharCardNumber"] = aadharCardNumber;
+        updates["kycDetails.aadharVerified"] = false;
       }
-      
+
       // Validate PAN format
       if (panCardNumber) {
         if (!/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(panCardNumber)) {
-          return res.status(400).json({ 
-            message: "PAN Card Number must be in valid format (e.g., ABCDE1234F)" 
+          return res.status(400).json({
+            message:
+              "PAN Card Number must be in valid format (e.g., ABCDE1234F)",
           });
         }
-        updates['kycDetails.panCardNumber'] = panCardNumber;
-        updates['kycDetails.panVerified'] = false;
+        updates["kycDetails.panCardNumber"] = panCardNumber;
+        updates["kycDetails.panVerified"] = false;
       }
     }
-    
+
     // Process documents if provided
     if (documents && Array.isArray(documents) && documents.length > 0) {
       // Validate each document
       for (const doc of documents) {
         if (!doc.docType || !doc.docUrl) {
-          return res.status(400).json({ message: "Each document must have docType and docUrl" });
+          return res
+            .status(400)
+            .json({ message: "Each document must have docType and docUrl" });
         }
       }
-      
+
       // Format documents with timestamps
-      const formattedDocuments = documents.map(doc => ({
+      const formattedDocuments = documents.map((doc) => ({
         ...doc,
-        status: 'pending',
+        status: "pending",
         isVerified: false,
         createdAt: new Date(),
-        updatedAt: new Date()
+        updatedAt: new Date(),
       }));
-      
+
       // Add documents to the updates
       updates.$push = { kycDocuments: { $each: formattedDocuments } };
     }
-    
+
     // Update user with all changes
-    const updatedUser = await User.findByIdAndUpdate(
-      userId,
-      updates,
-      { new: true }
-    ).select("-__v");
+    const updatedUser = await User.findByIdAndUpdate(userId, updates, {
+      new: true,
+    }).select("-__v");
 
     res.status(200).json(updatedUser);
   } catch (error) {
@@ -298,17 +308,19 @@ router.put("/:userId/agree-terms", async (req, res) => {
   try {
     const userId = req.params.userId;
     const { isAgree } = req.body;
-    
-    if (isAgree === undefined || typeof isAgree !== 'boolean') {
-      return res.status(400).json({ message: "isAgree must be a boolean value" });
+
+    if (isAgree === undefined || typeof isAgree !== "boolean") {
+      return res
+        .status(400)
+        .json({ message: "isAgree must be a boolean value" });
     }
-    
+
     // Find user
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
-    
+
     const updatedUser = await User.findByIdAndUpdate(
       userId,
       { $set: { isAgree } },
@@ -317,8 +329,10 @@ router.put("/:userId/agree-terms", async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: isAgree ? "Terms agreed successfully" : "Terms agreement revoked",
-      user: updatedUser
+      message: isAgree
+        ? "Terms agreed successfully"
+        : "Terms agreement revoked",
+      user: updatedUser,
     });
   } catch (error) {
     console.error("Error updating agreement status:", error);
@@ -347,26 +361,26 @@ router.post("/applyReferralCode", async (req, res) => {
 
     // Check if user already has a referrer
     if (user.referredBy) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         message: "You already have a referral applied to your account",
-        success: false
+        success: false,
       });
     }
 
     // Find the referrer using the provided code
     const referrer = await User.findOne({ referralCode: referralCode });
     if (!referrer) {
-      return res.status(404).json({ 
-        message: "Invalid referral code", 
-        success: false 
+      return res.status(404).json({
+        message: "Invalid referral code",
+        success: false,
       });
     }
 
     // Prevent self-referral
     if (referrer._id.toString() === userId) {
-      return res.status(400).json({ 
-        message: "You cannot use your own referral code", 
-        success: false 
+      return res.status(400).json({
+        message: "You cannot use your own referral code",
+        success: false,
       });
     }
 
@@ -384,14 +398,13 @@ router.post("/applyReferralCode", async (req, res) => {
     res.status(200).json({
       message: "Referral code applied successfully",
       success: true,
-      referrer: referrer._id
+      referrer: referrer._id,
     });
-
   } catch (error) {
     console.error("Apply referral code error:", error);
-    res.status(500).json({ 
-      message: "Server error", 
-      success: false 
+    res.status(500).json({
+      message: "Server error",
+      success: false,
     });
   }
 });
@@ -448,10 +461,10 @@ router.post("/signup", async (req, res) => {
     // Process referral code if provided (support both referralCode and referredByCode)
     const codeToUse = referralCode || referredByCode;
     let referrer = null;
-    
+
     if (codeToUse) {
       console.log(`Attempting to use referral code: ${codeToUse}`);
-      
+
       // Find the referrer
       referrer = await User.findOne({ referralCode: codeToUse });
 
@@ -467,7 +480,9 @@ router.post("/signup", async (req, res) => {
           $push: { referredUsers: user._id },
         });
 
-        console.log(`User ${user._id} signed up with referral code from ${referrer._id}`);
+        console.log(
+          `User ${user._id} signed up with referral code from ${referrer._id}`
+        );
       } else {
         // No valid referrer found, just save the user
         await user.save();
