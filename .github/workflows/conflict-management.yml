@@ -85,13 +85,17 @@ jobs:
       # ----------------------------------------------------------
   # Job 3: Create GitHub Issue if conflicts are found
   # ----------------------------------------------------------
+
   create_issue_on_failure:
     name: 📝 Create Issue for Detected Conflicts
     runs-on: ubuntu-latest
     needs: [label_conflicts, conflict_finder]
-    if: failure()  # Runs only when previous jobs fail
-
+    if: failure()
+  
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+  
       - name: 🧾 Create issue for merge conflicts
         uses: peter-evans/create-issue-from-file@v4
         with:
