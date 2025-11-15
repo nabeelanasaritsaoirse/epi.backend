@@ -1,144 +1,141 @@
-const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '.env') });
-const express = require('express');
-const cors = require('cors');
-const admin = require('firebase-admin');
-const initializeReferralSystem = require('./scripts/initializeReferralSystem');
-const connectDB = require('./config/database'); // ✅ Use centralized DB connection
+const path = require("path");
+require("dotenv").config({ path: path.join(__dirname, ".env") });
 
-// Import routes
-const authRoutes = require('./routes/auth');
-const productRoutes = require('./routes/products');
-const categoryRoutes = require('./routes/categoryRoutes');
-const userRoutes = require('./routes/users');
-const walletRoutes = require('./routes/wallet');
-const paymentRoutes = require('./routes/payments');
-const orderRoutes = require('./routes/orders');
-const adminRoutes = require('./routes/admin');
-const referralRoutes = require('./routes/referralRoutes');
-const planRoutes = require('./routes/plans');
-const cartRoutes = require('./routes/cartRoutes');
-const wishlistRoutes = require('./routes/wishlistRoutes');
-const imageStoreRoutes = require('./routes/imageStore');
+const express = require("express");
+const cors = require("cors");
+const admin = require("firebase-admin");
+const initializeReferralSystem = require("./scripts/initializeReferralSystem");
+const connectDB = require("./config/database");
+
+// Routes
+const authRoutes = require("./routes/auth");
+const productRoutes = require("./routes/products");
+const categoryRoutes = require("./routes/categoryRoutes");
+const userRoutes = require("./routes/users");
+const walletRoutes = require("./routes/wallet");
+const paymentRoutes = require("./routes/payments");
+const orderRoutes = require("./routes/orders");
+const adminRoutes = require("./routes/admin");
+
+const referralRoutes = require("./routes/referralRoutes"); // FIXED
+const planRoutes = require("./routes/plans");
+const cartRoutes = require("./routes/cartRoutes");
+const wishlistRoutes = require("./routes/wishlistRoutes");
+const imageStoreRoutes = require("./routes/imageStore");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ====== Middleware ======
-app.use(express.json({ limit: '10mb' }));
-app.use(cors());
+// -----------------------------
+// PRODUCTION CORS (IMPORTANT)
+// -----------------------------
+app.use(
+  cors({
+    origin: [
+      "https://your-production-frontend.com", // CHANGE THIS
+      "https://your-admin-panel.com",         // optional
+    ],
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
+  })
+);
 
-// JSON parse error handler
+// Body Parser
+app.use(express.json({ limit: "10mb" }));
+
+// Invalid JSON Handler
 app.use((err, req, res, next) => {
-  if (err && err.type === 'entity.parse.failed') {
-    console.error('Invalid JSON received:', err.message);
-    return res.status(400).json({ success: false, message: 'Invalid JSON payload' });
+  if (err && err.type === "entity.parse.failed") {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid JSON payload",
+    });
   }
   next(err);
 });
 
-// ====== Initialize Firebase Admin ======
+// ----------------------------------------------
+// FIREBASE ADMIN INITIALIZATION (SAFE FOR PROD)
+// ----------------------------------------------
 try {
-  const firebaseProjectId = process.env.FIREBASE_PROJECT_ID;
-  const firebaseClientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  let firebasePrivateKey = process.env.FIREBASE_PRIVATE_KEY;
+  const { FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY } =
+    process.env;
 
-  if (firebasePrivateKey) {
-    firebasePrivateKey = firebasePrivateKey.replace(/^"|"$/g, '').replace(/\\n/g, '\n');
-  }
+  let privateKey = FIREBASE_PRIVATE_KEY
+    ? FIREBASE_PRIVATE_KEY.replace(/^"|"$/g, "").replace(/\\n/g, "\n")
+    : null;
 
-  if (firebaseProjectId && firebaseClientEmail && firebasePrivateKey) {
-    const serviceAccount = {
-      project_id: firebaseProjectId,
-      client_email: firebaseClientEmail,
-      private_key: firebasePrivateKey,
-    };
-
+  if (FIREBASE_PROJECT_ID && FIREBASE_CLIENT_EMAIL && privateKey) {
     admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
+      credential: admin.credential.cert({
+        project_id: FIREBASE_PROJECT_ID,
+        client_email: FIREBASE_CLIENT_EMAIL,
+        private_key: privateKey,
+      }),
     });
-
-    console.log('✅ Firebase Admin initialized successfully');
+    console.log("Firebase initialized");
   } else {
-    console.warn(
-      '⚠️ Firebase Admin not initialized: missing FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, or FIREBASE_PRIVATE_KEY'
-    );
+    console.log("Firebase not initialized (missing keys)");
   }
-} catch (error) {
-  console.error('Firebase Admin initialization error:', error);
+} catch (e) {
+  console.error("Firebase init error:", e.message);
 }
 
-// ====== Connect to MongoDB ======
+// ---------------------------
+// MONGODB CONNECTION
+// ---------------------------
 (async () => {
   try {
     await connectDB();
-    console.log('✅ Connected to epi_backend database');
+    console.log("MongoDB Connected");
 
-    // Initialize referral system after DB connection
+    // initialize referral job
     initializeReferralSystem();
   } catch (err) {
-    console.error('❌ MongoDB connection failed:', err.message);
+    console.error("MongoDB connection failed:", err.message);
     process.exit(1);
   }
 })();
 
-// ====== Routes ======
-app.use('/api/auth', authRoutes);
-app.use('/api/categories', categoryRoutes);
-app.use('/api/products', productRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/wallet', walletRoutes);
-app.use('/api/payments', paymentRoutes);
-app.use('/api/orders', orderRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/referrals', referralRoutes);
-app.use('/api/plans', planRoutes);
-app.use('/api/cart', cartRoutes);
-app.use('/api/wishlist', wishlistRoutes);
-app.use('/api/images', imageStoreRoutes);
+// ---------------------------
+// API ROUTES
+// ---------------------------
+app.use("/api/auth", authRoutes);
+app.use("/api/categories", categoryRoutes);
+app.use("/api/products", productRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/wallet", walletRoutes);
+app.use("/api/payments", paymentRoutes);
+app.use("/api/orders", orderRoutes);
+app.use("/api/admin", adminRoutes);
 
+app.use("/api/referral", referralRoutes); // FIXED prefix
 
+app.use("/api/plans", planRoutes);
+app.use("/api/cart", cartRoutes);
+app.use("/api/wishlist", wishlistRoutes);
+app.use("/api/images", imageStoreRoutes);
 
-app.get('/', (req, res) => {
-  res.send('Epi Backend API is running ✅');
+// ROOT
+app.get("/", (req, res) => {
+  res.send("Epi Backend API is running");
 });
 
-// ====== Global Error Handler ======
+// GLOBAL ERROR HANDLER
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  res.status(500).json({ success: false, error: err.message });
+  console.error("ERROR:", err.message);
+  return res.status(500).json({
+    success: false,
+    error: err.message,
+  });
 });
 
-// ====== Start Server ======
-
-
-// ====== Start Server ======
-const HOST = '0.0.0.0';
-
-const server = app.listen(PORT, HOST, () => {
-  console.log('');
-  console.log('🚀 ════════════════════════════════════════════════');
-  console.log(`   Server running on ${HOST}:${PORT}`);
-  console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log('🚀 ════════════════════════════════════════════════');
-  console.log('');
-  console.log('📋 Status:');
-  console.log('   ✅ MongoDB: Connected');
-  console.log('   ✅ JWT Auth: Enabled');
-  console.log('');
-  console.log('🌐 Access URLs:');
-  console.log(`   Local:    http://localhost:${PORT}`);
-  console.log(`   Network:  http://${HOST}:${PORT}`);
-  console.log('');
-  console.log('📚 API Endpoints:');
-  console.log(`   Health:      GET  http://${HOST}:${PORT}/`);
-  console.log(`   Auth:        POST http://${HOST}:${PORT}/api/auth/login`);
-  console.log('');
+// ---------------------------
+// START SERVER
+// ---------------------------
+const HOST = "0.0.0.0";
+app.listen(PORT, HOST, () => {
+  console.log(`Server running → http://${HOST}:${PORT}`);
 });
-
-// const server = app.listen(PORT, () => {
-//   console.log(`🚀 Server is running on port ${PORT}`);
-// });
 
 module.exports = app;
-
