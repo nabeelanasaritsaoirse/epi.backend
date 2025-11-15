@@ -470,7 +470,7 @@ exports.getReferredUserDetails = async (referredUserId) => {
 };
 
 /* ---------- getReferralProductDetails (Screen 3) ---------- */
-/* ---------- getReferralProductDetails (Screen 3) ---------- */
+
 exports.getReferralProductDetails = async (referredUserId, productId) => {
   try {
     const referral = await Referral.findOne({ referredUser: referredUserId })
