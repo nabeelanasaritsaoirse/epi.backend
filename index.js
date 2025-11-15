@@ -22,6 +22,8 @@ const planRoutes = require("./routes/plans");
 const cartRoutes = require("./routes/cartRoutes");
 const wishlistRoutes = require("./routes/wishlistRoutes");
 const imageStoreRoutes = require("./routes/imageStore");
+const bannerRoutes = require("./routes/bannerRoutes");
+const successStoryRoutes = require("./routes/successStoryRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -115,6 +117,8 @@ app.use("/api/plans", planRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/wishlist", wishlistRoutes);
 app.use("/api/images", imageStoreRoutes);
+app.use("/api/banners", bannerRoutes);
+app.use("/api/success-stories", successStoryRoutes);
 
 // ROOT
 app.get("/", (req, res) => {
