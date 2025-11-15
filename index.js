@@ -17,7 +17,7 @@ const paymentRoutes = require("./routes/payments");
 const orderRoutes = require("./routes/orders");
 const adminRoutes = require("./routes/admin");
 
-const referralRoutes = require("./routes/referralRoutes"); // FIXED
+const referralRoutes = require("./routes/referralRoutes");
 const planRoutes = require("./routes/plans");
 const cartRoutes = require("./routes/cartRoutes");
 const wishlistRoutes = require("./routes/wishlistRoutes");
@@ -29,15 +29,21 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // -----------------------------
-// PRODUCTION CORS (IMPORTANT)
+// CORS (LOCAL + PRODUCTION SAFE)
 // -----------------------------
 app.use(
   cors({
     origin: [
-      "https://your-production-frontend.com", // CHANGE THIS
-      "https://your-admin-panel.com",         // optional
+      "http://localhost:5500",
+      "http://127.0.0.1:5500",
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+      "https://epi-admin.vercel.app",   // admin panel production (change if needed)
+      "https://epielio.com",
+      "https://api.epielio.com"
     ],
-    methods: ["GET", "POST", "PUT", "DELETE"],
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+    allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
   })
 );
@@ -111,7 +117,7 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/admin", adminRoutes);
 
-app.use("/api/referral", referralRoutes); // FIXED prefix
+app.use("/api/referral", referralRoutes);
 
 app.use("/api/plans", planRoutes);
 app.use("/api/cart", cartRoutes);
