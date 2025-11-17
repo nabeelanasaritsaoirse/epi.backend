@@ -3,8 +3,10 @@ const cookieParser = require('cookie-parser');
 const session = require('express-session');
 const connectDB = require('./config/database'); // keep your DB connector
 const authRoutes = require('./routes/auth');
+const usersRoutes = require('./routes/users');
 const wishlistRoutes = require('./routes/wishlistRoutes'); // optional - keep if exists
 const cartRoutes = require('./routes/cartRoutes'); // optional - keep if exists
+
 
 // NEW: categories router (ensure the path is correct relative to this file)
 const categoriesRouter = require('./routes/categoryRoutes');
@@ -43,6 +45,7 @@ if (process.env.SIMULATE_USER_ID) {
 
 // Mount routers
 app.use('/api/auth', authRoutes);
+app.use('/api/users', usersRoutes);
 app.use('/api/categories', categoriesRouter);
 // coupon endpoints (public + admin)
 app.use('/api', couponRoutes);
