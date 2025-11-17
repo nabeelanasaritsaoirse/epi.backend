@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const productController = require('../controllers/productController');
+const productFeaturedController = require('../controllers/productFeaturedController');
 
 // Basic product routes
 router.post('/', productController.createProduct);
@@ -8,6 +9,11 @@ router.get('/', productController.getAllProducts);
 router.get('/stats', productController.getProductStats);
 router.get('/search', productController.searchProductsAdvanced);
 router.get('/low-stock', productController.getLowStockProducts);
+// Featured product routes - MUST be before /:productId routes
+router.get('/featured/all', productFeaturedController.getAllFeaturedProducts);
+router.get('/featured/popular', productFeaturedController.getMostPopularProducts);
+router.get('/featured/best-sellers', productFeaturedController.getBestSellerProducts);
+router.get('/featured/trending', productFeaturedController.getTrendingProducts);
 router.get('/category/:category', productController.getProductsByCategory);
 router.get('/project/:projectId', productController.getProductsByProject);
 router.get('/:productId', productController.getProductById);
