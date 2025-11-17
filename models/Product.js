@@ -240,6 +240,11 @@ const productSchema = new mongoose.Schema({
     default: 'draft' 
   },
   
+  // Simple product categorization
+  isPopular: { type: Boolean, default: false },
+  isBestSeller: { type: Boolean, default: false },
+  isTrending: { type: Boolean, default: false },
+  
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });
