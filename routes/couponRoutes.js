@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const couponController = require('../controllers/couponController');
+// controllers filename in repo uses 'couponControllers.js' (plural);
+// require that existing file so module resolution succeeds.
+const couponController = require('../controllers/couponControllers');
 const auth = require('../middlewares/auth');
 
 /**

@@ -6,6 +6,16 @@ const admin = require('firebase-admin');
 const initializeReferralSystem = require('./scripts/initializeReferralSystem');
 const connectDB = require('./config/database'); // ✅ Use centralized DB connection
 
+// Handle unhandled rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  process.exit(1);
+});
+
 // Import routes
 const authRoutes = require('./routes/auth');
 const productRoutes = require('./routes/products');
@@ -20,6 +30,7 @@ const planRoutes = require('./routes/plans');
 const cartRoutes = require('./routes/cartRoutes');
 const wishlistRoutes = require('./routes/wishlistRoutes');
 const imageStoreRoutes = require('./routes/imageStore');
+const couponRoutes = require('./routes/couponRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -75,14 +86,45 @@ try {
     console.log('✅ Connected to epi_backend database');
 
     // Initialize referral system after DB connection
-    initializeReferralSystem();
+    try {
+      initializeReferralSystem();
+    } catch (refErr) {
+      console.warn('⚠️ Referral system initialization warning:', refErr.message);
+    }
+
+    // Start server AFTER successful database connection
+    const HOST = '0.0.0.0';
+    const server = app.listen(PORT, HOST, () => {
+      console.log('');
+      console.log('🚀 ════════════════════════════════════════════════');
+      console.log(`   Server running on ${HOST}:${PORT}`);
+      console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log('🚀 ════════════════════════════════════════════════');
+      console.log('');
+      console.log('📋 Status:');
+      console.log('   ✅ MongoDB: Connected');
+      console.log('   ✅ JWT Auth: Enabled');
+      console.log('');
+      console.log('🌐 Access URLs:');
+      console.log(`   Local:    http://localhost:${PORT}`);
+      console.log(`   Network:  http://${HOST}:${PORT}`);
+      console.log('');
+      console.log('📚 API Endpoints:');
+      console.log(`   Health:      GET  http://${HOST}:${PORT}/`);
+      console.log(`   Auth:        POST http://${HOST}:${PORT}/api/auth/login`);
+      console.log('');
+    });
+
+    // Handle server errors
+    server.on('error', (err) => {
+      console.error('❌ Server error:', err);
+      process.exit(1);
+    });
   } catch (err) {
     console.error('❌ MongoDB connection failed:', err.message);
     process.exit(1);
   }
 })();
-
-// ====== Routes ======
 app.use('/api/auth', authRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/products', productRoutes);
@@ -96,7 +138,7 @@ app.use('/api/plans', planRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/wishlist', wishlistRoutes);
 app.use('/api/images', imageStoreRoutes);
-
+app.use('/api', couponRoutes);
 
 
 app.get('/', (req, res) => {
@@ -108,37 +150,6 @@ app.use((err, req, res, next) => {
   console.error('Error:', err);
   res.status(500).json({ success: false, error: err.message });
 });
-
-// ====== Start Server ======
-
-
-// ====== Start Server ======
-const HOST = '0.0.0.0';
-
-const server = app.listen(PORT, HOST, () => {
-  console.log('');
-  console.log('🚀 ════════════════════════════════════════════════');
-  console.log(`   Server running on ${HOST}:${PORT}`);
-  console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log('🚀 ════════════════════════════════════════════════');
-  console.log('');
-  console.log('📋 Status:');
-  console.log('   ✅ MongoDB: Connected');
-  console.log('   ✅ JWT Auth: Enabled');
-  console.log('');
-  console.log('🌐 Access URLs:');
-  console.log(`   Local:    http://localhost:${PORT}`);
-  console.log(`   Network:  http://${HOST}:${PORT}`);
-  console.log('');
-  console.log('📚 API Endpoints:');
-  console.log(`   Health:      GET  http://${HOST}:${PORT}/`);
-  console.log(`   Auth:        POST http://${HOST}:${PORT}/api/auth/login`);
-  console.log('');
-});
-
-// const server = app.listen(PORT, () => {
-//   console.log(`🚀 Server is running on port ${PORT}`);
-// });
 
 module.exports = app;
 
