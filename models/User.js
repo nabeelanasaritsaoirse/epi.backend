@@ -29,9 +29,10 @@ const userSchema = new Schema(
     phoneNumber: {
       type: String,
       default: "",
+      sparse: true,
       validate: {
         validator: function (v) {
-          return /^[0-9]{10}$/.test(v); // exactly 10 digits
+          return !v || /^[0-9]{10}$/.test(v); // exactly 10 digits or empty
         },
         message: (props) =>
           `${props.value} is not a valid 10-digit phone number`,
