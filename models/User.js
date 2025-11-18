@@ -27,7 +27,14 @@ const userSchema = new Schema({
 
   phoneNumber: {
     type: String,
-    default: ''
+    default: '',
+    sparse: true,
+    validate: {
+      validator: function(v) {
+        return !v || /^\+?[1-9]\d{1,14}$/.test(v);
+      },
+      message: props => `${props.value} is not a valid phone number!`
+    }
   },
 
   deviceToken: {
