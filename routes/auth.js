@@ -321,6 +321,85 @@ router.post("/signup", async (req, res) => {
   }
 });
 
+
+router.put("/profiles/:userId", verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // Destructure and exclude email and phoneNumber
+    const {
+      email,
+      phoneNumber,
+      firebaseUid, // Also exclude firebaseUid for security
+      __v,
+      _id,
+      createdAt,
+      ...allowedFields
+    } = req.body;
+
+    // Check if user is updating their own profile or is an admin
+    if (req.user._id.toString() !== userId && req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: "You can only update your own profile",
+        code: "FORBIDDEN"
+      });
+    }
+
+    // Check if user exists
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+        code: "USER_NOT_FOUND"
+      });
+    }
+
+    // Warn if email or phoneNumber were attempted to be updated
+    if (email !== undefined || phoneNumber !== undefined) {
+      console.log('Attempted to update email/phone for user:', userId);
+    }
+
+    if (Object.keys(allowedFields).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No valid fields to update. Email and phone number cannot be modified.",
+        code: "NO_UPDATE_FIELDS"
+      });
+    }
+
+    // Update the user with all allowed fields
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { $set: allowedFields },
+      { new: true, runValidators: true }
+    ).select("-__v");
+
+    if (!updatedUser) {
+      return res.status(404).json({
+        success: false,
+        message: "Failed to update user",
+        code: "UPDATE_FAILED"
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
+      data: updatedUser
+    });
+  } catch (error) {
+    console.error('Profile update error:', error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message
+    });
+  }
+});
+
+
 router.post("/checkUserExists", async (req, res) => {
   try {
     const { email, phoneNumber } = req.body;
@@ -973,6 +1052,7 @@ router.put("/:userId/agree-terms", verifyToken, async (req, res) => {
     });
   }
 });
+
 
 
 module.exports = router;
