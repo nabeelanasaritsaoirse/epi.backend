@@ -15,14 +15,18 @@ router.post('/admin/create', verifyToken, isAdmin, async (req, res) => {
       return res.status(400).json({ message: 'Name, email and password are required' });
     }
 
+    // ⭐ PHONE NUMBER VALIDATION
+    if (phoneNumber && !/^[0-9]{10}$/.test(phoneNumber)) {
+      return res.status(400).json({ message: 'Phone number must be exactly 10 digits' });
+    }
+
     // Check if email exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ message: 'Email already exists' });
     }
 
-    // IMPORTANT: Admin-created users MUST have firebaseUid.
-    // We will auto-generate a random one so your model does not break.
+    // auto UID
     const randomFirebaseUid = 'admin-created-' + Math.random().toString(36).substring(2);
 
     const newUser = new User({
@@ -48,10 +52,16 @@ router.post('/admin/create', verifyToken, isAdmin, async (req, res) => {
   }
 });
 
+
 // UPDATE USER (ADMIN ONLY)
 router.put('/admin/:userId', verifyToken, isAdmin, async (req, res) => {
   try {
     const { name, email, phoneNumber, role, isActive, referralLimit } = req.body;
+
+    // ⭐ PHONE NUMBER VALIDATION
+    if (phoneNumber !== undefined && !/^[0-9]{10}$/.test(phoneNumber)) {
+      return res.status(400).json({ message: 'Phone number must be exactly 10 digits' });
+    }
 
     const updates = {};
 
@@ -85,6 +95,7 @@ router.put('/admin/:userId', verifyToken, isAdmin, async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
+
 
 // DELETE USER (ADMIN ONLY)
 router.delete('/admin/:userId', verifyToken, isAdmin, async (req, res) => {
