@@ -23,8 +23,14 @@ const categorySchema = new mongoose.Schema({
     trim: true
   },
   image: {
+    imageStoreId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ImageStore'
+    },
     url: String,
-    altText: String
+    altText: String,
+    width: Number,
+    height: Number
   },
   parentCategoryId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -47,6 +53,14 @@ const categorySchema = new mongoose.Schema({
     title: String,
     description: String,
     keywords: [String]
+  },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  updatedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
   },
   createdAt: {
     type: Date,

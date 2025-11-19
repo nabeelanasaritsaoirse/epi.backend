@@ -37,6 +37,7 @@ app.use(
       "http://127.0.0.1:5500",
       "http://localhost:5500",
 
+<<<<<<< Updated upstream
       "http://127.0.0.1:3000",
       "http://localhost:3000",
 
@@ -62,6 +63,35 @@ app.use(
 app.use(express.json({ limit: "10mb" }));
 
 // Handle invalid JSON
+=======
+// ====== Mount all routes BEFORE server starts ======
+app.use('/api/auth', authRoutes);
+app.use('/api/categories', categoryRoutes);
+app.use('/api/products', productRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/wallet', walletRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/orders', orderRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/referrals', referralRoutes);
+app.use('/api/plans', planRoutes);
+app.use('/api/cart', cartRoutes);
+app.use('/api/wishlist', wishlistRoutes);
+app.use('/api/images', imageStoreRoutes);
+app.use('/api', couponRoutes);
+
+app.get('/', (req, res) => {
+  res.send('Epi Backend API is running ✅');
+});
+
+// ====== Global Error Handler ======
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+  res.status(500).json({ success: false, error: err.message });
+});
+
+// JSON parse error handler
+>>>>>>> Stashed changes
 app.use((err, req, res, next) => {
   if (err?.type === "entity.parse.failed") {
     return res.status(400).json({
@@ -113,6 +143,7 @@ try {
     process.exit(1);
   }
 })();
+<<<<<<< Updated upstream
 
 // ======================================================================
 // ROUTES
@@ -156,5 +187,7 @@ const HOST = "0.0.0.0";
 app.listen(PORT, HOST, () => {
   console.log(`🚀 Server running at http://${HOST}:${PORT}`);
 });
+=======
+>>>>>>> Stashed changes
 
 module.exports = app;

@@ -1,4 +1,6 @@
 const Category = require('../models/Category');
+const ImageStore = require('../models/ImageStore');
+const { deleteImageFromS3 } = require('../services/awsUploadService');
 
 /**
  * @desc    Create a new category
@@ -7,7 +9,8 @@ const Category = require('../models/Category');
  */
 exports.createCategory = async (req, res) => {
   try {
-    const { name, description, parentCategoryId, image, meta, displayOrder } = req.body;
+    const { name, description, parentCategoryId, altText, meta, displayOrder } = req.body;
+    const userId = req.user ? req.user._id : null;
 
     // Validate required fields
     if (!name) {
@@ -53,17 +56,49 @@ exports.createCategory = async (req, res) => {
       .replace(/[\s_]+/g, '-')
       .replace(/^-+|-+$/g, '');
 
+    // Handle image upload if provided
+    let imageData = {};
+    if (req.file && req.file.s3Url) {
+      // Create ImageStore entry
+      const imageStore = new ImageStore({
+        imagePath: req.file.s3Key,
+        imageUrl: req.file.s3Url,
+        title: `Category: ${name}`,
+        type: 'category',
+        platform: 'both',
+        width: req.file.width,
+        height: req.file.height,
+        fileSize: req.file.size,
+        mimeType: req.file.mimetype,
+        altText: altText || name,
+        description,
+        metadata: { categoryName: name },
+        createdBy: userId
+      });
+
+      const savedImage = await imageStore.save();
+
+      imageData = {
+        imageStoreId: savedImage._id,
+        url: savedImage.imageUrl,
+        altText: altText || name,
+        width: req.file.width,
+        height: req.file.height
+      };
+    }
+
     const newCategory = new Category({
       categoryId,
       name,
       description,
       slug,
-      image: image || {},
+      image: imageData,
       parentCategoryId: parentCategoryId || null,
       subCategories: [],
       displayOrder: displayOrder || 0,
       meta: meta || {},
-      isActive: true
+      isActive: true,
+      createdBy: userId
     });
 
     await newCategory.save();
@@ -76,6 +111,9 @@ exports.createCategory = async (req, res) => {
         { new: true }
       );
     }
+
+    // Populate image reference
+    await newCategory.populate('image.imageStoreId');
 
     res.status(201).json({
       success: true,
@@ -240,7 +278,8 @@ exports.getCategoriesForDropdown = async (req, res) => {
 exports.updateCategory = async (req, res) => {
   try {
     const { categoryId } = req.params;
-    const { name, description, image, meta, displayOrder, isActive, parentCategoryId } = req.body;
+    const { name, description, meta, displayOrder, isActive, parentCategoryId, altText } = req.body;
+    const userId = req.user ? req.user._id : null;
 
     const category = await Category.findById(categoryId);
 
@@ -297,10 +336,67 @@ exports.updateCategory = async (req, res) => {
     }
 
     if (description !== undefined) category.description = description;
-    if (image !== undefined) category.image = image;
     if (meta !== undefined) category.meta = meta;
     if (displayOrder !== undefined) category.displayOrder = displayOrder;
     if (isActive !== undefined) category.isActive = isActive;
+    if (userId) category.updatedBy = userId;
+
+    // Handle image upload if new file provided
+    if (req.file && req.file.s3Url) {
+      // Delete old image from ImageStore if exists
+      if (category.image && category.image.imageStoreId) {
+        try {
+          const oldImage = await ImageStore.findById(category.image.imageStoreId);
+          if (oldImage) {
+            await deleteImageFromS3(oldImage.imageUrl);
+            await ImageStore.findByIdAndDelete(category.image.imageStoreId);
+          }
+        } catch (error) {
+          console.error('Error deleting old image:', error);
+        }
+      }
+
+      // Create new ImageStore entry
+      const imageStore = new ImageStore({
+        imagePath: req.file.s3Key,
+        imageUrl: req.file.s3Url,
+        title: `Category: ${category.name}`,
+        type: 'category',
+        platform: 'both',
+        width: req.file.width,
+        height: req.file.height,
+        fileSize: req.file.size,
+        mimeType: req.file.mimetype,
+        altText: altText || category.name,
+        description: category.description,
+        metadata: { categoryName: category.name },
+        createdBy: userId
+      });
+
+      const savedImage = await imageStore.save();
+
+      category.image = {
+        imageStoreId: savedImage._id,
+        url: savedImage.imageUrl,
+        altText: altText || category.name,
+        width: req.file.width,
+        height: req.file.height
+      };
+    } else if (altText !== undefined) {
+      // Update altText without changing image
+      if (category.image) {
+        category.image.altText = altText;
+        
+        // Also update in ImageStore if referenced
+        if (category.image.imageStoreId) {
+          await ImageStore.findByIdAndUpdate(
+            category.image.imageStoreId,
+            { altText },
+            { new: true }
+          );
+        }
+      }
+    }
 
     // Handle parent category change
     if (parentCategoryId !== undefined) {
@@ -328,6 +424,9 @@ exports.updateCategory = async (req, res) => {
     }
 
     await category.save();
+
+    // Populate image reference
+    await category.populate('image.imageStoreId');
 
     res.status(200).json({
       success: true,
@@ -373,7 +472,35 @@ exports.deleteCategory = async (req, res) => {
 
     // If force delete with subcategories, delete all subcategories first
     if (force && category.subCategories && category.subCategories.length > 0) {
+      // Delete images from subcategories
+      const subCats = await Category.find({ _id: { $in: category.subCategories } });
+      for (const subCat of subCats) {
+        if (subCat.image && subCat.image.imageStoreId) {
+          try {
+            const image = await ImageStore.findById(subCat.image.imageStoreId);
+            if (image) {
+              await deleteImageFromS3(image.imageUrl);
+              await ImageStore.findByIdAndDelete(subCat.image.imageStoreId);
+            }
+          } catch (error) {
+            console.error('Error deleting subcategory image:', error);
+          }
+        }
+      }
       await Category.deleteMany({ _id: { $in: category.subCategories } });
+    }
+
+    // Delete image from ImageStore if exists
+    if (category.image && category.image.imageStoreId) {
+      try {
+        const image = await ImageStore.findById(category.image.imageStoreId);
+        if (image) {
+          await deleteImageFromS3(image.imageUrl);
+          await ImageStore.findByIdAndDelete(category.image.imageStoreId);
+        }
+      } catch (error) {
+        console.error('Error deleting category image:', error);
+      }
     }
 
     // Remove from parent's subCategories if it's a subcategory
@@ -464,6 +591,149 @@ exports.reorderCategories = async (req, res) => {
     });
   } catch (error) {
     console.error('Error reordering categories:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Upload/Replace category image
+ * @route   POST /api/categories/:categoryId/upload-image
+ * @access  Admin
+ */
+exports.uploadCategoryImage = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+    const { altText } = req.body;
+    const userId = req.user ? req.user._id : null;
+
+    if (!req.file || !req.file.s3Url) {
+      return res.status(400).json({
+        success: false,
+        message: 'Image file is required'
+      });
+    }
+
+    const category = await Category.findById(categoryId);
+
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: 'Category not found'
+      });
+    }
+
+    // Delete old image if exists
+    if (category.image && category.image.imageStoreId) {
+      try {
+        const oldImage = await ImageStore.findById(category.image.imageStoreId);
+        if (oldImage) {
+          await deleteImageFromS3(oldImage.imageUrl);
+          await ImageStore.findByIdAndDelete(category.image.imageStoreId);
+        }
+      } catch (error) {
+        console.error('Error deleting old image:', error);
+      }
+    }
+
+    // Create new ImageStore entry
+    const imageStore = new ImageStore({
+      imagePath: req.file.s3Key,
+      imageUrl: req.file.s3Url,
+      title: `Category: ${category.name}`,
+      type: 'category',
+      platform: 'both',
+      width: req.file.width,
+      height: req.file.height,
+      fileSize: req.file.size,
+      mimeType: req.file.mimetype,
+      altText: altText || category.name,
+      description: category.description,
+      metadata: { categoryName: category.name },
+      createdBy: userId
+    });
+
+    const savedImage = await imageStore.save();
+
+    // Update category image
+    category.image = {
+      imageStoreId: savedImage._id,
+      url: savedImage.imageUrl,
+      altText: altText || category.name,
+      width: req.file.width,
+      height: req.file.height
+    };
+
+    category.updatedBy = userId;
+    await category.save();
+
+    // Populate image reference
+    await category.populate('image.imageStoreId');
+
+    res.status(200).json({
+      success: true,
+      message: 'Category image uploaded successfully',
+      data: category
+    });
+  } catch (error) {
+    console.error('Error uploading category image:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Delete category image
+ * @route   DELETE /api/categories/:categoryId/image
+ * @access  Admin
+ */
+exports.deleteCategoryImage = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+    const userId = req.user ? req.user._id : null;
+
+    const category = await Category.findById(categoryId);
+
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: 'Category not found'
+      });
+    }
+
+    if (!category.image || !category.image.imageStoreId) {
+      return res.status(400).json({
+        success: false,
+        message: 'No image to delete'
+      });
+    }
+
+    // Delete image from S3 and ImageStore
+    try {
+      const image = await ImageStore.findById(category.image.imageStoreId);
+      if (image) {
+        await deleteImageFromS3(image.imageUrl);
+        await ImageStore.findByIdAndDelete(category.image.imageStoreId);
+      }
+    } catch (error) {
+      console.error('Error deleting image from S3:', error);
+    }
+
+    // Clear image reference from category
+    category.image = {};
+    category.updatedBy = userId;
+    await category.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Category image deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting category image:', error);
     res.status(500).json({
       success: false,
       message: error.message

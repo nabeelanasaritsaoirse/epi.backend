@@ -1,14 +1,46 @@
 const express = require('express');
 const router = express.Router();
 const productController = require('../controllers/productController');
+<<<<<<< Updated upstream
 const productFeaturedController = require('../controllers/productFeaturedController');
+=======
+const { verifyToken, isAdmin } = require('../middlewares/auth');
+>>>>>>> Stashed changes
 
-// Basic product routes
-router.post('/', productController.createProduct);
+// Basic product routes with image upload
+router.post('/', 
+  productController.upload.array('images', 10), // Max 10 images
+  productController.processAndUploadImages,
+  productController.createProduct
+);
+
+router.put('/:productId', 
+  productController.upload.array('images', 10),
+  productController.processAndUploadImages,
+  productController.updateProduct
+);
+
+// Image management routes
+router.post('/:productId/images',
+  productController.upload.array('images', 10),
+  productController.processAndUploadImages,
+  productController.addProductImages
+);
+
+router.delete('/:productId/images/:imageIndex', productController.deleteProductImage);
+
+// Featured products routes
+router.post('/:productId/mark-featured', verifyToken, isAdmin, productController.markAsFeatured);
+router.post('/:productId/remove-featured', verifyToken, isAdmin, productController.removeFromFeatured);
+router.post('/bulk/update-featured', verifyToken, isAdmin, productController.bulkUpdateFeatured);
+router.put('/featured/reorder', verifyToken, isAdmin, productController.reorderFeatured);
+
+// Keep all your existing routes...
 router.get('/', productController.getAllProducts);
 router.get('/stats', productController.getProductStats);
 router.get('/search', productController.searchProductsAdvanced);
 router.get('/low-stock', productController.getLowStockProducts);
+<<<<<<< Updated upstream
 
 // Featured product routes - MUST be before /:productId routes
 router.get('/featured/all', productFeaturedController.getAllFeaturedProducts);
@@ -17,12 +49,14 @@ router.get('/featured/best-sellers', productFeaturedController.getBestSellerProd
 router.get('/featured/trending', productFeaturedController.getTrendingProducts);
 
 // Category and project routes
+=======
+router.get('/featured', productController.getFeaturedProducts);
+>>>>>>> Stashed changes
 router.get('/category/:category', productController.getProductsByCategory);
 router.get('/project/:projectId', productController.getProductsByProject);
 
 // Individual product routes
 router.get('/:productId', productController.getProductById);
-router.put('/:productId', productController.updateProduct);
 router.delete('/:productId', productController.deleteProduct);
 
 // Mark products as popular/bestseller/trending
