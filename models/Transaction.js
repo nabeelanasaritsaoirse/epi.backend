@@ -7,25 +7,49 @@ const transactionSchema = new Schema({
     ref: 'User',
     required: true
   },
+
+  /* ---------------- TRANSACTION TYPES ---------------- */
   type: {
     type: String,
-    enum: ['deposit', 'withdrawal', 'purchase', 'refund', 'referral', 'plan_payment'],
+    enum: [
+      "referral_commission",      // 20% per EMI
+      "installment_commission",   // your own 10% per EMI
+      "withdrawal",
+      "refund",
+      "bonus",
+      "investment",
+      "commission",
+      "purchase",
+      "emi_payment"               // EMI paid by user
+    ],
     required: true
   },
+
   amount: {
     type: Number,
     required: true
   },
+
   status: {
     type: String,
-    enum: ['pending', 'completed', 'failed', 'cancelled'],
-    default: 'pending'
+    enum: ["pending", "completed", "failed", "cancelled"],
+    default: "pending"
   },
+
   paymentMethod: {
     type: String,
-    enum: ['razorpay', 'bank_transfer', 'upi', 'referral_bonus', 'system', 'card'],
-    required: true
+    enum: [
+      "razorpay",
+      "bank_transfer",
+      "upi",
+      "referral_bonus",
+      "system",
+      "card"
+    ],
+    default: "system"
   },
+
+  /* ---------------- PAYMENT DETAILS ---------------- */
   paymentDetails: {
     orderId: String,
     paymentId: String,
@@ -35,36 +59,44 @@ const transactionSchema = new Schema({
     upiId: String,
     referralCode: String,
     cardNumber: String,
-    bank: String
+    bank: String,
+
+    // 🔥 IMPORTANT FOR EMI LOGIC
+    emiNumber: Number,             // 1st, 2nd, 3rd installment etc
+    totalEmis: Number,             // total EMI count
+    isCommissionProcessed: {       // prevents duplicate commission
+      type: Boolean,
+      default: false
+    }
   },
+
+  /* ---------------- LINK TO PRODUCT/PLAN ---------------- */
   product: {
     type: Schema.Types.ObjectId,
-    ref: 'Product'
+    ref: "Product"
   },
-  plan: {
+
+  order: {
     type: Schema.Types.ObjectId,
-    ref: 'Plan'
+    ref: "Order"
   },
+
   savedPlan: {
-    type: Schema.Types.ObjectId,
-    ref: 'User.savedPlans'
+    type: Schema.Types.ObjectId
   },
-  description: {
-    type: String
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
-  },
-  updatedAt: {
-    type: Date,
-    default: Date.now
-  }
+
+  /* ---------------- DESCRIPTIVE LOG ---------------- */
+  description: { type: String, default: "" },
+
+  /* ---------------- TIMESTAMPS ---------------- */
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
 });
 
-transactionSchema.pre('save', function(next) {
+/* Auto update updatedAt */
+transactionSchema.pre("save", function (next) {
   this.updatedAt = Date.now();
   next();
 });
 
-module.exports = mongoose.model('Transaction', transactionSchema); 
+module.exports = mongoose.model("Transaction", transactionSchema);
