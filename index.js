@@ -123,6 +123,7 @@ app.use("/api/categories", categoryRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/wallet", walletRoutes);
+app.use("/api/admin/wallet", require("./routes/adminWallet"));
 app.use("/api/referral", referralCommissionRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/orders", orderRoutes);
