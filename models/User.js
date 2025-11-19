@@ -43,14 +43,17 @@ const userSchema = new Schema(
     profilePicture: { type: String, default: "" },
     firebaseUid: { type: String, required: true, unique: true },
 
-    phoneNumber: {
-      type: String,
-      default: "",
-      validate: {
-        validator: (v) => /^[0-9]{10}$/.test(v),
-        message: (props) => `${props.value} is not a valid 10-digit phone number`,
+  phoneNumber: {
+    type: String,
+    default: '',
+    sparse: true,
+    validate: {
+      validator: function(v) {
+        return !v || /^\+?[1-9]\d{1,14}$/.test(v);
       },
-    },
+      message: props => `${props.value} is not a valid phone number!`
+    }
+  },
 
     deviceToken: { type: String, default: "" },
 
