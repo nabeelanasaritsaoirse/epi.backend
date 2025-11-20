@@ -39,7 +39,7 @@ app.use(
       "http://127.0.0.1:5500",
       "http://localhost:5500",
 
-<<<<<<< Updated upstream
+
       "http://127.0.0.1:3000",
       "http://localhost:3000",
 
@@ -145,10 +145,10 @@ try {
     process.exit(1);
   }
 })();
-<<<<<<< Updated upstream
+
 
 // ======================================================================
-<<<<<<< Updated upstream
+
 // ROUTES
 // ======================================================================
 app.use("/api/auth", authRoutes);
@@ -170,8 +170,8 @@ app.use("/api/images", imageStoreRoutes);
 app.use("/api/banners", bannerRoutes);
 app.use("/api/success-stories", successStoryRoutes);
 
-=======
->>>>>>> Stashed changes
+
+
 // ROOT CHECK
 // ======================================================================
 app.get("/", (req, res) => {
@@ -280,7 +280,8 @@ app.listen(PORT, HOST, () => {
   console.log(`   - /api/notifications - Notifications (In-App & System)`);
   console.log(`   - /api/admin - Admin Panel`);
 });
-=======
->>>>>>> Stashed changes
+
+
 
 module.exports = app;
+
