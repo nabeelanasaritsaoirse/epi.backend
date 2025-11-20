@@ -29,7 +29,7 @@ router.get("/", verifyToken, isAdmin, async (req, res) => {
     if (phone) {
       phoneQuery = {
         phoneNumber: {
-          $in: [phone, [+91${phone}](http://_vscodecontentref_/1), `91${phone}`],
+          $in: [phone, `+91${phone}`, `91${phone}`],
         },
       };
     }
@@ -105,7 +105,7 @@ router.post("/credit", verifyToken, isAdmin, async (req, res) => {
     if (phone) {
       phoneQuery = {
         phoneNumber: {
-          $in: [phone, [+91${phone}](http://_vscodecontentref_/1), `91${phone}`],
+          $in: [phone, `+91${phone}`, `91${phone}`],
         },
       };
     }
@@ -162,7 +162,7 @@ router.post("/debit", verifyToken, isAdmin, async (req, res) => {
     if (phone) {
       phoneQuery = {
         phoneNumber: {
-          $in: [phone, [+91${phone}](http://_vscodecontentref_/1), `91${phone}`],
+          $in: [phone, `+91${phone}`, `91${phone}`],
         },
       };
     }
@@ -219,7 +219,7 @@ router.post("/unlock", verifyToken, isAdmin, async (req, res) => {
     if (phone) {
       phoneQuery = {
         phoneNumber: {
-          $in: [phone, [+91${phone}](http://_vscodecontentref_/1), `91${phone}`],
+          $in: [phone, `+91${phone}`, `91${phone}`],
         },
       };
     }
