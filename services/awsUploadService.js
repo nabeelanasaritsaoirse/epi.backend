@@ -3,6 +3,12 @@ const multer = require('multer');
 const sharp = require('sharp');
 const path = require('path');
 
+// Validate AWS credentials
+if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
+  console.warn('⚠️  WARNING: AWS credentials not found in environment variables!');
+  console.warn('⚠️  S3 uploads will fail. Please set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in .env file');
+}
+
 const s3Client = new S3Client({
   region: process.env.AWS_REGION || 'ap-south-1',
   credentials: {
@@ -12,6 +18,11 @@ const s3Client = new S3Client({
 });
 
 const BUCKET_NAME = process.env.AWS_S3_BUCKET_NAME || 'company-video-storage-prod';
+
+console.log('✅ AWS S3 Service initialized');
+console.log('   Region:', process.env.AWS_REGION || 'ap-south-1');
+console.log('   Bucket:', BUCKET_NAME);
+console.log('   Credentials:', process.env.AWS_ACCESS_KEY_ID ? '✓ Set' : '✗ Missing');
 
 const uploadToS3 = async (fileBuffer, folder, fileName) => {
   try {
@@ -33,8 +44,8 @@ const uploadToS3 = async (fileBuffer, folder, fileName) => {
       Bucket: BUCKET_NAME,
       Key: key,
       Body: fileBuffer,
-      ContentType: 'image/jpeg',
-      ACL: 'public-read'
+      ContentType: 'image/jpeg'
+      // ACL removed - use bucket policy for public access instead
     };
 
     const command = new PutObjectCommand(params);
@@ -46,7 +57,23 @@ const uploadToS3 = async (fileBuffer, folder, fileName) => {
 
     return s3Url;
   } catch (error) {
-    console.error('Error in uploadToS3:', error);
+    console.error('❌ Error in uploadToS3:', error);
+    console.error('   Bucket:', BUCKET_NAME);
+    console.error('   Key:', `${folder}${fileName}`);
+    console.error('   Error Code:', error.Code || error.name);
+    console.error('   Error Message:', error.message);
+
+    // Provide helpful error messages for common issues
+    if (error.Code === 'NoSuchBucket') {
+      throw new Error(`S3 bucket '${BUCKET_NAME}' does not exist. Please check AWS_S3_BUCKET_NAME in .env`);
+    }
+    if (error.Code === 'InvalidAccessKeyId' || error.name === 'CredentialsProviderError') {
+      throw new Error('Invalid AWS credentials. Please check AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in .env');
+    }
+    if (error.Code === 'AccessDenied') {
+      throw new Error('Access denied to S3 bucket. Check IAM permissions or bucket policy');
+    }
+
     throw new Error(`S3 Upload Error: ${error.message}`);
   }
 };
