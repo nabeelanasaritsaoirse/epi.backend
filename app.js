@@ -12,8 +12,6 @@ const cartRoutes = require('./routes/cartRoutes'); // optional - keep if exists
 const categoriesRouter = require('./routes/categoryRoutes');
 // coupon router
 const couponRoutes = require('./routes/couponRoutes');
-// products router
-const productRoutes = require('./routes/productRoutes');
 
 // Initialize DB connection
 connectDB();
@@ -49,7 +47,6 @@ if (process.env.SIMULATE_USER_ID) {
 app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/categories', categoriesRouter);
-app.use('/api/products', productRoutes);
 // coupon endpoints (public + admin)
 app.use('/api', couponRoutes);
 

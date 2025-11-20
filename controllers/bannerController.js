@@ -1,5 +1,5 @@
 const Banner = require('../models/Banner');
-const { deleteImageFromS3, uploadSingleFileToS3 } = require('../services/awsUploadService');
+const { deleteImageFromS3 } = require('../services/awsUploadService');
 
 /**
  * Create a new banner with image upload
@@ -7,7 +7,7 @@ const { deleteImageFromS3, uploadSingleFileToS3 } = require('../services/awsUplo
 exports.createBanner = async (req, res) => {
   try {
     const { title, description, altText, linkUrl, targetBlank, displayOrder, platform, startDate, endDate } = req.body;
-    const userId = req.user?._id || 'test-user';
+    const userId = req.user._id;
 
     // Validate required fields
     if (!title) {
@@ -233,14 +233,7 @@ exports.updateBanner = async (req, res) => {
   try {
     const { id } = req.params;
     const { title, description, altText, linkUrl, targetBlank, displayOrder, platform, startDate, endDate, isActive } = req.body;
-    const userId = req.user?._id || 'test-user';
-
-    // Check if new file is uploaded
-    if (req.file) {
-      const { s3Url, s3Key } = await uploadSingleFileToS3(req.file);
-      req.body.imageUrl = s3Url;
-      req.body.imageKey = s3Key;
-    }
+    const userId = req.user._id;
 
     const banner = await Banner.findById(id);
 
@@ -288,7 +281,7 @@ exports.updateBanner = async (req, res) => {
 exports.replaceBannerImage = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user?._id || 'test-user';
+    const userId = req.user._id;
 
     if (!req.file) {
       return res.status(400).json({
@@ -347,7 +340,7 @@ exports.replaceBannerImage = async (req, res) => {
 exports.toggleBannerStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user?._id || 'test-user';
+    const userId = req.user._id;
 
     const banner = await Banner.findById(id);
 
@@ -384,7 +377,7 @@ exports.toggleBannerStatus = async (req, res) => {
 exports.deleteBanner = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user?._id || 'test-user';
+    const userId = req.user._id;
 
     const banner = await Banner.findById(id);
 
@@ -462,7 +455,7 @@ exports.permanentlyDeleteBanner = async (req, res) => {
 exports.restoreBanner = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user?._id || 'test-user';
+    const userId = req.user._id;
 
     const banner = await Banner.findById(id);
 
