@@ -10,13 +10,14 @@ const { verifyToken, isAdmin } = require("../middlewares/auth");
    Fetch Wallet by Email / Phone
 ----------------------------------------------------*/
 router.get("/", verifyToken, isAdmin, async (req, res) => {
+  console.log("QUERY RECEIVED:", req.query);
   try {
     const { email, phone } = req.query;
 
     if (!email && !phone) {
       return res.status(400).json({
         success: false,
-        message: "Email or phone required"
+        message: "Email or phone required",
       });
     }
 
@@ -27,27 +28,25 @@ router.get("/", verifyToken, isAdmin, async (req, res) => {
     let phoneQuery = {};
     if (phone) {
       phoneQuery = {
-        phoneNumber: { 
-          $in: [
-            phone,
-            `+91${phone}`,
-            `91${phone}`
-          ]
-        }
+        phoneNumber: {
+          $in: [phone, [+91${phone}](http://_vscodecontentref_/1), `91${phone}`],
+        },
       };
     }
 
-    const user = await User.findOne({
-      $or: [
-        email ? { email } : {},
-        phone ? phoneQuery : {}
-      ]
-    });
+    // Build $or conditions only for provided criteria
+    const orConditions = [];
+    if (email) orConditions.push({ email });
+    if (phone) orConditions.push(phoneQuery);
+    if (orConditions.length === 0) {
+      return res.status(400).json({ success: false, message: "Email or phone required" });
+    }
+    const user = await User.findOne({ $or: orConditions });
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: "User not found"
+        message: "User not found",
       });
     }
 
@@ -58,8 +57,9 @@ router.get("/", verifyToken, isAdmin, async (req, res) => {
     const refreshed = await User.findById(user._id);
 
     // TRANSACTIONS
-    const txns = await Transaction.find({ user: user._id })
-      .sort({ createdAt: -1 });
+    const txns = await Transaction.find({ user: user._id }).sort({
+      createdAt: -1,
+    });
 
     return res.json({
       success: true,
@@ -68,7 +68,7 @@ router.get("/", verifyToken, isAdmin, async (req, res) => {
         _id: refreshed._id,
         name: refreshed.name,
         email: refreshed.email,
-        phoneNumber: refreshed.phoneNumber
+        phoneNumber: refreshed.phoneNumber,
       },
 
       availableBalance: refreshed.availableBalance ?? refreshed.wallet.balance,
@@ -79,18 +79,16 @@ router.get("/", verifyToken, isAdmin, async (req, res) => {
       investedAmount: refreshed.wallet.investedAmount ?? 0,
       requiredInvestment: refreshed.wallet.requiredInvestment ?? 0,
 
-      transactions: txns
+      transactions: txns,
     });
-
   } catch (err) {
     console.error("Admin wallet GET error:", err);
     return res.status(500).json({
       success: false,
-      message: "Server error"
+      message: "Server error",
     });
   }
 });
-
 
 /* ---------------------------------------------------
    CREDIT MONEY (Admin Manual Add)
@@ -107,22 +105,24 @@ router.post("/credit", verifyToken, isAdmin, async (req, res) => {
     if (phone) {
       phoneQuery = {
         phoneNumber: {
-          $in: [phone, `+91${phone}`, `91${phone}`]
-        }
+          $in: [phone, [+91${phone}](http://_vscodecontentref_/1), `91${phone}`],
+        },
       };
     }
 
-    const user = await User.findOne({
-      $or: [
-        email ? { email } : {},
-        phone ? phoneQuery : {}
-      ]
-    });
+    // Build $or conditions only for provided criteria
+    const orConditions = [];
+    if (email) orConditions.push({ email });
+    if (phone) orConditions.push(phoneQuery);
+    if (orConditions.length === 0) {
+      return res.status(400).json({ success: false, message: "Email or phone required" });
+    }
+    const user = await User.findOne({ $or: orConditions });
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: "User not found"
+        message: "User not found",
       });
     }
 
@@ -132,22 +132,20 @@ router.post("/credit", verifyToken, isAdmin, async (req, res) => {
       amount,
       status: "completed",
       paymentMethod: "system",
-      description: description || "Admin credit"
+      description: description || "Admin credit",
     });
 
     await recalcWallet(user._id);
 
     return res.json({ success: true, message: "Amount credited" });
-
   } catch (err) {
     console.error("Admin credit error:", err);
     return res.status(500).json({
       success: false,
-      message: "Server error"
+      message: "Server error",
     });
   }
 });
-
 
 /* ---------------------------------------------------
    DEBIT MONEY (Admin Manual Deduction)
@@ -164,22 +162,24 @@ router.post("/debit", verifyToken, isAdmin, async (req, res) => {
     if (phone) {
       phoneQuery = {
         phoneNumber: {
-          $in: [phone, `+91${phone}`, `91${phone}`]
-        }
+          $in: [phone, [+91${phone}](http://_vscodecontentref_/1), `91${phone}`],
+        },
       };
     }
 
-    const user = await User.findOne({
-      $or: [
-        email ? { email } : {},
-        phone ? phoneQuery : {}
-      ]
-    });
+    // Build $or conditions only for provided criteria
+    const orConditions = [];
+    if (email) orConditions.push({ email });
+    if (phone) orConditions.push(phoneQuery);
+    if (orConditions.length === 0) {
+      return res.status(400).json({ success: false, message: "Email or phone required" });
+    }
+    const user = await User.findOne({ $or: orConditions });
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: "User not found"
+        message: "User not found",
       });
     }
 
@@ -189,22 +189,20 @@ router.post("/debit", verifyToken, isAdmin, async (req, res) => {
       amount,
       status: "completed",
       paymentMethod: "system",
-      description: description || "Admin debit"
+      description: description || "Admin debit",
     });
 
     await recalcWallet(user._id);
 
     return res.json({ success: true, message: "Amount deducted" });
-
   } catch (err) {
     console.error("Admin debit error:", err);
     return res.status(500).json({
       success: false,
-      message: "Server error"
+      message: "Server error",
     });
   }
 });
-
 
 /* ---------------------------------------------------
    UNLOCK REFERRAL HOLD
@@ -221,22 +219,24 @@ router.post("/unlock", verifyToken, isAdmin, async (req, res) => {
     if (phone) {
       phoneQuery = {
         phoneNumber: {
-          $in: [phone, `+91${phone}`, `91${phone}`]
-        }
+          $in: [phone, [+91${phone}](http://_vscodecontentref_/1), `91${phone}`],
+        },
       };
     }
 
-    const user = await User.findOne({
-      $or: [
-        email ? { email } : {},
-        phone ? phoneQuery : {}
-      ]
-    });
+    // Build $or conditions only for provided criteria
+    const orConditions = [];
+    if (email) orConditions.push({ email });
+    if (phone) orConditions.push(phoneQuery);
+    if (orConditions.length === 0) {
+      return res.status(400).json({ success: false, message: "Email or phone required" });
+    }
+    const user = await User.findOne({ $or: orConditions });
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: "User not found"
+        message: "User not found",
       });
     }
 
@@ -245,7 +245,7 @@ router.post("/unlock", verifyToken, isAdmin, async (req, res) => {
     if (unlocked <= 0) {
       return res.json({
         success: false,
-        message: "No hold balance to unlock"
+        message: "No hold balance to unlock",
       });
     }
 
@@ -259,21 +259,20 @@ router.post("/unlock", verifyToken, isAdmin, async (req, res) => {
       amount: unlocked,
       status: "completed",
       paymentMethod: "system",
-      description: "Admin unlock referral hold"
+      description: "Admin unlock referral hold",
     });
 
     await recalcWallet(user._id);
 
     return res.json({
       success: true,
-      message: "Referral unlocked"
+      message: "Referral unlocked",
     });
-
   } catch (err) {
     console.error("Admin unlock error:", err);
     return res.status(500).json({
       success: false,
-      message: "Server error"
+      message: "Server error",
     });
   }
 });
