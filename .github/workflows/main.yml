@@ -144,6 +144,11 @@ jobs:
           RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}
           ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL }}
           ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
+
+          AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION=ap-south-1
+          AWS_BUCKET_NAME=company-video-storage-prod
           ENVEND
           echo "🔁 Restarting PM2..."
           if pm2 describe epi-backend > /dev/null; then
