@@ -12,7 +12,9 @@ const authRoutes = require("./routes/auth");
 const productRoutes = require("./routes/products");
 const categoryRoutes = require("./routes/categoryRoutes");
 const userRoutes = require("./routes/users");
-const walletRoutes = require("./routes/wallet");
+const walletRoutes = require("./routes/wallet");        // USER WALLET
+const adminWalletRoutes = require("./routes/adminWallet"); // ADMIN WALLET
+
 const referralCommissionRoutes = require("./routes/referralCommission");
 const paymentRoutes = require("./routes/payments");
 const orderRoutes = require("./routes/orders");
@@ -31,7 +33,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ======================================================================
-// 🔥 PRODUCTION-COMPATIBLE CORS (FIXED, ALLOWS ADMIN PANEL + LOCALHOST)
+// CORS
 // ======================================================================
 app.use(
   cors({
@@ -42,40 +44,33 @@ app.use(
       "http://127.0.0.1:3000",
       "http://localhost:3000",
 
-      // Production frontend
       "https://epielio.com",
-
-      // Production backend
       "https://api.epielio.com",
-
-      // Production admin panel (if deployed)
       "https://admin.epielio.com"
     ],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true,
+    credentials: true
   })
 );
-
 
 // ======================================================================
 // BODY PARSER
 // ======================================================================
 app.use(express.json({ limit: "10mb" }));
 
-// Handle invalid JSON
 app.use((err, req, res, next) => {
   if (err?.type === "entity.parse.failed") {
     return res.status(400).json({
       success: false,
-      message: "Invalid JSON payload",
+      message: "Invalid JSON payload"
     });
   }
   next(err);
 });
 
 // ======================================================================
-// FIREBASE ADMIN INIT
+// FIREBASE INIT
 // ======================================================================
 try {
   const { FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY } =
@@ -90,8 +85,8 @@ try {
       credential: admin.credential.cert({
         project_id: FIREBASE_PROJECT_ID,
         client_email: FIREBASE_CLIENT_EMAIL,
-        private_key: privateKey,
-      }),
+        private_key: privateKey
+      })
     });
     console.log("🔥 Firebase initialized");
   } else {
@@ -102,13 +97,12 @@ try {
 }
 
 // ======================================================================
-// MONGODB CONNECTION
+// MONGO CONNECTION
 // ======================================================================
 (async () => {
   try {
     await connectDB();
     console.log("✅ MongoDB Connected");
-
     initializeReferralSystem();
   } catch (err) {
     console.error("❌ MongoDB connection failed:", err.message);
@@ -123,13 +117,19 @@ app.use("/api/auth", authRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/users", userRoutes);
+
+// USER WALLET ROUTES
 app.use("/api/wallet", walletRoutes);
+
+// ADMIN WALLET ROUTES (IMPORTANT)
+app.use("/api/admin/wallet", adminWalletRoutes);
+
 app.use("/api/referral", referralCommissionRoutes);
+app.use("/api/referral", referralRoutes);
+
 app.use("/api/payments", paymentRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/admin", adminRoutes);
-
-app.use("/api/referral", referralRoutes);
 
 app.use("/api/plans", planRoutes);
 app.use("/api/cart", cartRoutes);
@@ -139,18 +139,19 @@ app.use("/api/banners", bannerRoutes);
 app.use("/api/success-stories", successStoryRoutes);
 app.use("/api/installment", installmentRoutes);
 
-// ROOT CHECK
+// ======================================================================
+// ROOT
+// ======================================================================
 app.get("/", (req, res) => {
   res.send("Epi Backend API is running");
 });
 
-// GLOBAL ERROR HANDLER
+// ======================================================================
+// ERROR HANDLER
+// ======================================================================
 app.use((err, req, res, next) => {
   console.error("ERROR:", err.message);
-  res.status(500).json({
-    success: false,
-    error: err.message,
-  });
+  res.status(500).json({ success: false, error: err.message });
 });
 
 // ======================================================================
