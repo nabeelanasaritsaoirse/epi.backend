@@ -20,10 +20,27 @@ router.get("/", verifyToken, isAdmin, async (req, res) => {
       });
     }
 
+    // 🔥 FIXED PHONE SEARCH — supports:
+    // 1) 9876543210
+    // 2) +919876543210
+    // 3) 919876543210
+    let phoneQuery = {};
+    if (phone) {
+      phoneQuery = {
+        phoneNumber: { 
+          $in: [
+            phone,
+            `+91${phone}`,
+            `91${phone}`
+          ]
+        }
+      };
+    }
+
     const user = await User.findOne({
       $or: [
         email ? { email } : {},
-        phone ? { phoneNumber: phone } : {}
+        phone ? phoneQuery : {}
       ]
     });
 
@@ -40,7 +57,7 @@ router.get("/", verifyToken, isAdmin, async (req, res) => {
     // GET FRESH USER DATA
     const refreshed = await User.findById(user._id);
 
-    // GET TRANSACTIONS
+    // TRANSACTIONS
     const txns = await Transaction.find({ user: user._id })
       .sort({ createdAt: -1 });
 
@@ -54,7 +71,6 @@ router.get("/", verifyToken, isAdmin, async (req, res) => {
         phoneNumber: refreshed.phoneNumber
       },
 
-      // MUST RETURN THESE EXACT VALUES
       availableBalance: refreshed.availableBalance ?? refreshed.wallet.balance,
       totalBalance: refreshed.totalBalance ?? 0,
 
@@ -82,36 +98,56 @@ router.get("/", verifyToken, isAdmin, async (req, res) => {
 router.post("/credit", verifyToken, isAdmin, async (req, res) => {
   try {
     const { email, phone, amount, description } = req.body;
-    if (!email && !phone)
+
+    if (!email && !phone) {
       return res.json({ success: false, message: "Email or phone required" });
+    }
+
+    let phoneQuery = {};
+    if (phone) {
+      phoneQuery = {
+        phoneNumber: {
+          $in: [phone, `+91${phone}`, `91${phone}`]
+        }
+      };
+    }
 
     const user = await User.findOne({
-      $or: [email ? { email } : {}, phone ? { phoneNumber: phone } : {}],
+      $or: [
+        email ? { email } : {},
+        phone ? phoneQuery : {}
+      ]
     });
 
-    if (!user)
-      return res
-        .status(404)
-        .json({ success: false, message: "User not found" });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
 
-    // Create transaction
     await Transaction.create({
       user: user._id,
       type: "bonus",
       amount,
       status: "completed",
       paymentMethod: "system",
-      description: description || "Admin credit",
+      description: description || "Admin credit"
     });
 
     await recalcWallet(user._id);
 
     return res.json({ success: true, message: "Amount credited" });
+
   } catch (err) {
     console.error("Admin credit error:", err);
-    return res.status(500).json({ success: false, message: "Server error" });
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
   }
 });
+
 
 /* ---------------------------------------------------
    DEBIT MONEY (Admin Manual Deduction)
@@ -120,36 +156,55 @@ router.post("/debit", verifyToken, isAdmin, async (req, res) => {
   try {
     const { email, phone, amount, description } = req.body;
 
-    if (!email && !phone)
+    if (!email && !phone) {
       return res.json({ success: false, message: "Email or phone required" });
+    }
+
+    let phoneQuery = {};
+    if (phone) {
+      phoneQuery = {
+        phoneNumber: {
+          $in: [phone, `+91${phone}`, `91${phone}`]
+        }
+      };
+    }
 
     const user = await User.findOne({
-      $or: [email ? { email } : {}, phone ? { phoneNumber: phone } : {}],
+      $or: [
+        email ? { email } : {},
+        phone ? phoneQuery : {}
+      ]
     });
 
-    if (!user)
-      return res
-        .status(404)
-        .json({ success: false, message: "User not found" });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
 
-    // Create debit transaction
     await Transaction.create({
       user: user._id,
       type: "withdrawal",
       amount,
       status: "completed",
       paymentMethod: "system",
-      description: description || "Admin debit",
+      description: description || "Admin debit"
     });
 
     await recalcWallet(user._id);
 
     return res.json({ success: true, message: "Amount deducted" });
+
   } catch (err) {
     console.error("Admin debit error:", err);
-    return res.status(500).json({ success: false, message: "Server error" });
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
   }
 });
+
 
 /* ---------------------------------------------------
    UNLOCK REFERRAL HOLD
@@ -158,44 +213,68 @@ router.post("/unlock", verifyToken, isAdmin, async (req, res) => {
   try {
     const { email, phone } = req.body;
 
-    if (!email && !phone)
+    if (!email && !phone) {
       return res.json({ success: false, message: "Email or phone required" });
+    }
+
+    let phoneQuery = {};
+    if (phone) {
+      phoneQuery = {
+        phoneNumber: {
+          $in: [phone, `+91${phone}`, `91${phone}`]
+        }
+      };
+    }
 
     const user = await User.findOne({
-      $or: [email ? { email } : {}, phone ? { phoneNumber: phone } : {}],
+      $or: [
+        email ? { email } : {},
+        phone ? phoneQuery : {}
+      ]
     });
 
-    if (!user)
-      return res
-        .status(404)
-        .json({ success: false, message: "User not found" });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
 
-    // Unlock: move hold -> balance
     const unlocked = user.wallet.holdBalance;
 
-    if (unlocked <= 0)
-      return res.json({ success: false, message: "No hold balance to unlock" });
+    if (unlocked <= 0) {
+      return res.json({
+        success: false,
+        message: "No hold balance to unlock"
+      });
+    }
 
     user.wallet.balance += unlocked;
     user.wallet.holdBalance = 0;
     await user.save();
 
-    // Log unlock as transaction
     await Transaction.create({
       user: user._id,
       type: "bonus",
       amount: unlocked,
       status: "completed",
       paymentMethod: "system",
-      description: "Admin unlock referral hold",
+      description: "Admin unlock referral hold"
     });
 
     await recalcWallet(user._id);
 
-    return res.json({ success: true, message: "Referral unlocked" });
+    return res.json({
+      success: true,
+      message: "Referral unlocked"
+    });
+
   } catch (err) {
     console.error("Admin unlock error:", err);
-    return res.status(500).json({ success: false, message: "Server error" });
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
   }
 });
 
