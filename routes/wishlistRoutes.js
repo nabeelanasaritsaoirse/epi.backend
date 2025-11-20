@@ -3,14 +3,14 @@ const router = express.Router();
 const Wishlist = require('../models/Wishlist');
 const Product = require('../models/Product');
 
-// Using test auth middleware
-const { requireUser } = require('../middlewares/test-auth');
+// Using proper auth middleware
+const { verifyFirebaseToken } = require('../middlewares/auth');
 
 // POST /add/:productId
-router.post('/add/:productId', requireUser, async (req, res) => {
+router.post('/add/:productId', verifyFirebaseToken, async (req, res) => {
   try {
     const { productId } = req.params;
-    const userId = req.userId;
+    const userId = req.user._id;
 
     // Validate product exists
     const product = await Product.findById(productId);
@@ -37,9 +37,9 @@ router.post('/add/:productId', requireUser, async (req, res) => {
 });
 
 // GET /
-router.get('/', requireUser, async (req, res) => {
+router.get('/', verifyFirebaseToken, async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user._id;
     const wishlist = await Wishlist.findOne({ userId }).populate('products');
     res.json({ success: true, data: (wishlist && wishlist.products) || [] });
   } catch (error) {
@@ -49,10 +49,10 @@ router.get('/', requireUser, async (req, res) => {
 });
 
 // DELETE /remove/:productId
-router.delete('/remove/:productId', requireUser, async (req, res) => {
+router.delete('/remove/:productId', verifyFirebaseToken, async (req, res) => {
   try {
     const { productId } = req.params;
-    const userId = req.userId;
+    const userId = req.user._id;
 
     const wishlist = await Wishlist.findOne({ userId });
     if (!wishlist) return res.status(404).json({ success: false, message: 'Wishlist not found' });
