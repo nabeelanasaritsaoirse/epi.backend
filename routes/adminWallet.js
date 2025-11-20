@@ -1,21 +1,23 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
 
-const User = require('../models/User');
-const Transaction = require('../models/Transaction');
-const recalcWallet = require('../services/walletCalculator');
-const { verifyToken, isAdmin } = require('../middlewares/auth');
-
+const User = require("../models/User");
+const Transaction = require("../models/Transaction");
+const recalcWallet = require("../services/walletCalculator");
+const { verifyToken, isAdmin } = require("../middlewares/auth");
 
 /* ---------------------------------------------------
    Fetch Wallet by Email / Phone
 ----------------------------------------------------*/
-router.get('/', verifyToken, isAdmin, async (req, res) => {
+router.get("/", verifyToken, isAdmin, async (req, res) => {
   try {
     const { email, phone } = req.query;
 
     if (!email && !phone) {
-      return res.status(400).json({ success: false, message: 'Email or phone required' });
+      return res.status(400).json({
+        success: false,
+        message: "Email or phone required"
+      });
     }
 
     const user = await User.findOne({
@@ -25,35 +27,51 @@ router.get('/', verifyToken, isAdmin, async (req, res) => {
       ]
     });
 
-    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
 
-    // recalc wallet based on Transactions
-    await recalcWallet(user._id);
+    // RECALCULATE WALLET
+    await recalcWallet(String(user._id));
 
+    // GET FRESH USER DATA
     const refreshed = await User.findById(user._id);
 
-    const txns = await Transaction.find({ user: user._id }).sort({ createdAt: -1 });
+    // GET TRANSACTIONS
+    const txns = await Transaction.find({ user: user._id })
+      .sort({ createdAt: -1 });
 
     return res.json({
       success: true,
-      user: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        phoneNumber: user.phoneNumber,
-      },
-      availableBalance: refreshed.wallet.balance,
-      holdBalance: refreshed.wallet.holdBalance,
-      referralBonus: refreshed.wallet.referralBonus,
-      investedAmount: refreshed.wallet.investedAmount,
-      requiredInvestment: refreshed.wallet.requiredInvestment,
 
-      transactions: txns,
+      user: {
+        _id: refreshed._id,
+        name: refreshed.name,
+        email: refreshed.email,
+        phoneNumber: refreshed.phoneNumber
+      },
+
+      // MUST RETURN THESE EXACT VALUES
+      availableBalance: refreshed.availableBalance ?? refreshed.wallet.balance,
+      totalBalance: refreshed.totalBalance ?? 0,
+
+      holdBalance: refreshed.wallet.holdBalance ?? 0,
+      referralBonus: refreshed.wallet.referralBonus ?? 0,
+      investedAmount: refreshed.wallet.investedAmount ?? 0,
+      requiredInvestment: refreshed.wallet.requiredInvestment ?? 0,
+
+      transactions: txns
     });
 
   } catch (err) {
     console.error("Admin wallet GET error:", err);
-    return res.status(500).json({ success: false, message: "Server error" });
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
   }
 });
 
@@ -61,19 +79,20 @@ router.get('/', verifyToken, isAdmin, async (req, res) => {
 /* ---------------------------------------------------
    CREDIT MONEY (Admin Manual Add)
 ----------------------------------------------------*/
-router.post('/credit', verifyToken, isAdmin, async (req, res) => {
+router.post("/credit", verifyToken, isAdmin, async (req, res) => {
   try {
     const { email, phone, amount, description } = req.body;
-    if (!email && !phone) return res.json({ success: false, message: "Email or phone required" });
+    if (!email && !phone)
+      return res.json({ success: false, message: "Email or phone required" });
 
     const user = await User.findOne({
-      $or: [
-        email ? { email } : {},
-        phone ? { phoneNumber: phone } : {}
-      ]
+      $or: [email ? { email } : {}, phone ? { phoneNumber: phone } : {}],
     });
 
-    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    if (!user)
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
 
     // Create transaction
     await Transaction.create({
@@ -82,38 +101,36 @@ router.post('/credit', verifyToken, isAdmin, async (req, res) => {
       amount,
       status: "completed",
       paymentMethod: "system",
-      description: description || "Admin credit"
+      description: description || "Admin credit",
     });
 
     await recalcWallet(user._id);
 
     return res.json({ success: true, message: "Amount credited" });
-
   } catch (err) {
     console.error("Admin credit error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
-
 /* ---------------------------------------------------
    DEBIT MONEY (Admin Manual Deduction)
 ----------------------------------------------------*/
-router.post('/debit', verifyToken, isAdmin, async (req, res) => {
+router.post("/debit", verifyToken, isAdmin, async (req, res) => {
   try {
     const { email, phone, amount, description } = req.body;
 
-    if (!email && !phone) 
+    if (!email && !phone)
       return res.json({ success: false, message: "Email or phone required" });
 
     const user = await User.findOne({
-      $or: [
-        email ? { email } : {},
-        phone ? { phoneNumber: phone } : {}
-      ]
+      $or: [email ? { email } : {}, phone ? { phoneNumber: phone } : {}],
     });
 
-    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    if (!user)
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
 
     // Create debit transaction
     await Transaction.create({
@@ -122,24 +139,22 @@ router.post('/debit', verifyToken, isAdmin, async (req, res) => {
       amount,
       status: "completed",
       paymentMethod: "system",
-      description: description || "Admin debit"
+      description: description || "Admin debit",
     });
 
     await recalcWallet(user._id);
 
     return res.json({ success: true, message: "Amount deducted" });
-
   } catch (err) {
     console.error("Admin debit error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
-
 /* ---------------------------------------------------
    UNLOCK REFERRAL HOLD
 ----------------------------------------------------*/
-router.post('/unlock', verifyToken, isAdmin, async (req, res) => {
+router.post("/unlock", verifyToken, isAdmin, async (req, res) => {
   try {
     const { email, phone } = req.body;
 
@@ -147,13 +162,13 @@ router.post('/unlock', verifyToken, isAdmin, async (req, res) => {
       return res.json({ success: false, message: "Email or phone required" });
 
     const user = await User.findOne({
-      $or: [
-        email ? { email } : {},
-        phone ? { phoneNumber: phone } : {}
-      ]
+      $or: [email ? { email } : {}, phone ? { phoneNumber: phone } : {}],
     });
 
-    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    if (!user)
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
 
     // Unlock: move hold -> balance
     const unlocked = user.wallet.holdBalance;
@@ -172,18 +187,16 @@ router.post('/unlock', verifyToken, isAdmin, async (req, res) => {
       amount: unlocked,
       status: "completed",
       paymentMethod: "system",
-      description: "Admin unlock referral hold"
+      description: "Admin unlock referral hold",
     });
 
     await recalcWallet(user._id);
 
     return res.json({ success: true, message: "Referral unlocked" });
-
   } catch (err) {
     console.error("Admin unlock error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 });
-
 
 module.exports = router;
