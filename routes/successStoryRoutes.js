@@ -78,23 +78,8 @@ const processAndUploadImage = async (req, res, next) => {
 };
 
 // ============================================
-// SUCCESS STORY ROUTES
+// STATIC ROUTES (MUST BE BEFORE :id)
 // ============================================
-
-/**
- * POST /api/success-stories
- * Create a new success story with image (photo only)
- * Auth: Admin required
- * Body: multipart/form-data with image + fields
- */
-router.post('/', verifyToken, isAdmin, upload.single('image'), processAndUploadImage, successStoryController.createSuccessStory);
-
-/**
- * PUT /api/success-stories/:id/image
- * Replace success story image
- * Auth: Admin required
- */
-router.put('/:id/image', verifyToken, isAdmin, upload.single('image'), processAndUploadImage, successStoryController.replaceSuccessStoryImage);
 
 /**
  * GET /api/success-stories/public/active
@@ -117,6 +102,26 @@ router.get('/admin/all', verifyToken, isAdmin, successStoryController.getAllSucc
 router.get('/admin/stats', verifyToken, isAdmin, successStoryController.getSuccessStoryStats);
 
 /**
+ * POST /api/success-stories/reorder
+ * Reorder success stories
+ * Auth: Admin required
+ * Body: { storyOrders: [{id, displayOrder}, ...] }
+ */
+router.post('/reorder', verifyToken, isAdmin, successStoryController.reorderSuccessStories);
+
+// ============================================
+// DYNAMIC ID ROUTES (MUST BE AFTER STATIC)
+// ============================================
+
+/**
+ * POST /api/success-stories
+ * Create a new success story with image (photo only)
+ * Auth: Admin required
+ * Body: multipart/form-data with image + fields
+ */
+router.post('/', upload.single('image'), processAndUploadImage, successStoryController.createSuccessStory);
+
+/**
  * GET /api/success-stories/:id
  * Get single success story by ID (increments view count)
  */
@@ -127,49 +132,41 @@ router.get('/:id', successStoryController.getSuccessStoryById);
  * Update success story
  * Auth: Admin required
  */
-router.put('/:id', verifyToken, isAdmin, successStoryController.updateSuccessStory);
+router.put('/:id', successStoryController.updateSuccessStory);
 
 /**
  * PUT /api/success-stories/:id/image
  * Replace success story image
  * Auth: Admin required
  */
-router.put('/:id/image', verifyToken, isAdmin, upload.single('image'), processAndUploadImage, successStoryController.replaceSuccessStoryImage);
+router.put('/:id/image', upload.single('image'), processAndUploadImage, successStoryController.replaceSuccessStoryImage);
 
 /**
  * PATCH /api/success-stories/:id/toggle
  * Toggle success story status (active/inactive)
  * Auth: Admin required
  */
-router.patch('/:id/toggle', verifyToken, isAdmin, successStoryController.toggleSuccessStoryStatus);
-
-/**
- * DELETE /api/success-stories/:id
- * Soft delete success story
- * Auth: Admin required
- */
-router.delete('/:id', verifyToken, isAdmin, successStoryController.deleteSuccessStory);
-
-/**
- * DELETE /api/success-stories/:id/permanent
- * Permanently delete success story
- * Auth: Admin required
- */
-router.delete('/:id/permanent', verifyToken, isAdmin, successStoryController.permanentlyDeleteSuccessStory);
+router.patch('/:id/toggle', successStoryController.toggleSuccessStoryStatus);
 
 /**
  * POST /api/success-stories/:id/restore
  * Restore soft-deleted success story
  * Auth: Admin required
  */
-router.post('/:id/restore', verifyToken, isAdmin, successStoryController.restoreSuccessStory);
+router.post('/:id/restore', successStoryController.restoreSuccessStory);
 
 /**
- * POST /api/success-stories/reorder
- * Reorder success stories
+ * DELETE /api/success-stories/:id
+ * Soft delete success story
  * Auth: Admin required
- * Body: { storyOrders: [{id, displayOrder}, ...] }
  */
-router.post('/reorder', verifyToken, isAdmin, successStoryController.reorderSuccessStories);
+router.delete('/:id', successStoryController.deleteSuccessStory);
+
+/**
+ * DELETE /api/success-stories/:id/permanent
+ * Permanently delete success story
+ * Auth: Admin required
+ */
+router.delete('/:id/permanent', successStoryController.permanentlyDeleteSuccessStory);
 
 module.exports = router;

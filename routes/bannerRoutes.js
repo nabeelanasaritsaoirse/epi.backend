@@ -78,16 +78,8 @@ const processAndUploadImage = async (req, res, next) => {
 };
 
 // ============================================
-// BANNER ROUTES
+// STATIC ROUTES (MUST BE BEFORE :id)
 // ============================================
-
-/**
- * POST /api/banners
- * Create a new banner
- * Auth: Admin required
- * Body: multipart/form-data with image + fields
- */
-router.post('/', verifyToken, isAdmin, upload.single('image'), processAndUploadImage, bannerController.createBanner);
 
 /**
  * GET /api/banners/public/active
@@ -110,6 +102,26 @@ router.get('/admin/all', verifyToken, isAdmin, bannerController.getAllBanners);
 router.get('/admin/stats', verifyToken, isAdmin, bannerController.getBannerStats);
 
 /**
+ * POST /api/banners/reorder
+ * Reorder banners
+ * Auth: Admin required
+ * Body: { bannerOrders: [{id, displayOrder}, ...] }
+ */
+router.post('/reorder', verifyToken, isAdmin, bannerController.reorderBanners);
+
+// ============================================
+// DYNAMIC ID ROUTES (MUST BE AFTER STATIC)
+// ============================================
+
+/**
+ * POST /api/banners
+ * Create a new banner
+ * Auth: Admin required
+ * Body: multipart/form-data with image + fields
+ */
+router.post('/', upload.single('image'), processAndUploadImage, bannerController.createBanner);
+
+/**
  * GET /api/banners/:id
  * Get single banner by ID
  */
@@ -120,28 +132,41 @@ router.get('/:id', bannerController.getBannerById);
  * Update banner (without replacing image)
  * Auth: Admin required
  */
-router.put('/:id', verifyToken, isAdmin, bannerController.updateBanner);
+router.put('/:id', bannerController.updateBanner);
 
 /**
  * PUT /api/banners/:id/image
  * Replace banner image
  * Auth: Admin required
  */
-router.put('/:id/image', verifyToken, isAdmin, upload.single('image'), processAndUploadImage, bannerController.replaceBannerImage);
+router.put('/:id/image', upload.single('image'), processAndUploadImage, bannerController.replaceBannerImage);
 
 /**
  * PATCH /api/banners/:id/toggle
  * Toggle banner status (active/inactive)
  * Auth: Admin required
  */
-router.patch('/:id/toggle', verifyToken, isAdmin, bannerController.toggleBannerStatus);
+router.patch('/:id/toggle', bannerController.toggleBannerStatus);
+
+/**
+ * POST /api/banners/:id/click
+ * Track banner click
+ */
+router.post('/:id/click', bannerController.trackBannerClick);
+
+/**
+ * POST /api/banners/:id/restore
+ * Restore soft-deleted banner
+ * Auth: Admin required
+ */
+router.post('/:id/restore', bannerController.restoreBanner);
 
 /**
  * DELETE /api/banners/:id
  * Soft delete banner
  * Auth: Admin required
  */
-router.delete('/:id', verifyToken, isAdmin, bannerController.deleteBanner);
+router.delete('/:id', bannerController.deleteBanner);
 
 /**
  * DELETE /api/banners/:id/permanent
@@ -149,26 +174,5 @@ router.delete('/:id', verifyToken, isAdmin, bannerController.deleteBanner);
  * Auth: Admin required
  */
 router.delete('/:id/permanent', verifyToken, isAdmin, bannerController.permanentlyDeleteBanner);
-
-/**
- * POST /api/banners/:id/restore
- * Restore soft-deleted banner
- * Auth: Admin required
- */
-router.post('/:id/restore', verifyToken, isAdmin, bannerController.restoreBanner);
-
-/**
- * POST /api/banners/reorder
- * Reorder banners
- * Auth: Admin required
- * Body: { bannerOrders: [{id, displayOrder}, ...] }
- */
-router.post('/reorder', verifyToken, isAdmin, bannerController.reorderBanners);
-
-/**
- * POST /api/banners/:id/click
- * Track banner click
- */
-router.post('/:id/click', bannerController.trackBannerClick);
 
 module.exports = router;

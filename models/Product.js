@@ -240,10 +240,27 @@ const productSchema = new mongoose.Schema({
     default: 'draft' 
   },
   
+<<<<<<< Updated upstream
   // Simple product categorization
   isPopular: { type: Boolean, default: false },
   isBestSeller: { type: Boolean, default: false },
   isTrending: { type: Boolean, default: false },
+=======
+  isFeatured: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+  
+  featuredRank: {
+    type: Number,
+    default: 0
+  },
+  
+  featuredStartDate: Date,
+  
+  featuredEndDate: Date,
+>>>>>>> Stashed changes
   
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
