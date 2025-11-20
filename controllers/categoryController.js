@@ -1,6 +1,10 @@
 const Category = require('../models/Category');
+<<<<<<< Updated upstream
 const ImageStore = require('../models/ImageStore');
 const { deleteImageFromS3 } = require('../services/awsUploadService');
+=======
+const { uploadToS3, deleteImageFromS3 } = require('../services/awsUploadService');
+>>>>>>> Stashed changes
 
 /**
  * @desc    Create a new category
@@ -9,8 +13,12 @@ const { deleteImageFromS3 } = require('../services/awsUploadService');
  */
 exports.createCategory = async (req, res) => {
   try {
+<<<<<<< Updated upstream
     const { name, description, parentCategoryId, altText, meta, displayOrder } = req.body;
     const userId = req.user ? req.user._id : null;
+=======
+    const { name, description, parentCategoryId, meta, displayOrder } = req.body;
+>>>>>>> Stashed changes
 
     // Validate required fields
     if (!name) {
@@ -56,6 +64,7 @@ exports.createCategory = async (req, res) => {
       .replace(/[\s_]+/g, '-')
       .replace(/^-+|-+$/g, '');
 
+<<<<<<< Updated upstream
     // Handle image upload if provided
     let imageData = {};
     if (req.file && req.file.s3Url) {
@@ -85,6 +94,15 @@ exports.createCategory = async (req, res) => {
         width: req.file.width,
         height: req.file.height
       };
+=======
+    let imageUrl = null;
+
+    // Handle image upload
+    if (req.file) {
+      const folder = 'categories/';
+      const uploadedImage = await uploadSingleFileToS3(req.file, folder);
+      imageUrl = uploadedImage.url;
+>>>>>>> Stashed changes
     }
 
     const newCategory = new Category({
@@ -92,7 +110,11 @@ exports.createCategory = async (req, res) => {
       name,
       description,
       slug,
+<<<<<<< Updated upstream
       image: imageData,
+=======
+      image: imageUrl,
+>>>>>>> Stashed changes
       parentCategoryId: parentCategoryId || null,
       subCategories: [],
       displayOrder: displayOrder || 0,
@@ -278,8 +300,12 @@ exports.getCategoriesForDropdown = async (req, res) => {
 exports.updateCategory = async (req, res) => {
   try {
     const { categoryId } = req.params;
+<<<<<<< Updated upstream
     const { name, description, meta, displayOrder, isActive, parentCategoryId, altText } = req.body;
     const userId = req.user ? req.user._id : null;
+=======
+    const { name, description, meta, displayOrder, isActive, parentCategoryId } = req.body;
+>>>>>>> Stashed changes
 
     const category = await Category.findById(categoryId);
 
@@ -322,6 +348,19 @@ exports.updateCategory = async (req, res) => {
           message: "Parent category not found"
         });
       }
+    }
+
+    // Handle image upload
+    if (req.file) {
+      const folder = 'categories/';
+
+      // Delete old image if exists
+      if (category.image) {
+        await deleteImageFromS3(category.image);
+      }
+
+      const uploadedImage = await uploadSingleFileToS3(req.file, folder);
+      category.image = uploadedImage.url;
     }
 
     // Update fields

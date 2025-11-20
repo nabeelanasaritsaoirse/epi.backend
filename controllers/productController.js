@@ -1,8 +1,12 @@
 const Product = require('../models/Product');
 const { calculateEquivalentValues, generateInstallmentOptions } = require('../utils/productUtils');
+<<<<<<< Updated upstream
 const { uploadToS3, deleteFromS3 } = require('../services/awsUploadService');
 const multer = require('multer');
 const sharp = require('sharp');
+=======
+const { uploadSingleFileToS3 } = require('../services/awsUploadService');
+>>>>>>> Stashed changes
 
 // Configure multer for memory storage
 const storage = multer.memoryStorage();
@@ -142,6 +146,12 @@ const deleteProductImages = async (images) => {
 // Create product with image upload
 exports.createProduct = async (req, res) => {
   try {
+    if (req.file) {
+      const { s3Url, s3Key } = await uploadSingleFileToS3(req.file);
+      req.body.imageUrl = s3Url;
+      req.body.imageKey = s3Key;
+    }
+
     // Generate auto product ID if not provided
     if (!req.body.productId) {
       const timestamp = Date.now().toString().slice(-6);
@@ -456,6 +466,12 @@ exports.getProductById = async (req, res) => {
 // Update product with image upload capability
 exports.updateProduct = async (req, res) => {
   try {
+    if (req.file) {
+      const { s3Url, s3Key } = await uploadSingleFileToS3(req.file);
+      req.body.imageUrl = s3Url;
+      req.body.imageKey = s3Key;
+    }
+
     const product = await Product.findOne({ productId: req.params.productId });
     if (!product) {
       // Clean up uploaded images if product not found
