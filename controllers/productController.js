@@ -1,14 +1,184 @@
 const Product = require('../models/Product');
 const { calculateEquivalentValues, generateInstallmentOptions } = require('../utils/productUtils');
+<<<<<<< Updated upstream
+const { uploadToS3, deleteFromS3 } = require('../services/awsUploadService');
+const multer = require('multer');
+const sharp = require('sharp');
+=======
+const { uploadSingleFileToS3 } = require('../services/awsUploadService');
+>>>>>>> Stashed changes
 
-// Create product and a number of product CRUD helpers with enhanced regional features
+// Configure multer for memory storage
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|webp|gif|svg/;
+    const extname = allowedTypes.test(file.originalname.toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'));
+    }
+  }
+});
+
+// Image processing middleware
+const processAndUploadImages = async (req, res, next) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return next();
+    }
+
+    const processedImages = [];
+    
+    for (const file of req.files) {
+      try {
+        // Get image metadata
+        const metadata = await sharp(file.buffer).metadata();
+        
+        // Create multiple sizes
+        const sizes = [
+          { width: 1200, suffix: 'large', quality: 90 },
+          { width: 800, suffix: 'medium', quality: 85 },
+          { width: 400, suffix: 'small', quality: 80 },
+          { width: 200, suffix: 'thumbnail', quality: 75 }
+        ];
+
+        const uploadPromises = sizes.map(async (size) => {
+          const resizedBuffer = await sharp(file.buffer)
+            .resize(size.width, null, {
+              fit: 'inside',
+              withoutEnlargement: true,
+              kernel: sharp.kernel.lanczos3
+            })
+            .jpeg({
+              quality: size.quality,
+              chromaSubsampling: '4:4:4'
+            })
+            .toBuffer();
+
+          const timestamp = Date.now();
+          const random = Math.random().toString(36).substring(7);
+          const originalName = file.originalname.split('.')[0];
+          const fileName = `${originalName}-${size.suffix}-${timestamp}-${random}.jpg`;
+          const folder = 'products/';
+          const key = `${folder}${fileName}`;
+
+          const s3Url = await uploadToS3(resizedBuffer, folder, fileName);
+
+          return {
+            url: s3Url,
+            key: key,
+            size: size.suffix,
+            width: metadata.width,
+            height: metadata.height,
+            fileSize: resizedBuffer.length
+          };
+        });
+
+        const uploadedSizes = await Promise.all(uploadPromises);
+        
+        // Find the large version as main image
+        const mainImage = uploadedSizes.find(img => img.size === 'large');
+        
+        processedImages.push({
+          main: mainImage,
+          variants: uploadedSizes.filter(img => img.size !== 'large'),
+          alt: file.originalname,
+          originalName: file.originalname,
+          uploadedAt: new Date()
+        });
+
+      } catch (error) {
+        console.error(`Error processing image ${file.originalname}:`, error);
+        throw new Error(`Failed to process image ${file.originalname}: ${error.message}`);
+      }
+    }
+
+    req.processedImages = processedImages;
+    next();
+  } catch (error) {
+    console.error('Error in processAndUploadImages:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error processing images',
+      error: error.message
+    });
+  }
+};
+
+// Helper function to delete images from S3
+const deleteProductImages = async (images) => {
+  try {
+    if (!images || !Array.isArray(images)) return;
+    
+    const deletePromises = [];
+    
+    for (const image of images) {
+      // Delete main image
+      if (image.main && image.main.key) {
+        deletePromises.push(deleteFromS3(image.main.key));
+      }
+      
+      // Delete variant images
+      if (image.variants && Array.isArray(image.variants)) {
+        image.variants.forEach(variant => {
+          if (variant.key) {
+            deletePromises.push(deleteFromS3(variant.key));
+          }
+        });
+      }
+    }
+    
+    await Promise.allSettled(deletePromises);
+  } catch (error) {
+    console.error('Error deleting product images from S3:', error);
+    // Don't throw error here as we don't want to break the main operation
+  }
+};
+
+// Create product with image upload
 exports.createProduct = async (req, res) => {
   try {
+    if (req.file) {
+      const { s3Url, s3Key } = await uploadSingleFileToS3(req.file);
+      req.body.imageUrl = s3Url;
+      req.body.imageKey = s3Key;
+    }
+
     // Generate auto product ID if not provided
     if (!req.body.productId) {
       const timestamp = Date.now().toString().slice(-6);
       const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
       req.body.productId = `PROD${timestamp}${random}`;
+    }
+
+    // Parse JSON fields if they are strings
+    if (typeof req.body.regionalPricing === 'string') {
+      req.body.regionalPricing = JSON.parse(req.body.regionalPricing);
+    }
+    if (typeof req.body.regionalAvailability === 'string') {
+      req.body.regionalAvailability = JSON.parse(req.body.regionalAvailability);
+    }
+    if (typeof req.body.regionalSeo === 'string') {
+      req.body.regionalSeo = JSON.parse(req.body.regionalSeo);
+    }
+    if (typeof req.body.relatedProducts === 'string') {
+      req.body.relatedProducts = JSON.parse(req.body.relatedProducts);
+    }
+    if (typeof req.body.variants === 'string') {
+      req.body.variants = JSON.parse(req.body.variants);
+    }
+
+    // Add processed images to request body
+    if (req.processedImages && req.processedImages.length > 0) {
+      req.body.images = req.processedImages;
     }
 
     // Auto-calculate final prices if not provided
@@ -48,15 +218,24 @@ exports.createProduct = async (req, res) => {
       regionalSeo: req.body.regionalSeo || [],
       regionalAvailability: req.body.regionalAvailability || [],
       relatedProducts: req.body.relatedProducts || [],
+      images: req.body.images || [], // Now includes S3 data
       status: req.body.status || 'draft',
       createdAt: new Date(),
       updatedAt: new Date()
     };
+
     // Handle variants if provided
     productData.hasVariants = !!req.body.hasVariants;
     if (productData.hasVariants) {
       if (!Array.isArray(req.body.variants) || req.body.variants.length === 0) {
-        return res.status(400).json({ success: false, message: 'variants array is required when hasVariants is true' });
+        // Clean up uploaded images if validation fails
+        if (req.processedImages) {
+          await deleteProductImages(req.processedImages);
+        }
+        return res.status(400).json({ 
+          success: false, 
+          message: 'variants array is required when hasVariants is true' 
+        });
       }
 
       // Normalize variants: ensure variantId and sku exist, validate price
@@ -81,7 +260,7 @@ exports.createProduct = async (req, res) => {
           salePrice: v.salePrice,
           paymentPlan: v.paymentPlan || {},
           stock: v.stock || 0,
-          images: v.images || [],
+          images: v.images || [], // Variant images would need separate upload handling
           isActive: v.isActive !== undefined ? v.isActive : true
         };
       });
@@ -98,10 +277,16 @@ exports.createProduct = async (req, res) => {
       data: {
         productId: product.productId,
         name: product.name,
-        sku: product.sku
+        sku: product.sku,
+        images: product.images.length
       }
     });
   } catch (error) {
+    // Clean up uploaded images if product creation fails
+    if (req.processedImages) {
+      await deleteProductImages(req.processedImages);
+    }
+    
     console.error('Error creating product:', error);
     if (error.code === 11000) {
       return res.status(400).json({
@@ -117,6 +302,7 @@ exports.createProduct = async (req, res) => {
   }
 };
 
+// Get all products
 exports.getAllProducts = async (req, res) => {
   try {
     const {
@@ -192,7 +378,7 @@ exports.getAllProducts = async (req, res) => {
   }
 };
 
-// Add this new endpoint for stats
+// Get product statistics
 exports.getProductStats = async (req, res) => {
   try {
     const { region = 'global' } = req.query;
@@ -253,6 +439,7 @@ exports.getProductStats = async (req, res) => {
   }
 };
 
+// Get product by ID
 exports.getProductById = async (req, res) => {
   try {
     const product = await Product.findOne({ productId: req.params.productId });
@@ -276,11 +463,54 @@ exports.getProductById = async (req, res) => {
   }
 };
 
+// Update product with image upload capability
 exports.updateProduct = async (req, res) => {
   try {
+    if (req.file) {
+      const { s3Url, s3Key } = await uploadSingleFileToS3(req.file);
+      req.body.imageUrl = s3Url;
+      req.body.imageKey = s3Key;
+    }
+
     const product = await Product.findOne({ productId: req.params.productId });
     if (!product) {
+      // Clean up uploaded images if product not found
+      if (req.processedImages) {
+        await deleteProductImages(req.processedImages);
+      }
       return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+
+    // Parse JSON fields if they are strings
+    if (typeof req.body.regionalPricing === 'string') {
+      req.body.regionalPricing = JSON.parse(req.body.regionalPricing);
+    }
+    if (typeof req.body.regionalAvailability === 'string') {
+      req.body.regionalAvailability = JSON.parse(req.body.regionalAvailability);
+    }
+    if (typeof req.body.regionalSeo === 'string') {
+      req.body.regionalSeo = JSON.parse(req.body.regionalSeo);
+    }
+    if (typeof req.body.relatedProducts === 'string') {
+      req.body.relatedProducts = JSON.parse(req.body.relatedProducts);
+    }
+    if (typeof req.body.variants === 'string') {
+      req.body.variants = JSON.parse(req.body.variants);
+    }
+
+    // Store old images for cleanup if new images are uploaded
+    const oldImages = product.images ? [...product.images] : [];
+
+    // Add new processed images if any
+    if (req.processedImages && req.processedImages.length > 0) {
+      // If replacing images, delete old ones
+      if (req.body.replaceImages) {
+        await deleteProductImages(oldImages);
+        req.body.images = req.processedImages;
+      } else {
+        // Add to existing images
+        req.body.images = [...(product.images || []), ...req.processedImages];
+      }
     }
 
     // If variants provided, normalize and replace
@@ -332,6 +562,11 @@ exports.updateProduct = async (req, res) => {
 
     res.json({ success: true, message: 'Product updated successfully', data: product });
   } catch (error) {
+    // Clean up uploaded images if update fails
+    if (req.processedImages) {
+      await deleteProductImages(req.processedImages);
+    }
+    
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
@@ -346,22 +581,37 @@ exports.updateProduct = async (req, res) => {
   }
 };
 
+// Delete product with S3 cleanup
 exports.deleteProduct = async (req, res) => {
   try {
-    const deleted = await Product.findOneAndDelete({ 
-      productId: req.params.productId 
-    });
-
-    if (!deleted) {
+    const product = await Product.findOne({ productId: req.params.productId });
+    
+    if (!product) {
       return res.status(404).json({ 
         success: false, 
         message: "Product not found" 
       });
     }
 
+    // Delete all associated images from S3
+    if (product.images && product.images.length > 0) {
+      await deleteProductImages(product.images);
+    }
+
+    // Delete variant images if any
+    if (product.variants && product.variants.length > 0) {
+      for (const variant of product.variants) {
+        if (variant.images && variant.images.length > 0) {
+          await deleteProductImages(variant.images);
+        }
+      }
+    }
+
+    await Product.findOneAndDelete({ productId: req.params.productId });
+
     res.json({ 
       success: true, 
-      message: "Product deleted successfully" 
+      message: "Product and associated images deleted successfully" 
     });
   } catch (error) {
     res.status(500).json({ 
@@ -371,6 +621,99 @@ exports.deleteProduct = async (req, res) => {
   }
 };
 
+// Add product images
+exports.addProductImages = async (req, res) => {
+  try {
+    const product = await Product.findOne({ productId: req.params.productId });
+    if (!product) {
+      // Clean up uploaded images if product not found
+      if (req.processedImages) {
+        await deleteProductImages(req.processedImages);
+      }
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+
+    if (!req.processedImages || req.processedImages.length === 0) {
+      return res.status(400).json({ success: false, message: 'No images provided' });
+    }
+
+    // Add new images to product
+    if (!product.images) {
+      product.images = [];
+    }
+    
+    product.images.push(...req.processedImages);
+    product.updatedAt = new Date();
+    
+    await product.save();
+
+    res.json({
+      success: true,
+      message: `Successfully added ${req.processedImages.length} images to product`,
+      data: {
+        totalImages: product.images.length,
+        newImages: req.processedImages
+      }
+    });
+  } catch (error) {
+    // Clean up uploaded images if operation fails
+    if (req.processedImages) {
+      await deleteProductImages(req.processedImages);
+    }
+    
+    res.status(500).json({ 
+      success: false, 
+      message: error.message
+    });
+  }
+};
+
+// Delete specific product image
+exports.deleteProductImage = async (req, res) => {
+  try {
+    const { productId, imageIndex } = req.params;
+    
+    const product = await Product.findOne({ productId });
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+
+    if (!product.images || product.images.length === 0) {
+      return res.status(400).json({ success: false, message: 'No images found for this product' });
+    }
+
+    const index = parseInt(imageIndex);
+    if (index < 0 || index >= product.images.length) {
+      return res.status(400).json({ success: false, message: 'Invalid image index' });
+    }
+
+    const imageToDelete = product.images[index];
+    
+    // Delete from S3
+    await deleteProductImages([imageToDelete]);
+    
+    // Remove from array
+    product.images.splice(index, 1);
+    product.updatedAt = new Date();
+    
+    await product.save();
+
+    res.json({
+      success: true,
+      message: 'Image deleted successfully',
+      data: {
+        remainingImages: product.images.length
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: error.message
+    });
+  }
+};
+
+// Get products by category
 exports.getProductsByCategory = async (req, res) => {
   try {
     const { category } = req.params;
@@ -407,6 +750,7 @@ exports.getProductsByCategory = async (req, res) => {
   }
 };
 
+// Get low stock products
 exports.getLowStockProducts = async (req, res) => {
   try {
     const { region = 'global' } = req.query;
@@ -437,6 +781,7 @@ exports.getLowStockProducts = async (req, res) => {
   }
 };
 
+// Get products by region
 exports.getProductsByRegion = async (req, res) => {
   try {
     const { region } = req.params;
@@ -508,6 +853,7 @@ exports.getProductsByRegion = async (req, res) => {
   }
 };
 
+// Add regional pricing
 exports.addRegionalPricing = async (req, res) => {
   try {
     const { productId } = req.params;
@@ -551,6 +897,7 @@ exports.addRegionalPricing = async (req, res) => {
   }
 };
 
+// Add regional availability
 exports.addRegionalAvailability = async (req, res) => {
   try {
     const { productId } = req.params;
@@ -601,6 +948,7 @@ exports.addRegionalAvailability = async (req, res) => {
   }
 };
 
+// Add regional SEO
 exports.addRegionalSeo = async (req, res) => {
   try {
     const { productId } = req.params;
@@ -641,6 +989,7 @@ exports.addRegionalSeo = async (req, res) => {
   }
 };
 
+// Add related products
 exports.addRelatedProducts = async (req, res) => {
   try {
     const { productId } = req.params;
@@ -681,6 +1030,7 @@ exports.addRelatedProducts = async (req, res) => {
   }
 };
 
+// Get product by region
 exports.getProductByRegion = async (req, res) => {
   try {
     const { productId, region } = req.params;
@@ -734,6 +1084,7 @@ exports.getProductByRegion = async (req, res) => {
   }
 };
 
+// Bulk update regional pricing
 exports.bulkUpdateRegionalPricing = async (req, res) => {
   try {
     const { updates } = req.body;
@@ -789,6 +1140,7 @@ exports.bulkUpdateRegionalPricing = async (req, res) => {
   }
 };
 
+// Get regional statistics
 exports.getRegionalStats = async (req, res) => {
   try {
     const { region } = req.params;
@@ -854,6 +1206,7 @@ exports.getRegionalStats = async (req, res) => {
   }
 };
 
+// Sync regional data
 exports.syncRegionalData = async (req, res) => {
   try {
     const { productId } = req.params;
@@ -926,6 +1279,7 @@ exports.syncRegionalData = async (req, res) => {
   }
 };
 
+// Get products by project
 exports.getProductsByProject = async (req, res) => {
   try {
     const { projectId } = req.params;
@@ -971,6 +1325,7 @@ exports.getProductsByProject = async (req, res) => {
   }
 };
 
+// Advanced product search
 exports.searchProductsAdvanced = async (req, res) => {
   try {
     const {
@@ -1050,6 +1405,193 @@ exports.searchProductsAdvanced = async (req, res) => {
   } catch (error) {
     res.status(500).json({ 
       success: false, 
+      message: error.message
+    });
+  }
+};
+
+// Export the upload middleware for use in routes
+exports.upload = upload;
+exports.processAndUploadImages = processAndUploadImages;
+
+// Mark product as featured
+exports.markAsFeatured = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const { featuredRank = 0, featuredStartDate, featuredEndDate } = req.body;
+
+    const product = await Product.findOne({ productId });
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found'
+      });
+    }
+
+    product.isFeatured = true;
+    product.featuredRank = featuredRank;
+    if (featuredStartDate) product.featuredStartDate = new Date(featuredStartDate);
+    if (featuredEndDate) product.featuredEndDate = new Date(featuredEndDate);
+
+    await product.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Product marked as featured',
+      data: product
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Remove featured status from product
+exports.removeFromFeatured = async (req, res) => {
+  try {
+    const { productId } = req.params;
+
+    const product = await Product.findOne({ productId });
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found'
+      });
+    }
+
+    product.isFeatured = false;
+    product.featuredRank = 0;
+    product.featuredStartDate = null;
+    product.featuredEndDate = null;
+
+    await product.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Product removed from featured',
+      data: product
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Get all featured products
+exports.getFeaturedProducts = async (req, res) => {
+  try {
+    const { limit = 10, page = 1 } = req.query;
+
+    const products = await Product.find({
+      isFeatured: true,
+      $or: [
+        { featuredEndDate: null },
+        { featuredEndDate: { $gte: new Date() } }
+      ]
+    })
+      .sort({ featuredRank: 1, createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+
+    const total = await Product.countDocuments({
+      isFeatured: true,
+      $or: [
+        { featuredEndDate: null },
+        { featuredEndDate: { $gte: new Date() } }
+      ]
+    });
+
+    res.status(200).json({
+      success: true,
+      count: products.length,
+      pagination: {
+        current: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / limit),
+        total
+      },
+      data: products
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Bulk update featured status
+exports.bulkUpdateFeatured = async (req, res) => {
+  try {
+    const { productIds, isFeatured, featuredRank = 0 } = req.body;
+
+    if (!productIds || !Array.isArray(productIds)) {
+      return res.status(400).json({
+        success: false,
+        message: 'productIds array is required'
+      });
+    }
+
+    const updateData = {
+      isFeatured
+    };
+
+    if (isFeatured && featuredRank !== undefined) {
+      updateData.featuredRank = featuredRank;
+    }
+
+    const result = await Product.updateMany(
+      { productId: { $in: productIds } },
+      updateData
+    );
+
+    res.status(200).json({
+      success: true,
+      message: `${result.modifiedCount} products updated`,
+      modifiedCount: result.modifiedCount
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Reorder featured products
+exports.reorderFeatured = async (req, res) => {
+  try {
+    const { products } = req.body; // Array of { productId, featuredRank }
+
+    if (!products || !Array.isArray(products)) {
+      return res.status(400).json({
+        success: false,
+        message: 'products array with featuredRank is required'
+      });
+    }
+
+    const updatePromises = products.map(item =>
+      Product.updateOne(
+        { productId: item.productId },
+        { featuredRank: item.featuredRank }
+      )
+    );
+
+    await Promise.all(updatePromises);
+
+    res.status(200).json({
+      success: true,
+      message: 'Featured products reordered successfully'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
       message: error.message
     });
   }

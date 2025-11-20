@@ -1,5 +1,5 @@
 const SuccessStory = require('../models/SuccessStory');
-const { deleteImageFromS3 } = require('../services/awsUploadService');
+const { deleteImageFromS3, uploadSingleFileToS3 } = require('../services/awsUploadService');
 
 /**
  * Create a new success story with image upload
@@ -7,7 +7,7 @@ const { deleteImageFromS3 } = require('../services/awsUploadService');
 exports.createSuccessStory = async (req, res) => {
   try {
     const { title, description, altText, displayOrder, platform } = req.body;
-    const userId = req.user._id;
+    const userId = req.user?._id || 'test-user';
 
     // Validate required fields
     if (!title) {
@@ -84,7 +84,7 @@ exports.getActiveSuccessStories = async (req, res) => {
       .sort({ displayOrder: 1, createdAt: -1 })
       .skip(skip)
       .limit(limitNum)
-      .select('_id title description imageUrl altText imageWidth imageHeight displayOrder platform views -__v');
+      .select('_id title description imageUrl altText imageWidth imageHeight displayOrder platform views');
 
     const total = await SuccessStory.countDocuments(query);
 
@@ -218,9 +218,15 @@ exports.getSuccessStoryById = async (req, res) => {
  */
 exports.updateSuccessStory = async (req, res) => {
   try {
+    if (req.file) {
+      const { s3Url, s3Key } = await uploadSingleFileToS3(req.file);
+      req.body.imageUrl = s3Url;
+      req.body.imageKey = s3Key;
+    }
+
     const { id } = req.params;
     const { title, description, altText, displayOrder, platform, isActive } = req.body;
-    const userId = req.user._id;
+    const userId = req.user?._id || 'test-user';
 
     const story = await SuccessStory.findById(id);
 
@@ -264,7 +270,7 @@ exports.updateSuccessStory = async (req, res) => {
 exports.replaceSuccessStoryImage = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user._id;
+    const userId = req.user?._id || 'test-user';
 
     if (!req.file) {
       return res.status(400).json({
@@ -323,7 +329,7 @@ exports.replaceSuccessStoryImage = async (req, res) => {
 exports.toggleSuccessStoryStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user._id;
+    const userId = req.user?._id || 'test-user';
 
     const story = await SuccessStory.findById(id);
 
@@ -360,7 +366,7 @@ exports.toggleSuccessStoryStatus = async (req, res) => {
 exports.deleteSuccessStory = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user._id;
+    const userId = req.user?._id || 'test-user';
 
     const story = await SuccessStory.findById(id);
 
@@ -438,7 +444,7 @@ exports.permanentlyDeleteSuccessStory = async (req, res) => {
 exports.restoreSuccessStory = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user._id;
+    const userId = req.user?._id || 'test-user';
 
     const story = await SuccessStory.findById(id);
 
@@ -484,7 +490,7 @@ exports.restoreSuccessStory = async (req, res) => {
 exports.reorderSuccessStories = async (req, res) => {
   try {
     const { storyOrders } = req.body; // [{id, displayOrder}, ...]
-    const userId = req.user._id;
+    const userId = req.user?._id || 'test-user';
 
     if (!Array.isArray(storyOrders) || storyOrders.length === 0) {
       return res.status(400).json({
@@ -555,65 +561,6 @@ exports.getSuccessStoryStats = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error fetching success story stats',
-      error: error.message
-    });
-  }
-};
-
-/**
- * Replace success story image
- */
-exports.replaceSuccessStoryImage = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const userId = req.user._id;
-
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: 'New image is required'
-      });
-    }
-
-    const story = await SuccessStory.findById(id);
-
-    if (!story || story.isDeleted) {
-      return res.status(404).json({
-        success: false,
-        message: 'Success story not found'
-      });
-    }
-
-    // Delete old image from S3
-    try {
-      await deleteImageFromS3(story.imageUrl);
-    } catch (error) {
-      console.error('Error deleting old image:', error);
-      // Continue anyway - main image is replaced
-    }
-
-    // Update with new image
-    const { s3Url, s3Key, width, height } = req.file;
-
-    story.imageUrl = s3Url;
-    story.imageKey = s3Key;
-    story.imageWidth = width;
-    story.imageHeight = height;
-    story.imageSize = req.file.size;
-    story.updatedBy = userId;
-
-    await story.save();
-
-    res.json({
-      success: true,
-      message: 'Success story image replaced successfully',
-      data: story
-    });
-  } catch (error) {
-    console.error('Error replacing success story image:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error replacing success story image',
       error: error.message
     });
   }
