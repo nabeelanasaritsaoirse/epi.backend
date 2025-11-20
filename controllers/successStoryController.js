@@ -84,7 +84,7 @@ exports.getActiveSuccessStories = async (req, res) => {
       .sort({ displayOrder: 1, createdAt: -1 })
       .skip(skip)
       .limit(limitNum)
-      .select('_id title description imageUrl altText imageWidth imageHeight displayOrder platform views -__v');
+      .select('_id title description imageUrl altText imageWidth imageHeight displayOrder platform views');
 
     const total = await SuccessStory.countDocuments(query);
 
