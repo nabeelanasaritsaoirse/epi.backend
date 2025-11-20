@@ -72,6 +72,12 @@ jobs:
         run: |
           echo "🔍 Checking Node.js syntax..."
           node --check index.js
+
+      # - name: Syntax validation
+      #   run: |
+      #     echo "🔍 Checking syntax for all JS files..."
+      #     find . -name "*.js" -print0 | xargs -0 -I {} node --check {}
+      
       #  Step 7: Deploy to EC2 via SSH
       - name: 🚀 Deploy application to EC2
         run: |
