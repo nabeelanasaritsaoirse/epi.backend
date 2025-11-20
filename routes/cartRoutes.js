@@ -4,10 +4,10 @@ const Cart = require('../models/Cart');
 const Product = require('../models/Product');
 
 // Using proper auth middleware
-const { verifyFirebaseToken } = require('../middlewares/auth');
+const { verifyToken } = require('../middlewares/auth');
 
 // POST /add/:productId
-router.post('/add/:productId', verifyFirebaseToken, async (req, res) => {
+router.post('/add/:productId', verifyToken, async (req, res) => {
   try {
     const { productId } = req.params;
     const { quantity = 1 } = req.body;
@@ -37,7 +37,7 @@ router.post('/add/:productId', verifyFirebaseToken, async (req, res) => {
 });
 
 // GET /
-router.get('/cart/', verifyFirebaseToken, async (req, res) => {
+router.get('/cart/', verifyToken, async (req, res) => {
   try {
     const userId = req.user._id;
     const cart = await Cart.findOne({ userId }).populate('products.productId');
@@ -49,7 +49,7 @@ router.get('/cart/', verifyFirebaseToken, async (req, res) => {
 });
 
 // DELETE /remove/:productId
-router.delete('/remove/:productId', verifyFirebaseToken, async (req, res) => {
+router.delete('/remove/:productId', verifyToken, async (req, res) => {
   try {
     const { productId } = req.params;
     const userId = req.user._id;

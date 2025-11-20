@@ -4,10 +4,10 @@ const Wishlist = require('../models/Wishlist');
 const Product = require('../models/Product');
 
 // Using proper auth middleware
-const { verifyFirebaseToken } = require('../middlewares/auth');
+const { verifyToken } = require('../middlewares/auth');
 
 // POST /add/:productId
-router.post('/add/:productId', verifyFirebaseToken, async (req, res) => {
+router.post('/add/:productId', verifyToken, async (req, res) => {
   try {
     const { productId } = req.params;
     const userId = req.user._id;
@@ -37,7 +37,7 @@ router.post('/add/:productId', verifyFirebaseToken, async (req, res) => {
 });
 
 // GET /
-router.get('/', verifyFirebaseToken, async (req, res) => {
+router.get('/', verifyToken, async (req, res) => {
   try {
     const userId = req.user._id;
     const wishlist = await Wishlist.findOne({ userId }).populate('products');
@@ -49,7 +49,7 @@ router.get('/', verifyFirebaseToken, async (req, res) => {
 });
 
 // DELETE /remove/:productId
-router.delete('/remove/:productId', verifyFirebaseToken, async (req, res) => {
+router.delete('/remove/:productId', verifyToken, async (req, res) => {
   try {
     const { productId } = req.params;
     const userId = req.user._id;
