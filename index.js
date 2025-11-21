@@ -22,8 +22,8 @@ const adminRoutes = require("./routes/admin");
 
 const referralRoutes = require("./routes/referralRoutes");
 const planRoutes = require("./routes/plans");
-const cartRoutes = require("./routes/cartRoutes");
-const wishlistRoutes = require("./routes/wishlistRoutes");
+const cartRoutes = require("./routes/cart");
+const wishlistRoutes = require("./routes/wishlist");
 const imageStoreRoutes = require("./routes/imageStore");
 const bannerRoutes = require("./routes/bannerRoutes");
 const successStoryRoutes = require("./routes/successStoryRoutes");
@@ -112,33 +112,27 @@ try {
 })();
 
 // ======================================================================
-// ROUTES
+// ROUTES (Place specific routes BEFORE generic ones)
 // ======================================================================
 app.use("/api/auth", authRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/users", userRoutes);
-
-// USER WALLET ROUTES
 app.use("/api/wallet", walletRoutes);
-
-// ADMIN WALLET ROUTES (IMPORTANT)
 app.use("/api/admin/wallet", adminWalletRoutes);
-
-app.use("/api/referral", referralCommissionRoutes);
-app.use("/api/referral", referralRoutes);
-
+app.use("/api/referral-commission", referralCommissionRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/admin", adminRoutes);
-
 app.use("/api/plans", planRoutes);
-app.use("/api/cart", cartRoutes);
-app.use("/api/wishlist", wishlistRoutes);
-app.use("/api/images", imageStoreRoutes);
+app.use("/api/image-store", imageStoreRoutes);
 app.use("/api/banners", bannerRoutes);
 app.use("/api/success-stories", successStoryRoutes);
-app.use("/api/installment", installmentRoutes);
+app.use("/api/installments", installmentRoutes);
+
+// ⭐ CART & WISHLIST (subroutes with /count, /clear, /add, /remove, /toggle)
+app.use("/api/cart", cartRoutes);
+app.use("/api/wishlist", wishlistRoutes);
 
 // HEALTH CHECK ROUTES (API Testing Dashboard)
 app.use("/api/health-check", healthCheckRoutes);
@@ -156,6 +150,13 @@ app.get("/", (req, res) => {
 app.use((err, req, res, next) => {
   console.error("ERROR:", err.message);
   res.status(500).json({ success: false, error: err.message });
+});
+
+// ======================================================================
+// 404 HANDLER
+// ======================================================================
+app.use((req, res) => {
+  res.status(404).json({ success: false, message: 'Route not found' });
 });
 
 // ======================================================================
