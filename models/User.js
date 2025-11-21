@@ -577,6 +577,55 @@ const userSchema = new Schema({
     enum: ['email', 'phone', 'google', 'unknown'],
     default: 'unknown'
   },
+
+  // Chat system fields
+  unreadMessageCount: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+
+  chatSettings: {
+    allowMessages: {
+      type: Boolean,
+      default: true
+    },
+    blockedUsers: [{
+      type: Schema.Types.ObjectId,
+      ref: 'User'
+    }]
+  },
+
+  // Firebase Cloud Messaging Token for push notifications
+  fcmToken: {
+    type: String,
+    default: null
+  },
+
+  // Notification preferences
+  notificationPreferences: {
+    pushEnabled: {
+      type: Boolean,
+      default: true
+    },
+    orderUpdates: {
+      type: Boolean,
+      default: true
+    },
+    promotionalOffers: {
+      type: Boolean,
+      default: true
+    },
+    paymentAlerts: {
+      type: Boolean,
+      default: true
+    },
+    systemNotifications: {
+      type: Boolean,
+      default: true
+    }
+  },
+
   createdAt: {
     type: Date,
     default: Date.now

@@ -28,6 +28,7 @@ const imageStoreRoutes = require("./routes/imageStore");
 const bannerRoutes = require("./routes/bannerRoutes");
 const successStoryRoutes = require("./routes/successStoryRoutes");
 const installmentRoutes = require("./routes/installmentRoutes");
+const healthCheckRoutes = require("./routes/healthCheckRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -138,6 +139,9 @@ app.use("/api/images", imageStoreRoutes);
 app.use("/api/banners", bannerRoutes);
 app.use("/api/success-stories", successStoryRoutes);
 app.use("/api/installment", installmentRoutes);
+
+// HEALTH CHECK ROUTES (API Testing Dashboard)
+app.use("/api/health-check", healthCheckRoutes);
 
 // ======================================================================
 // ROOT
