@@ -11,7 +11,8 @@ router.get('/', verifyToken, async (req, res) => {
 
     let cart = await Cart.findOne({ userId }).populate({
       path: 'products.productId',
-      select: 'name pricing images availability status'
+      // Include brand in populated product
+      select: 'name brand pricing images availability status'
     });
 
     if (!cart) {
@@ -31,9 +32,9 @@ router.get('/', verifyToken, async (req, res) => {
     const activeProducts = cart.products.filter(item => {
       const product = item.productId;
       return product &&
-             product.availability &&
-             product.availability.isAvailable &&
-             (product.status === 'active' || product.status === 'published');
+        product.availability &&
+        product.availability.isAvailable &&
+        (product.status === 'active' || product.status === 'published');
     });
 
     // Update cart if products were filtered
@@ -57,10 +58,16 @@ router.get('/', verifyToken, async (req, res) => {
       return {
         productId: product._id,
         name: product.name,
+        brand: product.brand || null,   // BRAND ADDED HERE
         price: product.pricing?.regularPrice || 0,
         finalPrice: price,
-        discount: product.pricing?.salePrice ?
-          Math.round(((product.pricing.regularPrice - product.pricing.salePrice) / product.pricing.regularPrice) * 100) : 0,
+        discount: product.pricing?.salePrice
+          ? Math.round(
+              ((product.pricing.regularPrice - product.pricing.salePrice) /
+                product.pricing.regularPrice) *
+              100
+            )
+          : 0,
         images: product.images || [],
         stock: product.availability?.stockQuantity || 0,
         isActive: product.availability?.isAvailable || false,
@@ -126,7 +133,6 @@ router.post('/add/:productId', verifyToken, async (req, res) => {
     const { quantity = 1 } = req.body;
     const userId = req.user._id;
 
-    // Validate quantity
     if (quantity < 1) {
       return res.status(400).json({
         success: false,
@@ -134,7 +140,6 @@ router.post('/add/:productId', verifyToken, async (req, res) => {
       });
     }
 
-    // Check if product exists and is active
     const product = await Product.findById(productId);
     if (!product) {
       return res.status(404).json({
@@ -157,7 +162,6 @@ router.post('/add/:productId', verifyToken, async (req, res) => {
       });
     }
 
-    // Check stock availability
     const stock = product.availability.stockQuantity || 0;
     if (stock < quantity) {
       return res.status(400).json({
@@ -175,15 +179,12 @@ router.post('/add/:productId', verifyToken, async (req, res) => {
 
     if (existingIndex !== -1) {
       const newQuantity = cart.products[existingIndex].quantity + Number(quantity);
-
-      // Check stock for new quantity
       if (stock < newQuantity) {
         return res.status(400).json({
           success: false,
           message: `Cannot add more. Only ${stock} items available in stock`
         });
       }
-
       cart.products[existingIndex].quantity = newQuantity;
     } else {
       cart.products.push({
@@ -217,7 +218,6 @@ router.put('/update/:productId', verifyToken, async (req, res) => {
     const { quantity } = req.body;
     const userId = req.user._id;
 
-    // Validate quantity
     if (!quantity || quantity < 1) {
       return res.status(400).json({
         success: false,
@@ -225,7 +225,6 @@ router.put('/update/:productId', verifyToken, async (req, res) => {
       });
     }
 
-    // Check product stock
     const product = await Product.findById(productId);
     if (!product) {
       return res.status(404).json({
