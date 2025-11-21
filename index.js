@@ -28,6 +28,7 @@ const imageStoreRoutes = require("./routes/imageStore");
 const bannerRoutes = require("./routes/bannerRoutes");
 const successStoryRoutes = require("./routes/successStoryRoutes");
 const installmentRoutes = require("./routes/installmentRoutes");
+const healthCheckRoutes = require("./routes/healthCheckRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -132,6 +133,9 @@ app.use("/api/installments", installmentRoutes);
 // ⭐ CART & WISHLIST (subroutes with /count, /clear, /add, /remove, /toggle)
 app.use("/api/cart", cartRoutes);
 app.use("/api/wishlist", wishlistRoutes);
+
+// HEALTH CHECK ROUTES (API Testing Dashboard)
+app.use("/api/health-check", healthCheckRoutes);
 
 // ======================================================================
 // ROOT

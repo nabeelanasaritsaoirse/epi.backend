@@ -1,20 +1,33 @@
-// const express = require('express');
-// const cookieParser = require('cookie-parser');
-// const session = require('express-session');
-// const connectDB = require('./config/database'); // keep your DB connector
-// const authRoutes = require('./routes/auth');
-// const usersRoutes = require('./routes/users');
-// const wishlistRoutes = require('./routes/wishlistRoutes'); // optional - keep if exists
-// const cartRoutes = require('./routes/cartRoutes'); // optional - keep if exists
+const express = require('express');
+const cookieParser = require('cookie-parser');
+const session = require('express-session');
+const connectDB = require('./config/database'); // keep your DB connector
+const { startNotificationCron } = require('./jobs/notificationCron');
+const authRoutes = require('./routes/auth');
+const usersRoutes = require('./routes/users');
+const wishlistRoutes = require('./routes/wishlistRoutes'); // optional - keep if exists
+const cartRoutes = require('./routes/cart');
+const successStoryRoutes = require('./routes/successStoryRoutes');
 
 
-// // NEW: categories router (ensure the path is correct relative to this file)
-// const categoriesRouter = require('./routes/categoryRoutes');
-// // coupon router
-// const couponRoutes = require('./routes/couponRoutes');
+// NEW: categories router (ensure the path is correct relative to this file)
+const categoriesRouter = require('./routes/categoryRoutes');
+// coupon router
+const couponRoutes = require('./routes/couponRoutes');
+// chat routes
+const chatRoutes = require('./routes/chatRoutes');
+const adminChatRoutes = require('./routes/adminChatRoutes');
+// notification routes
+const notificationRoutes = require('./routes/notificationRoutes');
+const adminNotificationRoutes = require('./routes/adminNotificationRoutes');
+// health check routes
+const healthCheckRoutes = require('./routes/healthCheckRoutes');
 
-// // Initialize DB connection
-// connectDB();
+// Initialize DB connection
+connectDB();
+
+// Start notification cron job for scheduled posts
+startNotificationCron();
 
 // const app = express();
 
@@ -43,16 +56,28 @@
 //   });
 // }
 
-// // Mount routers
-// app.use('/api/auth', authRoutes);
-// app.use('/api/users', usersRoutes);
-// app.use('/api/categories', categoriesRouter);
-// // coupon endpoints (public + admin)
-// app.use('/api', couponRoutes);
+// Mount routers
+app.use('/api/auth', authRoutes);
+app.use('/api/users', usersRoutes);
+app.use('/api/categories', categoriesRouter);
+app.use('/api/success-stories', successStoryRoutes);
+// coupon endpoints (public + admin)
+app.use('/api', couponRoutes);
 
-// // Keep your other mounts if they exist
-// app.use('/', wishlistRoutes);
-// app.use('/', cartRoutes);
+// Chat routes
+app.use('/api/chat', chatRoutes);
+app.use('/api/admin/chat', adminChatRoutes);
+
+// Notification routes
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/admin/notifications', adminNotificationRoutes);
+
+// Health check routes (API testing dashboard)
+app.use('/api/health-check', healthCheckRoutes);
+
+// Keep your other mounts if they exist
+app.use('/', wishlistRoutes);
+app.use('/api/cart', cartRoutes);
 
 // // debug / health checks
 // app.get('/ping', (req, res) => res.send('pong'));
