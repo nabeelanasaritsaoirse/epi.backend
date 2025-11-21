@@ -6,13 +6,14 @@ const Product = require('../models/Product');
 const { verifyToken } = require('../middlewares/auth');
 
 // GET /api/wishlist - Get user's wishlist
+// GET /api/wishlist - Get user's wishlist
 router.get('/', verifyToken, async (req, res) => {
   try {
     const userId = req.user._id;
 
     let wishlist = await Wishlist.findOne({ userId }).populate({
       path: 'products',
-      select: 'name pricing images availability status'
+      select: 'name pricing images availability status brand'
     });
 
     if (!wishlist) {
@@ -37,10 +38,11 @@ router.get('/', verifyToken, async (req, res) => {
       await wishlist.save();
     }
 
-    // Format response with product details
+    // Format response with product details INCLUDING BRAND
     const wishlistItems = activeProducts.map(product => ({
       productId: product._id,
       name: product.name,
+      brand: product.brand || null,   // <-- brand included here
       price: product.pricing?.regularPrice || 0,
       finalPrice: product.pricing?.finalPrice || product.pricing?.regularPrice || 0,
       discount: product.pricing?.salePrice ?
