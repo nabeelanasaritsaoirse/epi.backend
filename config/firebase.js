@@ -17,21 +17,28 @@ const admin = require('firebase-admin');
 let firebaseInitialized = false;
 
 try {
-  // Initialize using environment variables only
-  if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
-    admin.initializeApp({
-      credential: admin.credential.cert({
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        // Handle private key with preserved newlines
-        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
-      })
-    });
+  // Check if Firebase is already initialized to prevent duplicate initialization
+  if (admin.apps.length === 0) {
+    // Initialize using environment variables only
+    if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+      admin.initializeApp({
+        credential: admin.credential.cert({
+          projectId: process.env.FIREBASE_PROJECT_ID,
+          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+          // Handle private key with preserved newlines
+          privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+        })
+      });
 
-    firebaseInitialized = true;
-    console.log('✅ Firebase Admin SDK initialized successfully');
+      firebaseInitialized = true;
+      console.log('✅ Firebase Admin SDK initialized successfully');
+    } else {
+      throw new Error('Firebase environment variables not set');
+    }
   } else {
-    throw new Error('Firebase environment variables not set');
+    // Firebase is already initialized
+    firebaseInitialized = true;
+    console.log('✅ Firebase Admin SDK already initialized');
   }
 
 } catch (error) {
