@@ -199,6 +199,8 @@ const bannerRoutes = require("./routes/bannerRoutes");
 const successStoryRoutes = require("./routes/successStoryRoutes");
 const installmentRoutes = require("./routes/installmentRoutes");
 const healthCheckRoutes = require("./routes/healthCheckRoutes");
+const notificationRoutes = require("./routes/notificationRoutes");
+const adminNotificationRoutes = require("./routes/adminNotificationRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -299,6 +301,8 @@ app.use("/api/image-store", imageStoreRoutes);
 app.use("/api/banners", bannerRoutes);
 app.use("/api/success-stories", successStoryRoutes);
 app.use("/api/installments", installmentRoutes);
+app.use("/api/notifications", notificationRoutes);
+app.use("/api/admin/notifications", adminNotificationRoutes);
 
 // ⭐ CART & WISHLIST (subroutes with /count, /clear, /add, /remove, /toggle)
 app.use("/api/cart", cartRoutes);
