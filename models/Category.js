@@ -26,6 +26,14 @@ const categorySchema = new mongoose.Schema({
     url: String,
     altText: String
   },
+  banner: {
+    url: String,
+    altText: String,
+    link: String
+  },
+  icon: {
+    type: String
+  },
   parentCategoryId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Category',
@@ -35,7 +43,27 @@ const categorySchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Category'
   }],
+  level: {
+    type: Number,
+    default: 0
+  },
+  path: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Category'
+  }],
+  productCount: {
+    type: Number,
+    default: 0
+  },
   isActive: {
+    type: Boolean,
+    default: true
+  },
+  isFeatured: {
+    type: Boolean,
+    default: false
+  },
+  showInMenu: {
     type: Boolean,
     default: true
   },
@@ -58,9 +86,30 @@ const categorySchema = new mongoose.Schema({
   }
 });
 
-// Middleware to update the updatedAt field
-categorySchema.pre('save', function(next) {
+// Middleware to update the updatedAt field and auto-calculate level & path
+categorySchema.pre('save', async function(next) {
   this.updatedAt = new Date();
+
+  // Auto-calculate level and path based on parent
+  if (this.parentCategoryId) {
+    try {
+      const parent = await this.constructor.findById(this.parentCategoryId);
+      if (parent) {
+        this.level = (parent.level || 0) + 1;
+        this.path = [...(parent.path || []), parent._id];
+      } else {
+        this.level = 0;
+        this.path = [];
+      }
+    } catch (error) {
+      this.level = 0;
+      this.path = [];
+    }
+  } else {
+    this.level = 0;
+    this.path = [];
+  }
+
   next();
 });
 

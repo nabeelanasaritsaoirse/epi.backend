@@ -1,4 +1,5 @@
 const Category = require('../models/Category');
+const { uploadSingleFileToS3, uploadMultipleFilesToS3 } = require('../services/awsUploadService');
 
 /**
  * @desc    Create a new category
@@ -464,6 +465,259 @@ exports.reorderCategories = async (req, res) => {
     });
   } catch (error) {
     console.error('Error reordering categories:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Get category statistics
+ * @route   GET /api/categories/stats
+ * @access  Public
+ */
+exports.getCategoryStats = async (req, res) => {
+  try {
+    const totalCategories = await Category.countDocuments({});
+    const activeCategories = await Category.countDocuments({ isActive: true });
+    const inactiveCategories = await Category.countDocuments({ isActive: false });
+    const featuredCategories = await Category.countDocuments({ isFeatured: true });
+    const mainCategories = await Category.countDocuments({ parentCategoryId: null });
+    const subCategories = await Category.countDocuments({ parentCategoryId: { $ne: null } });
+
+    // Get categories by level
+    const categoriesByLevel = await Category.aggregate([
+      { $group: { _id: '$level', count: { $sum: 1 } } },
+      { $sort: { _id: 1 } }
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        total: totalCategories,
+        active: activeCategories,
+        inactive: inactiveCategories,
+        featured: featuredCategories,
+        main: mainCategories,
+        sub: subCategories,
+        byLevel: categoriesByLevel
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching category stats:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Update category image (with file upload to S3)
+ * @route   PUT /api/categories/:categoryId/image
+ * @access  Admin
+ */
+exports.updateCategoryImage = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+    const file = req.file;
+
+    if (!file) {
+      return res.status(400).json({
+        success: false,
+        message: "Image file is required"
+      });
+    }
+
+    const category = await Category.findById(categoryId);
+
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found"
+      });
+    }
+
+    // Upload to S3
+    const uploadResult = await uploadSingleFileToS3(file, 'categories/', 800);
+
+    category.image = {
+      url: uploadResult.url,
+      altText: req.body.altText || category.name
+    };
+
+    await category.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Category image uploaded and updated successfully",
+      data: {
+        categoryId: category._id,
+        image: category.image
+      }
+    });
+  } catch (error) {
+    console.error('Error updating category image:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Update category banner (with file upload to S3)
+ * @route   PUT /api/categories/:categoryId/banner
+ * @access  Admin
+ */
+exports.updateCategoryBanner = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+    const file = req.file;
+
+    if (!file) {
+      return res.status(400).json({
+        success: false,
+        message: "Banner image file is required"
+      });
+    }
+
+    const category = await Category.findById(categoryId);
+
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found"
+      });
+    }
+
+    // Upload to S3 (larger size for banner)
+    const uploadResult = await uploadSingleFileToS3(file, 'categories/banners/', 1200);
+
+    category.banner = {
+      url: uploadResult.url,
+      altText: req.body.altText || category.name,
+      link: req.body.link || ''
+    };
+
+    await category.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Category banner uploaded and updated successfully",
+      data: {
+        categoryId: category._id,
+        banner: category.banner
+      }
+    });
+  } catch (error) {
+    console.error('Error updating category banner:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Update category meta/SEO (after creation)
+ * @route   PUT /api/categories/:categoryId/meta
+ * @access  Admin
+ */
+exports.updateCategoryMeta = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+    const { title, description, keywords } = req.body;
+
+    const category = await Category.findById(categoryId);
+
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found"
+      });
+    }
+
+    category.meta = {
+      title: title || category.meta?.title || category.name,
+      description: description || category.meta?.description || '',
+      keywords: keywords || category.meta?.keywords || []
+    };
+
+    await category.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Category meta updated successfully",
+      data: category
+    });
+  } catch (error) {
+    console.error('Error updating category meta:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Toggle category featured status
+ * @route   PUT /api/categories/:categoryId/toggle-featured
+ * @access  Admin
+ */
+exports.toggleFeatured = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+
+    const category = await Category.findById(categoryId);
+
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found"
+      });
+    }
+
+    category.isFeatured = !category.isFeatured;
+    await category.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Category ${category.isFeatured ? 'featured' : 'unfeatured'} successfully`,
+      data: category
+    });
+  } catch (error) {
+    console.error('Error toggling featured status:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Get featured categories
+ * @route   GET /api/categories/featured
+ * @access  Public
+ */
+exports.getFeaturedCategories = async (req, res) => {
+  try {
+    const categories = await Category.find({
+      isFeatured: true,
+      isActive: true
+    })
+      .populate('subCategories', 'categoryId name slug image')
+      .sort({ displayOrder: 1, name: 1 })
+      .exec();
+
+    res.status(200).json({
+      success: true,
+      count: categories.length,
+      data: categories
+    });
+  } catch (error) {
+    console.error('Error fetching featured categories:', error);
     res.status(500).json({
       success: false,
       message: error.message

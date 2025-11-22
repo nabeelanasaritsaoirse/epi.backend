@@ -1,5 +1,6 @@
 const Product = require('../models/Product');
 const { calculateEquivalentValues, generateInstallmentOptions } = require('../utils/productUtils');
+const { uploadSingleFileToS3, uploadMultipleFilesToS3 } = require('../services/awsUploadService');
 
 // Create product and a number of product CRUD helpers with enhanced regional features
 exports.createProduct = async (req, res) => {
@@ -48,6 +49,7 @@ exports.createProduct = async (req, res) => {
       regionalSeo: req.body.regionalSeo || [],
       regionalAvailability: req.body.regionalAvailability || [],
       relatedProducts: req.body.relatedProducts || [],
+      plans: req.body.plans || [], // Admin-created investment plans
       status: req.body.status || 'draft',
       createdAt: new Date(),
       updatedAt: new Date()
@@ -322,7 +324,7 @@ exports.updateProduct = async (req, res) => {
     }
 
     // Merge other top-level fields (safe shallow merge)
-    const updatableFields = ['name','description','brand','pricing','availability','regionalPricing','regionalSeo','regionalAvailability','relatedProducts','paymentPlan','origin','referralBonus','images','project','dimensions','warranty','seo','status'];
+    const updatableFields = ['name','description','brand','pricing','availability','regionalPricing','regionalSeo','regionalAvailability','relatedProducts','paymentPlan','plans','origin','referralBonus','images','project','dimensions','warranty','seo','status'];
     updatableFields.forEach(field => {
       if (req.body[field] !== undefined) product[field] = req.body[field];
     });
@@ -1050,6 +1052,230 @@ exports.searchProductsAdvanced = async (req, res) => {
   } catch (error) {
     res.status(500).json({ 
       success: false, 
+      message: error.message
+    });
+  }
+};
+/**
+ * @desc    Update product images (after S3 upload)
+ * @route   PUT /api/products/:productId/images
+ * @access  Admin
+ */
+exports.updateProductImages = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const files = req.files;
+
+    if (!files || files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one image file is required"
+      });
+    }
+
+    const product = await Product.findOne({ productId });
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found"
+      });
+    }
+
+    // Upload all files to S3
+    const uploadResults = await uploadMultipleFilesToS3(files, 'products/', 800);
+
+    // Format images with S3 URLs
+    const formattedImages = uploadResults.map((result, index) => ({
+      url: result.url,
+      isPrimary: index === 0, // First image is primary
+      altText: req.body.altText || product.name
+    }));
+
+    product.images = formattedImages;
+    await product.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Product images uploaded and updated successfully",
+      data: {
+        productId: product.productId,
+        images: product.images,
+        uploadedCount: uploadResults.length
+      }
+    });
+  } catch (error) {
+    console.error('Error updating product images:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Update product variant images (after S3 upload)
+ * @route   PUT /api/products/:productId/variants/:variantId/images
+ * @access  Admin
+ */
+exports.updateVariantImages = async (req, res) => {
+  try {
+    const { productId, variantId } = req.params;
+    const files = req.files;
+
+    if (!files || files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one image file is required"
+      });
+    }
+
+    const product = await Product.findOne({ productId });
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found"
+      });
+    }
+
+    // Find variant
+    const variant = product.variants.find(v => v.variantId === variantId);
+
+    if (!variant) {
+      return res.status(404).json({
+        success: false,
+        message: "Variant not found"
+      });
+    }
+
+    // Upload all files to S3
+    const uploadResults = await uploadMultipleFilesToS3(files, `products/variants/${variantId}/`, 800);
+
+    // Format images
+    const formattedImages = uploadResults.map((result, index) => ({
+      url: result.url,
+      isPrimary: index === 0,
+      altText: req.body.altText || `${product.name} - ${variant.variantId}`
+    }));
+
+    variant.images = formattedImages;
+    await product.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Variant images uploaded and updated successfully",
+      data: {
+        productId: product.productId,
+        variantId: variant.variantId,
+        images: variant.images,
+        uploadedCount: uploadResults.length
+      }
+    });
+  } catch (error) {
+    console.error('Error updating variant images:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Update product SEO meta (after creation)
+ * @route   PUT /api/products/:productId/seo
+ * @access  Admin
+ */
+exports.updateProductSEO = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const { metaTitle, metaDescription, keywords } = req.body;
+
+    const product = await Product.findOne({ productId });
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found"
+      });
+    }
+
+    product.seo = {
+      metaTitle: metaTitle || product.seo?.metaTitle || product.name,
+      metaDescription: metaDescription || product.seo?.metaDescription || product.description?.short || '',
+      keywords: keywords || product.seo?.keywords || []
+    };
+
+    await product.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Product SEO updated successfully",
+      data: {
+        productId: product.productId,
+        seo: product.seo
+      }
+    });
+  } catch (error) {
+    console.error('Error updating product SEO:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Update product plans (after creation)
+ * @route   PUT /api/products/:productId/plans
+ * @access  Admin
+ */
+exports.updateProductPlans = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const { plans } = req.body;
+
+    if (!Array.isArray(plans)) {
+      return res.status(400).json({
+        success: false,
+        message: "Plans must be an array"
+      });
+    }
+
+    const product = await Product.findOne({ productId });
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found"
+      });
+    }
+
+    // Validate plans structure
+    for (const plan of plans) {
+      if (!plan.name || !plan.days || !plan.perDayAmount) {
+        return res.status(400).json({
+          success: false,
+          message: "Each plan must have name, days, and perDayAmount"
+        });
+      }
+    }
+
+    product.plans = plans;
+    await product.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Product plans updated successfully",
+      data: {
+        productId: product.productId,
+        plans: product.plans
+      }
+    });
+  } catch (error) {
+    console.error('Error updating product plans:', error);
+    res.status(500).json({
+      success: false,
       message: error.message
     });
   }
