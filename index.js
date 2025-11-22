@@ -173,7 +173,7 @@ require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 const express = require("express");
 const cors = require("cors");
-const admin = require("firebase-admin");
+require("./config/firebase"); // Initialize Firebase
 const initializeReferralSystem = require("./scripts/initializeReferralSystem");
 const connectDB = require("./config/database");
 
@@ -245,29 +245,7 @@ app.use((err, req, res, next) => {
 // ======================================================================
 // FIREBASE INIT
 // ======================================================================
-try {
-  const { FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY } =
-    process.env;
-
-  let privateKey = FIREBASE_PRIVATE_KEY
-    ? FIREBASE_PRIVATE_KEY.replace(/^"|"$/g, "").replace(/\\n/g, "\n")
-    : null;
-
-  if (FIREBASE_PROJECT_ID && FIREBASE_CLIENT_EMAIL && privateKey) {
-    admin.initializeApp({
-      credential: admin.credential.cert({
-        project_id: FIREBASE_PROJECT_ID,
-        client_email: FIREBASE_CLIENT_EMAIL,
-        private_key: privateKey
-      })
-    });
-    console.log("🔥 Firebase initialized");
-  } else {
-    console.log("⚠️ Firebase not initialized (missing env vars)");
-  }
-} catch (e) {
-  console.error("Firebase init error:", e.message);
-}
+// Firebase is initialized in config/firebase.js
 
 // ======================================================================
 // MONGO CONNECTION
