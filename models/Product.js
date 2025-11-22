@@ -188,10 +188,20 @@ const productSchema = new mongoose.Schema({
   
   relatedProducts: [relatedProductSchema],
   
-  
+
   paymentPlan: installmentSchema,
-  
-  
+
+  // Admin-created investment plans for this product
+  plans: [{
+    name: { type: String, required: true }, // e.g., "Quick Plan", "Standard Plan"
+    days: { type: Number, required: true, min: 1 }, // Total days to complete
+    perDayAmount: { type: Number, required: true, min: 0 }, // Daily payment amount
+    totalAmount: { type: Number }, // Auto-calculated: days * perDayAmount
+    isRecommended: { type: Boolean, default: false }, // Mark one plan as recommended
+    description: { type: String } // Optional description
+  }],
+
+
   origin: {
     country: String,
     manufacturer: String
@@ -252,8 +262,17 @@ const productSchema = new mongoose.Schema({
 
 productSchema.pre('save', function(next) {
   this.updatedAt = Date.now();
-  
-  
+
+  // Auto-calculate totalAmount for each plan
+  if (this.plans && this.plans.length > 0) {
+    this.plans.forEach(plan => {
+      if (plan.days && plan.perDayAmount) {
+        plan.totalAmount = plan.days * plan.perDayAmount;
+      }
+    });
+  }
+
+
   if (this.regionalPricing && this.regionalPricing.length > 0) {
     this.regionalPricing.forEach(pricing => {
       if (!pricing.finalPrice) {

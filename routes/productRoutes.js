@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const productController = require('../controllers/productController');
 const productFeaturedController = require('../controllers/productFeaturedController');
+const { uploadMultiple } = require('../middlewares/uploadMiddleware');
 
 // Basic product routes
 router.post('/', productController.createProduct);
@@ -24,6 +25,12 @@ router.get('/project/:projectId', productController.getProductsByProject);
 router.get('/:productId', productController.getProductById);
 router.put('/:productId', productController.updateProduct);
 router.delete('/:productId', productController.deleteProduct);
+
+// Update product specific fields (with file upload for images)
+router.put('/:productId/images', uploadMultiple, productController.updateProductImages);
+router.put('/:productId/seo', productController.updateProductSEO);
+router.put('/:productId/plans', productController.updateProductPlans);
+router.put('/:productId/variants/:variantId/images', uploadMultiple, productController.updateVariantImages);
 
 // Mark products as popular/bestseller/trending
 router.post('/:productId/mark-popular', productFeaturedController.markAsPopular);
