@@ -22,10 +22,15 @@ router.post("/", verifyToken, async (req, res) => {
     const product = await Product.findById(productId);
     if (!product) return res.status(404).json({ message: "Product not found" });
 
+    // Validate product has pricing information
+    if (!product.pricing || !product.pricing.finalPrice) {
+      return res.status(400).json({ message: "Product pricing information is missing" });
+    }
+
     // ---------------------------------------------
     // 🎟️ COUPON VALIDATION
     // ---------------------------------------------
-    let finalPrice = product.price;
+    let finalPrice = product.pricing.finalPrice;
     let appliedCoupon = null;
 
     if (couponCode) {
@@ -45,7 +50,7 @@ router.post("/", verifyToken, async (req, res) => {
         return res.status(400).json({ message: `Coupon '${couponCode}' has expired` });
       }
 
-      if (product.price < coupon.minOrderValue) {
+      if (product.pricing.finalPrice < coupon.minOrderValue) {
         return res.status(400).json({
           message: `Minimum order value of ₹${coupon.minOrderValue} required for this coupon`,
           minOrderValue: coupon.minOrderValue
@@ -57,11 +62,11 @@ router.post("/", verifyToken, async (req, res) => {
       if (coupon.discountType === 'flat') {
         discountAmount = coupon.discountValue;
       } else if (coupon.discountType === 'percentage') {
-        discountAmount = Math.round((product.price * coupon.discountValue) / 100);
+        discountAmount = Math.round((product.pricing.finalPrice * coupon.discountValue) / 100);
       }
 
-      discountAmount = Math.min(discountAmount, product.price);
-      finalPrice = product.price - discountAmount;
+      discountAmount = Math.min(discountAmount, product.pricing.finalPrice);
+      finalPrice = product.pricing.finalPrice - discountAmount;
 
       appliedCoupon = {
         code: coupon.couponCode,
@@ -212,7 +217,7 @@ router.post("/", verifyToken, async (req, res) => {
         message: "Order created",
         order,
         pricing: {
-          originalPrice: product.price,
+          originalPrice: product.pricing.finalPrice,
           finalPrice: finalPrice,
           coupon: appliedCoupon
         },
@@ -230,7 +235,7 @@ router.post("/", verifyToken, async (req, res) => {
       message: "Order created",
       order,
       pricing: {
-        originalPrice: product.price,
+        originalPrice: product.pricing.finalPrice,
         finalPrice: finalPrice,
         coupon: appliedCoupon
       }
