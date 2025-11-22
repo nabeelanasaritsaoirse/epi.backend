@@ -11,9 +11,10 @@ const recalcWallet = require("../services/walletCalculator");
 // -----------------------------------------------------------
 // CREATE ORDER
 // -----------------------------------------------------------
-router.post("/", async (req, res) => {
+router.post("/", verifyToken, async (req, res) => {
   try {
-    const { productId, paymentOption, paymentDetails, deliveryAddress, userId } = req.body;
+    const { productId, paymentOption, paymentDetails, deliveryAddress, couponCode } = req.body;
+    const userId = req.user._id; // Token se user ID liya
 
     if (!productId || !paymentOption)
       return res.status(400).json({ message: "Missing required fields" });
@@ -21,24 +22,123 @@ router.post("/", async (req, res) => {
     const product = await Product.findById(productId);
     if (!product) return res.status(404).json({ message: "Product not found" });
 
+    // ---------------------------------------------
+    // 🎟️ COUPON VALIDATION
+    // ---------------------------------------------
+    let finalPrice = product.price;
+    let appliedCoupon = null;
+
+    if (couponCode) {
+      const Coupon = require('../models/Coupon');
+      const coupon = await Coupon.findOne({ couponCode: couponCode.toUpperCase() });
+
+      if (!coupon) {
+        return res.status(404).json({ message: `Coupon '${couponCode}' not found` });
+      }
+
+      if (!coupon.isActive) {
+        return res.status(400).json({ message: `Coupon '${couponCode}' is not active` });
+      }
+
+      const now = new Date();
+      if (now > coupon.expiryDate) {
+        return res.status(400).json({ message: `Coupon '${couponCode}' has expired` });
+      }
+
+      if (product.price < coupon.minOrderValue) {
+        return res.status(400).json({
+          message: `Minimum order value of ₹${coupon.minOrderValue} required for this coupon`,
+          minOrderValue: coupon.minOrderValue
+        });
+      }
+
+      // Calculate discount
+      let discountAmount = 0;
+      if (coupon.discountType === 'flat') {
+        discountAmount = coupon.discountValue;
+      } else if (coupon.discountType === 'percentage') {
+        discountAmount = Math.round((product.price * coupon.discountValue) / 100);
+      }
+
+      discountAmount = Math.min(discountAmount, product.price);
+      finalPrice = product.price - discountAmount;
+
+      appliedCoupon = {
+        code: coupon.couponCode,
+        discountType: coupon.discountType,
+        discountValue: coupon.discountValue,
+        discountAmount: discountAmount
+      };
+    }
+
     const standardizedPayment = { ...paymentDetails, startDate: new Date() };
 
+    // ---------------------------------------------
+    // 💰 DAILY PAYMENT CALCULATION
+    // ---------------------------------------------
     if (paymentOption === "daily") {
-      const dailyAmount = paymentDetails?.dailyAmount || 100;
-      const days = Math.ceil(product.price / dailyAmount);
+      let dailyAmount, totalDays;
+
+      // Case 1: Frontend sent totalDays → Calculate dailyAmount
+      if (paymentDetails?.totalDays) {
+        totalDays = paymentDetails.totalDays;
+        dailyAmount = Math.ceil(finalPrice / totalDays);
+      }
+      // Case 2: Frontend sent dailyAmount → Calculate totalDays
+      else if (paymentDetails?.dailyAmount) {
+        dailyAmount = paymentDetails.dailyAmount;
+        totalDays = Math.ceil(finalPrice / dailyAmount);
+      }
+      // Case 3: Neither sent → Default dailyAmount = 100
+      else {
+        dailyAmount = 100;
+        totalDays = Math.ceil(finalPrice / dailyAmount);
+      }
+
+      // ✅ Validation: Minimum daily amount ₹50
+      if (dailyAmount < 50) {
+        return res.status(400).json({
+          message: "Minimum daily payment is ₹50",
+          calculatedDailyAmount: dailyAmount,
+          suggestedDays: Math.ceil(finalPrice / 50)
+        });
+      }
+
+      // ✅ Validation: Minimum 5 days investment period
+      if (totalDays < 5) {
+        return res.status(400).json({
+          message: "Minimum investment period is 5 days",
+          calculatedDays: totalDays,
+          suggestedDailyAmount: Math.ceil(finalPrice / 5)
+        });
+      }
+
+      // ✅ Validation: Total amount should match final price
+      const calculatedTotal = dailyAmount * totalDays;
+      if (calculatedTotal < finalPrice) {
+        return res.status(400).json({
+          message: "Total payment amount is less than product price",
+          productPrice: finalPrice,
+          dailyAmount: dailyAmount,
+          totalDays: totalDays,
+          calculatedTotal: calculatedTotal,
+          shortfall: finalPrice - calculatedTotal
+        });
+      }
 
       const end = new Date();
-      end.setDate(end.getDate() + days);
+      end.setDate(end.getDate() + totalDays);
 
       standardizedPayment.dailyAmount = dailyAmount;
-      standardizedPayment.totalDuration = days;
+      standardizedPayment.totalDuration = totalDays;
       standardizedPayment.endDate = end;
+      standardizedPayment.totalEmis = totalDays;
     }
 
     const order = new Order({
       user: userId,
       product: productId,
-      orderAmount: product.price,
+      orderAmount: finalPrice, // Final price after coupon discount
       paymentOption,
       paymentDetails: standardizedPayment,
       deliveryAddress,
@@ -49,13 +149,17 @@ router.post("/", async (req, res) => {
     // -------------------------------
     if (paymentOption === "upfront") {
       const user = await User.findById(userId);
-      if (user.wallet.balance < product.price)
-        return res.status(400).json({ message: "Insufficient wallet balance" });
+      if (user.wallet.balance < finalPrice)
+        return res.status(400).json({
+          message: "Insufficient wallet balance",
+          required: finalPrice,
+          available: user.wallet.balance
+        });
 
       const tx = new Transaction({
         user: userId,
         type: "purchase",
-        amount: product.price,
+        amount: finalPrice,
         status: "completed",
         paymentMethod: "system",
         product: productId,
@@ -64,7 +168,7 @@ router.post("/", async (req, res) => {
 
       await tx.save();
 
-      user.wallet.balance -= product.price;
+      user.wallet.balance -= finalPrice;
       await user.save();
 
       order.paymentStatus = "completed";
@@ -107,6 +211,11 @@ router.post("/", async (req, res) => {
       return res.status(201).json({
         message: "Order created",
         order,
+        pricing: {
+          originalPrice: product.price,
+          finalPrice: finalPrice,
+          coupon: appliedCoupon
+        },
         payment: {
           order_id: rpOrder.id,
           amount: rpOrder.amount,
@@ -117,7 +226,15 @@ router.post("/", async (req, res) => {
       });
     }
 
-    return res.status(201).json({ message: "Order created", order });
+    return res.status(201).json({
+      message: "Order created",
+      order,
+      pricing: {
+        originalPrice: product.price,
+        finalPrice: finalPrice,
+        coupon: appliedCoupon
+      }
+    });
 
   } catch (err) {
     console.error("Order create error:", err);
@@ -254,15 +371,49 @@ router.post("/:id/verify-payment", verifyToken, async (req, res) => {
       await recalcWallet(adminUser._id);
     }
 
-    // Update order status
-    if (order.paymentStatus === "pending") order.paymentStatus = "partial";
-    order.orderStatus = "confirmed";
+    // ---------------------------------------------
+    // 3. UPDATE ORDER PROGRESS
+    // ---------------------------------------------
+    order.currentEmiNumber += 1; // Increment EMI count
+    order.emiPaidAmount += tx.amount; // Add to EMI paid amount
+    order.totalPaid += tx.amount; // Add to total paid
+
+    // Update payment status
+    if (order.paymentStatus === "pending") {
+      order.paymentStatus = "partial";
+    }
+
+    // Confirm order on first payment
+    if (order.orderStatus === "pending") {
+      order.orderStatus = "confirmed";
+    }
+
+    // ✅ CHECK: Minimum 5 days completed
+    const totalEmis = order.paymentDetails.totalEmis || order.paymentDetails.totalDuration;
+    const minDaysCompleted = order.currentEmiNumber >= 5;
+
+    // ✅ CHECK: All EMIs completed
+    const allEmisCompleted = order.currentEmiNumber >= totalEmis;
+
+    if (allEmisCompleted || order.totalPaid >= order.orderAmount) {
+      order.paymentStatus = "completed";
+      order.orderStatus = "completed";
+    }
+
     await order.save();
 
     res.status(200).json({
       message: "Payment successful",
       order,
       transaction: tx,
+      progress: {
+        currentEmi: order.currentEmiNumber,
+        totalEmis: totalEmis,
+        paidAmount: order.totalPaid,
+        remainingAmount: order.orderAmount - order.totalPaid,
+        minDaysCompleted: minDaysCompleted,
+        orderComplete: order.orderStatus === "completed"
+      }
     });
 
   } catch (err) {

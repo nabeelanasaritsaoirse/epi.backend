@@ -123,13 +123,18 @@ const relatedProductSchema = new mongoose.Schema({
 });
 
 const productSchema = new mongoose.Schema({
-  productId: { 
-    type: String, 
-    required: true, 
+  productId: {
+    type: String,
+    required: true,
     unique: true
   },
-  name: { 
-    type: String, 
+  variantId: {
+    type: String,
+    unique: true,
+    sparse: true
+  },
+  name: {
+    type: String,
     required: true,
     trim: true
   },
