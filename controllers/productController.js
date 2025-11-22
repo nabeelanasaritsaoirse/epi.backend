@@ -47,7 +47,15 @@ exports.createProduct = async (req, res) => {
       },
       regionalPricing: req.body.regionalPricing || [],
       regionalSeo: req.body.regionalSeo || [],
-      regionalAvailability: req.body.regionalAvailability || [],
+      regionalAvailability: req.body.regionalAvailability || [
+        {
+          region: 'global',
+          stockQuantity: req.body.availability?.stockQuantity || 0,
+          lowStockLevel: req.body.availability?.lowStockLevel || 10,
+          isAvailable: req.body.availability?.isAvailable !== undefined ? req.body.availability.isAvailable : true,
+          stockStatus: req.body.availability?.stockStatus || 'in_stock'
+        }
+      ],
       relatedProducts: req.body.relatedProducts || [],
       plans: req.body.plans || [], // Admin-created investment plans
       status: req.body.status || 'draft',
@@ -149,13 +157,13 @@ exports.getAllProducts = async (req, res) => {
     if (status) filter.status = status;
     
     // Regional availability filter
-    if (region && region !== 'all') {
+    if (region && region !== 'all' && region !== 'global') {
       filter['regionalAvailability.region'] = region;
       filter['regionalAvailability.isAvailable'] = true;
     }
     
     // Price range filter for specific region
-    if ((minPrice || maxPrice) && region && region !== 'all') {
+    if ((minPrice || maxPrice) && region && region !== 'all' && region !== 'global') {
       filter['regionalPricing'] = {
         $elemMatch: {
           region: region,
@@ -198,9 +206,9 @@ exports.getAllProducts = async (req, res) => {
 exports.getProductStats = async (req, res) => {
   try {
     const { region = 'global' } = req.query;
-    
+
     const filter = {};
-    if (region && region !== 'global') {
+    if (region && region !== 'global' && region !== 'all') {
       filter['regionalAvailability.region'] = region;
       filter['regionalAvailability.isAvailable'] = true;
     }
@@ -379,8 +387,8 @@ exports.getProductsByCategory = async (req, res) => {
     const { page = 1, limit = 10, region = 'global' } = req.query;
 
     const filter = { 'category.main': category };
-    
-    if (region && region !== 'all') {
+
+    if (region && region !== 'all' && region !== 'global') {
       filter['regionalAvailability.region'] = region;
       filter['regionalAvailability.isAvailable'] = true;
     }
@@ -412,13 +420,13 @@ exports.getProductsByCategory = async (req, res) => {
 exports.getLowStockProducts = async (req, res) => {
   try {
     const { region = 'global' } = req.query;
-    
+
     const filter = {
       'availability.stockStatus': 'low_stock',
       'availability.isAvailable': true
     };
-    
-    if (region && region !== 'all') {
+
+    if (region && region !== 'all' && region !== 'global') {
       filter['regionalAvailability.region'] = region;
       filter['regionalAvailability.isAvailable'] = true;
       filter['regionalAvailability.stockStatus'] = 'low_stock';
@@ -934,8 +942,8 @@ exports.getProductsByProject = async (req, res) => {
     const { page = 1, limit = 10, region = 'global' } = req.query;
 
     const filter = { 'project.projectId': projectId };
-    
-    if (region && region !== 'all') {
+
+    if (region && region !== 'all' && region !== 'global') {
       filter['regionalAvailability.region'] = region;
       filter['regionalAvailability.isAvailable'] = true;
     }
@@ -1003,24 +1011,24 @@ exports.searchProductsAdvanced = async (req, res) => {
       ];
     }
 
-    
-    if (region && region !== 'all') {
+
+    if (region && region !== 'all' && region !== 'global') {
       filter['regionalAvailability.region'] = region;
       filter['regionalAvailability.isAvailable'] = true;
     }
 
-    
+
     if (category) filter['category.main'] = category;
     if (brand) filter.brand = brand;
     if (projectId) filter['project.projectId'] = projectId;
     if (hasVariants) filter.hasVariants = true;
-    
+
     if (inStock) {
       filter['regionalAvailability.stockQuantity'] = { $gt: 0 };
     }
 
-    
-    if ((minPrice || maxPrice) && region && region !== 'all') {
+
+    if ((minPrice || maxPrice) && region && region !== 'all' && region !== 'global') {
       filter['regionalPricing'] = {
         $elemMatch: {
           region: region,
