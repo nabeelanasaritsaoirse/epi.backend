@@ -12,6 +12,13 @@ exports.createProduct = async (req, res) => {
       req.body.productId = `PROD${timestamp}${random}`;
     }
 
+    // Generate variant ID for the main product if not provided
+    if (!req.body.variantId) {
+      const timestamp = Date.now().toString().slice(-6);
+      const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+      req.body.variantId = `VAR${timestamp}${random}00`;
+    }
+
     // Auto-calculate final prices if not provided
     if (req.body.regionalPricing) {
       req.body.regionalPricing = req.body.regionalPricing.map(pricing => ({
@@ -73,10 +80,11 @@ exports.createProduct = async (req, res) => {
       const normalizedVariants = req.body.variants.map((v, idx) => {
         const timestamp = Date.now().toString().slice(-6);
         const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-        const variantId = v.variantId || `VAR${timestamp}${random}`;
+        // Add index to ensure uniqueness even if timestamp and random collide
+        const variantId = v.variantId || `VAR${timestamp}${random}${idx.toString().padStart(2, '0')}`;
 
         const skuBase = req.body.sku || req.body.productId || `PROD${timestamp}`;
-        const sku = v.sku || `${skuBase}-${idx + 1}-${variantId.slice(-4)}`;
+        const sku = v.sku || `${skuBase}-V${idx + 1}-${variantId.slice(-4)}`;
 
         if (v.price === undefined || v.price === null) {
           throw new Error(`Each variant must include a price. Missing for variant at index ${idx}`);
@@ -107,6 +115,7 @@ exports.createProduct = async (req, res) => {
       message: "Product created successfully",
       data: {
         productId: product.productId,
+        variantId: product.variantId,
         name: product.name,
         sku: product.sku
       }
@@ -116,7 +125,7 @@ exports.createProduct = async (req, res) => {
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
-        message: "Product ID or SKU already exists"
+        message: "Product ID, Variant ID, or SKU already exists"
       });
     }
     
@@ -306,9 +315,10 @@ exports.updateProduct = async (req, res) => {
       const normalizedVariants = req.body.variants.map((v, idx) => {
         const timestamp = Date.now().toString().slice(-6);
         const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-        const variantId = v.variantId || `VAR${timestamp}${random}`;
+        // Add index to ensure uniqueness even if timestamp and random collide
+        const variantId = v.variantId || `VAR${timestamp}${random}${idx.toString().padStart(2, '0')}`;
         const skuBase = req.body.sku || product.sku || product.productId || `PROD${timestamp}`;
-        const sku = v.sku || `${skuBase}-${idx + 1}-${variantId.slice(-4)}`;
+        const sku = v.sku || `${skuBase}-V${idx + 1}-${variantId.slice(-4)}`;
 
         if (v.price === undefined || v.price === null) {
           throw new Error(`Each variant must include a price. Missing for variant at index ${idx}`);
@@ -345,7 +355,7 @@ exports.updateProduct = async (req, res) => {
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
-        message: "Product ID or SKU already exists"
+        message: "Product ID, Variant ID, or SKU already exists"
       });
     }
     
