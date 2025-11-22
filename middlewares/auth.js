@@ -291,7 +291,7 @@
 
 
 //////////// NEW CODE (FIXED & CLEANED) /////////////
-const admin = require('firebase-admin');
+const { admin } = require('../config/firebase');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 

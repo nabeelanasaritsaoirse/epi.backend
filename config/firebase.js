@@ -14,46 +14,28 @@
 
 const admin = require('firebase-admin');
 
-let firebaseInitialized = false;
-
-try {
-  // Check if Firebase is already initialized to prevent duplicate initialization
-  if (admin.apps.length === 0) {
-    // Initialize using environment variables only
+// Ensure Firebase initializes only once
+if (!admin.apps.length) {
+  try {
     if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
       admin.initializeApp({
         credential: admin.credential.cert({
           projectId: process.env.FIREBASE_PROJECT_ID,
           clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-          // Handle private key with preserved newlines
-          privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
-        })
+          privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+        }),
       });
 
-      firebaseInitialized = true;
       console.log('✅ Firebase Admin SDK initialized successfully');
     } else {
-      throw new Error('Firebase environment variables not set');
+      console.warn('⚠️  Firebase Admin SDK NOT initialized');
+      console.warn('⚠️  Push notifications will be disabled');
+      console.warn('⚠️  Set FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY');
     }
-  } else {
-    // Firebase is already initialized
-    firebaseInitialized = true;
-    console.log('✅ Firebase Admin SDK already initialized');
+  } catch (error) {
+    console.warn('⚠️  Firebase Admin SDK initialization failed');
+    console.warn(`   Error: ${error.message}`);
   }
-
-} catch (error) {
-  console.warn('⚠️  Firebase Admin SDK NOT initialized');
-  console.warn('⚠️  Push notifications will be disabled');
-  console.warn('⚠️  To enable push notifications:');
-  console.warn('   Set these environment variables:');
-  console.warn('   - FIREBASE_PROJECT_ID');
-  console.warn('   - FIREBASE_CLIENT_EMAIL');
-  console.warn('   - FIREBASE_PRIVATE_KEY');
-  console.warn('');
-  console.warn(`   Error: ${error.message}`);
 }
 
-module.exports = {
-  admin,
-  firebaseInitialized
-};
+module.exports = { admin };
