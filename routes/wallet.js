@@ -242,16 +242,41 @@ router.post('/invest', verifyToken, async (req, res) => {
 });
 
 /* =====================================================================
-   GET TRANSACTION HISTORY ONLY
+   GET TRANSACTION HISTORY (ALL TYPES: RAZORPAY, WALLET, EMI, ETC.)
 ===================================================================== */
 router.get('/transactions', verifyToken, async (req, res) => {
   try {
     const tx = await Transaction.find({ user: req.user._id })
+      .populate('product', 'name images pricing')
+      .populate('order', 'orderAmount orderStatus')
       .sort({ createdAt: -1 });
+
+    // Calculate summary statistics
+    const summary = {
+      total: tx.length,
+      completed: tx.filter(t => t.status === 'completed').length,
+      pending: tx.filter(t => t.status === 'pending').length,
+      failed: tx.filter(t => t.status === 'failed').length,
+
+      // Transaction types count
+      razorpayPayments: tx.filter(t => t.paymentMethod === 'razorpay').length,
+      walletTransactions: tx.filter(t => ['bonus', 'withdrawal'].includes(t.type)).length,
+      emiPayments: tx.filter(t => t.type === 'emi_payment').length,
+      commissions: tx.filter(t => ['referral_commission', 'commission'].includes(t.type)).length,
+
+      // Total amounts by type
+      totalEarnings: tx
+        .filter(t => t.status === 'completed' && ['referral_commission', 'commission', 'bonus'].includes(t.type))
+        .reduce((sum, t) => sum + t.amount, 0),
+      totalSpent: tx
+        .filter(t => t.status === 'completed' && ['purchase', 'emi_payment', 'withdrawal'].includes(t.type))
+        .reduce((sum, t) => sum + t.amount, 0)
+    };
 
     res.status(200).json({
       success: true,
-      transactions: tx
+      transactions: tx,
+      summary
     });
 
   } catch (e) {
