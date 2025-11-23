@@ -201,6 +201,8 @@ const installmentRoutes = require("./routes/installmentRoutes");
 const healthCheckRoutes = require("./routes/healthCheckRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
 const adminNotificationRoutes = require("./routes/adminNotificationRoutes");
+const chatRoutes = require("./routes/chatRoutes");
+const adminChatRoutes = require("./routes/adminChatRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -281,6 +283,8 @@ app.use("/api/success-stories", successStoryRoutes);
 app.use("/api/installments", installmentRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/admin/notifications", adminNotificationRoutes);
+app.use("/api/chat", chatRoutes);
+app.use("/api/admin/chat", adminChatRoutes);
 
 // ⭐ CART & WISHLIST (subroutes with /count, /clear, /add, /remove, /toggle)
 app.use("/api/cart", cartRoutes);

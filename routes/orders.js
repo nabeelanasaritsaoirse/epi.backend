@@ -265,6 +265,11 @@ router.post("/:id/create-payment", verifyToken, async (req, res) => {
     if (!paymentAmount || paymentAmount <= 0)
       return res.status(400).json({ message: "Invalid amount" });
 
+    // Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "Invalid order ID format" });
+    }
+
     const order = await Order.findOne({
       _id: req.params.id,
       user: req.user._id,
@@ -321,6 +326,11 @@ router.post("/:id/create-payment", verifyToken, async (req, res) => {
 router.post("/:id/verify-payment", verifyToken, async (req, res) => {
   try {
     const { razorpay_payment_id, razorpay_signature, transaction_id } = req.body;
+
+    // Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "Invalid order ID format" });
+    }
 
     const tx = await Transaction.findById(transaction_id);
     if (!tx) return res.status(404).json({ message: "Transaction not found" });
@@ -436,6 +446,51 @@ router.post("/:id/verify-payment", verifyToken, async (req, res) => {
 });
 
 // -----------------------------------------------------------
+// GET USER'S ORDER HISTORY
+// -----------------------------------------------------------
+router.get("/user/history", verifyToken, async (req, res) => {
+  try {
+    const orders = await Order.find({ user: req.user._id })
+      .populate("product")
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      orders,
+      count: orders.length
+    });
+
+  } catch (err) {
+    console.error("Order history fetch error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// -----------------------------------------------------------
+// GET USER'S DELIVERED PRODUCTS
+// -----------------------------------------------------------
+router.get("/user/delivered", verifyToken, async (req, res) => {
+  try {
+    const deliveredOrders = await Order.find({
+      user: req.user._id,
+      orderStatus: "completed"
+    })
+      .populate("product")
+      .sort({ updatedAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      orders: deliveredOrders,
+      count: deliveredOrders.length
+    });
+
+  } catch (err) {
+    console.error("Delivered products fetch error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// -----------------------------------------------------------
 // ADMIN — GET ALL ORDERS
 // -----------------------------------------------------------
 router.get("/", async (req, res) => {
@@ -457,6 +512,11 @@ router.get("/", async (req, res) => {
 // -----------------------------------------------------------
 router.get("/:id", verifyToken, async (req, res) => {
   try {
+    // Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "Invalid order ID format" });
+    }
+
     const order = await Order.findOne({
       _id: req.params.id,
       user: req.user._id,
@@ -477,6 +537,11 @@ router.get("/:id", verifyToken, async (req, res) => {
 // -----------------------------------------------------------
 router.put("/:id/cancel", verifyToken, async (req, res) => {
   try {
+    // Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "Invalid order ID format" });
+    }
+
     const order = await Order.findOne({
       _id: req.params.id,
       user: req.user._id,

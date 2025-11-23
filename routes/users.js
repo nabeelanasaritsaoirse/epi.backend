@@ -4,6 +4,8 @@ const { verifyToken, isAdmin } = require('../middlewares/auth');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const Product = require('../models/Product');
+const { uploadSingle } = require('../middlewares/uploadMiddleware');
+const { uploadSingleFileToS3, deleteImageFromS3 } = require('../services/awsUploadService');
 
 
 // CREATE NEW USER (ADMIN ONLY)
@@ -1185,24 +1187,24 @@ router.put('/:userId/kyc-details/verify', verifyToken, isAdmin, async (req, res)
   try {
     const { userId } = req.params;
     const { aadharVerified, panVerified } = req.body;
-    
+
     // Find user
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
-    
+
     // Check if user has KYC details
     if (!user.kycDetails) {
-      return res.status(400).json({ 
-        success: false, 
+      return res.status(400).json({
+        success: false,
         message: 'User does not have KYC details to verify'
       });
     }
-    
+
     // Update verification status
     const updates = {};
-    
+
     if (aadharVerified !== undefined) {
       // Only allow verification if aadharCardNumber is present
       if (aadharVerified && !user.kycDetails.aadharCardNumber) {
@@ -1213,7 +1215,7 @@ router.put('/:userId/kyc-details/verify', verifyToken, isAdmin, async (req, res)
       }
       updates['kycDetails.aadharVerified'] = Boolean(aadharVerified);
     }
-    
+
     if (panVerified !== undefined) {
       // Only allow verification if panCardNumber is present
       if (panVerified && !user.kycDetails.panCardNumber) {
@@ -1224,21 +1226,21 @@ router.put('/:userId/kyc-details/verify', verifyToken, isAdmin, async (req, res)
       }
       updates['kycDetails.panVerified'] = Boolean(panVerified);
     }
-    
+
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({
         success: false,
         message: 'Please provide at least one verification status to update'
       });
     }
-    
+
     // Update user
     const updatedUser = await User.findByIdAndUpdate(
       userId,
       { $set: updates },
       { new: true }
     );
-    
+
     res.status(200).json({
       success: true,
       message: 'KYC verification status updated successfully',
@@ -1248,6 +1250,86 @@ router.put('/:userId/kyc-details/verify', verifyToken, isAdmin, async (req, res)
     console.error('Error updating KYC verification status:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
+});
+
+/**
+ * @route   PUT /api/users/:userId/profile-picture
+ * @desc    Update user profile picture with S3 upload
+ * @access  Private
+ */
+router.put('/:userId/profile-picture', verifyToken, (req, res) => {
+  uploadSingle(req, res, async (err) => {
+    try {
+      const { userId } = req.params;
+
+      // Verify user permissions (either the same user or admin)
+      if (req.user._id.toString() !== userId && req.user.role !== 'admin') {
+        return res.status(403).json({ success: false, message: 'Unauthorized' });
+      }
+
+      // Handle multer errors
+      if (err) {
+        console.error('Multer error:', err);
+        return res.status(400).json({
+          success: false,
+          message: err.message || 'Error uploading file'
+        });
+      }
+
+      // Check if file was uploaded
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please upload an image file'
+        });
+      }
+
+      // Find user
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({ success: false, message: 'User not found' });
+      }
+
+      // Delete old profile picture from S3 if it exists
+      if (user.profilePicture && user.profilePicture.includes('s3.amazonaws.com')) {
+        try {
+          await deleteImageFromS3(user.profilePicture);
+        } catch (deleteError) {
+          console.error('Error deleting old profile picture:', deleteError);
+          // Continue with upload even if delete fails
+        }
+      }
+
+      // Upload new profile picture to S3
+      const uploadResult = await uploadSingleFileToS3(
+        req.file,
+        'profile-pictures/',
+        480 // resize width
+      );
+
+      // Update user profile picture URL
+      user.profilePicture = uploadResult.url;
+      user.updatedAt = Date.now();
+      await user.save();
+
+      res.status(200).json({
+        success: true,
+        message: 'Profile picture updated successfully',
+        profilePicture: user.profilePicture,
+        uploadDetails: {
+          size: uploadResult.size,
+          mimeType: uploadResult.mimeType
+        }
+      });
+
+    } catch (error) {
+      console.error('Error updating profile picture:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Server error: ' + error.message
+      });
+    }
+  });
 });
 
 module.exports = router; 

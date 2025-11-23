@@ -3,6 +3,7 @@
  * Handles all messaging-related business logic
  */
 
+const mongoose = require('mongoose');
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
 const User = require('../models/User');
@@ -89,6 +90,11 @@ async function sendMessage(conversationId, senderId, messageData) {
 
     newMessage.text = text ? sanitizeMessageText(text) : `Shared product: ${product.name}`;
   } else if (messageType === 'ORDER_SHARE') {
+    // Validate ObjectId
+    if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
+      throw new Error('Invalid order ID format');
+    }
+
     // Validate and fetch order
     const order = await Order.findById(orderId).populate('product');
     if (!order) {

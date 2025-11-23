@@ -11,11 +11,16 @@ const razorpay = require('../config/razorpay');
 exports.createDailyInstallmentOrder = async (req, res) => {
   try {
     const { orderId, dailyAmount } = req.body;
-    
+
     if (!orderId || !dailyAmount || dailyAmount < 1) {
       return res.status(400).json({ message: 'Order ID and valid daily amount are required' });
     }
-    
+
+    // Validate orderId is a valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({ message: 'Invalid order ID format' });
+    }
+
     // Get the order
     const order = await Order.findOne({
       _id: orderId,
@@ -138,6 +143,10 @@ exports.verifyDailyInstallmentPayment = async (req, res) => {
     // Get the order if transaction exists
     let order = null;
     if (transaction && orderId) {
+      // Validate orderId is a valid ObjectId
+      if (!mongoose.Types.ObjectId.isValid(orderId)) {
+        return res.status(400).json({ message: 'Invalid order ID format' });
+      }
       order = await Order.findById(orderId);
     }
 
@@ -447,7 +456,12 @@ exports.verifyDailyInstallmentPayment = async (req, res) => {
 exports.getOrderPaymentStatus = async (req, res) => {
   try {
     const { orderId } = req.params;
-    
+
+    // Validate orderId is a valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({ message: 'Invalid order ID format' });
+    }
+
     const order = await Order.findById(orderId);
     
     if (!order) {
@@ -499,6 +513,11 @@ exports.getNextPaymentDate = async (req, res) => {
 
     if (!orderId) {
       return res.status(400).json({ message: 'Order ID is required' });
+    }
+
+    // Validate orderId is a valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({ message: 'Invalid order ID format' });
     }
 
     // Get the order
@@ -606,6 +625,14 @@ exports.processPayment = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Order ID and payment method are required'
+      });
+    }
+
+    // Validate orderId is a valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid order ID format'
       });
     }
 
