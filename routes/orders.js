@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const mongoose = require("mongoose");
 const { verifyToken } = require("../middlewares/auth");
 const Order = require("../models/Order");
 const Product = require("../models/Product");
@@ -19,7 +20,14 @@ router.post("/", verifyToken, async (req, res) => {
     if (!productId || !paymentOption)
       return res.status(400).json({ message: "Missing required fields" });
 
-    const product = await Product.findById(productId);
+    // Handle both custom productId and MongoDB _id
+    let product;
+    if (mongoose.Types.ObjectId.isValid(productId) && productId.length === 24) {
+      product = await Product.findById(productId);
+    }
+    if (!product) {
+      product = await Product.findOne({ productId });
+    }
     if (!product) return res.status(404).json({ message: "Product not found" });
 
     // Validate product has pricing information
@@ -142,7 +150,7 @@ router.post("/", verifyToken, async (req, res) => {
 
     const order = new Order({
       user: userId,
-      product: productId,
+      product: product._id, // Store MongoDB ObjectId, not custom productId
       orderAmount: finalPrice, // Final price after coupon discount
       paymentOption,
       paymentDetails: standardizedPayment,
