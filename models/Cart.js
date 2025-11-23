@@ -21,6 +21,11 @@ cartSchema.methods.cleanInactiveProducts = async function() {
   const validProducts = [];
 
   for (const item of this.products) {
+    // Validate ObjectId before querying
+    if (!item.productId || !mongoose.Types.ObjectId.isValid(item.productId)) {
+      continue; // Skip invalid productId
+    }
+
     const product = await Product.findById(item.productId);
     // Keep only products that exist and are available
     if (product && product.availability && product.availability.isAvailable &&

@@ -78,7 +78,14 @@ async function createOrder(orderData) {
   // ========================================
   // 2. Validate Product
   // ========================================
-  const product = await Product.findById(productId);
+  // Handle both custom productId and MongoDB _id
+  let product;
+  if (mongoose.Types.ObjectId.isValid(productId) && productId.length === 24) {
+    product = await Product.findById(productId);
+  }
+  if (!product) {
+    product = await Product.findOne({ productId });
+  }
   if (!product) {
     throw new ProductNotFoundError(productId);
   }
@@ -282,7 +289,7 @@ async function createOrder(orderData) {
     // ========================================
     const order = new InstallmentOrder({
       user: userId,
-      product: productId,
+      product: product._id, // Store MongoDB ObjectId, not custom productId
       productPrice,
       productName: product.name,
       productSnapshot,

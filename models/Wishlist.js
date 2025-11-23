@@ -15,6 +15,11 @@ wishlistSchema.methods.cleanInactiveProducts = async function() {
   const validProducts = [];
 
   for (const productId of this.products) {
+    // Validate ObjectId before querying
+    if (!productId || !mongoose.Types.ObjectId.isValid(productId)) {
+      continue; // Skip invalid productId
+    }
+
     const product = await Product.findById(productId);
     // Keep only products that exist and are available
     if (product && product.availability && product.availability.isAvailable &&

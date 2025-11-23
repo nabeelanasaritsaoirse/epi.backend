@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Order = require('../models/Order');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
@@ -319,7 +320,12 @@ exports.verifyDailyInstallmentPayment = async (req, res) => {
       try {
         const Plan = require('../models/Plan');
         const Product = require('../models/Product');
-        
+
+        // Validate that order.product is a valid ObjectId before querying
+        if (!order.product || !mongoose.Types.ObjectId.isValid(order.product)) {
+          throw new Error('Invalid product ID in order');
+        }
+
         // Get the product details
         const product = await Product.findById(order.product);
         if (!product) {
