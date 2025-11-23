@@ -490,18 +490,18 @@ exports.getOrderPaymentStatus = async (req, res) => {
 exports.getNextPaymentDate = async (req, res) => {
   try {
     const { orderId } = req.params;
-    
+
     if (!orderId) {
       return res.status(400).json({ message: 'Order ID is required' });
     }
-    
+
     // Get the order
     const order = await Order.findById(orderId);
-    
+
     if (!order) {
       return res.status(404).json({ message: 'Order not found' });
     }
-    
+
     // Check if order is completed
     if (order.paymentStatus === 'completed') {
       return res.status(200).json({
@@ -510,14 +510,14 @@ exports.getNextPaymentDate = async (req, res) => {
         nextPaymentDate: null
       });
     }
-    
+
     // Check if a payment has been made today
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
-    
+
     const existingPaymentToday = await Transaction.findOne({
       user: order.user,
       type: 'purchase',
@@ -527,7 +527,7 @@ exports.getNextPaymentDate = async (req, res) => {
         $lt: tomorrow
       }
     });
-    
+
     // Get total payments made so far
     const completedTransactions = await Transaction.find({
       user: order.user,
@@ -535,13 +535,13 @@ exports.getNextPaymentDate = async (req, res) => {
       status: 'completed',
       'paymentDetails.orderReference': orderId
     });
-    
+
     const totalPaid = completedTransactions.reduce((sum, tx) => sum + tx.amount, 0);
     const remainingAmount = Math.max(0, order.orderAmount - totalPaid);
     const paymentsMade = completedTransactions.length;
-    
+
     let response = {};
-    
+
     if (existingPaymentToday) {
       // Payment already made today
       response = {
@@ -574,10 +574,110 @@ exports.getNextPaymentDate = async (req, res) => {
         paymentsMade
       };
     }
-    
+
     res.status(200).json(response);
   } catch (error) {
     console.error('Error getting next payment date:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+/**
+ * Process payment (generic endpoint for both wallet and Razorpay)
+ */
+exports.processPayment = async (req, res) => {
+  try {
+    const {
+      orderId,
+      paymentMethod,
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature
+    } = req.body;
+
+    // Validate required fields
+    if (!orderId || !paymentMethod) {
+      return res.status(400).json({
+        success: false,
+        message: 'Order ID and payment method are required'
+      });
+    }
+
+    // Get the order
+    const order = await Order.findById(orderId).populate('product');
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found'
+      });
+    }
+
+    // Verify Razorpay payment if payment method is RAZORPAY
+    if (paymentMethod === 'RAZORPAY') {
+      if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+        return res.status(400).json({
+          success: false,
+          message: 'Razorpay payment details are required'
+        });
+      }
+
+      // Verify signature
+      const crypto = require('crypto');
+      const hmac = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET);
+      hmac.update(razorpayOrderId + '|' + razorpayPaymentId);
+      const generatedSignature = hmac.digest('hex');
+
+      if (generatedSignature !== razorpaySignature) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid payment signature'
+        });
+      }
+    }
+
+    // Calculate payment progress
+    const completedTransactions = await Transaction.find({
+      user: order.user,
+      product: order.product._id,
+      status: 'completed'
+    });
+
+    const totalPaid = completedTransactions.reduce((sum, tx) => sum + tx.amount, 0);
+    const progress = Math.min(100, Math.round((totalPaid / order.orderAmount) * 100));
+
+    // Update order status based on payment
+    if (totalPaid >= order.orderAmount) {
+      order.paymentStatus = 'completed';
+      order.orderStatus = 'ACTIVE';
+    } else if (totalPaid > 0) {
+      order.paymentStatus = 'partial';
+      order.orderStatus = 'ACTIVE';
+    }
+
+    await order.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Payment processed successfully',
+      data: {
+        order: {
+          orderId: order._id,
+          status: order.orderStatus,
+          progress: progress,
+          paymentStatus: order.paymentStatus,
+          totalPaid: totalPaid,
+          remainingAmount: Math.max(0, order.orderAmount - totalPaid)
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error processing payment:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message
+    });
   }
 }; 

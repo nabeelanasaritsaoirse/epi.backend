@@ -121,6 +121,12 @@ dist
 
 # Firebase service account key (contains sensitive credentials)
 serviceAccountKey.json
+firebase-service-account.json
+
+# Test/Development scripts (should not be deployed to production)
+test-firebase-login.js
+get-test-token.js
+get-custom-token.js
 
 # TernJS port file
 .tern-port
