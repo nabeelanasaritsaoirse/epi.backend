@@ -42,7 +42,15 @@ exports.getPlanProductDetail = async (req, res) => {
   try {
     const { planId, productId } = req.params;
     const userId = req.body.userId;
-    
+
+    // Validate ObjectIds
+    if (!mongoose.Types.ObjectId.isValid(planId)) {
+      return res.status(400).json({ message: 'Invalid plan ID format' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(productId)) {
+      return res.status(400).json({ message: 'Invalid product ID format' });
+    }
+
     // Find the user's plan and the specific product
     const plan = await Plan.findOne({ 
       _id: planId, 
@@ -127,10 +135,18 @@ exports.makeProductPayment = async (req, res) => {
   try {
     const { planId, productId, amount } = req.body;
     const userId = req.body.userId;
-    
+
     // Validate input
     if (!planId || !productId || !amount || amount <= 0) {
       return res.status(400).json({ message: 'Valid plan ID, product ID, and amount are required' });
+    }
+
+    // Validate ObjectIds
+    if (!mongoose.Types.ObjectId.isValid(planId)) {
+      return res.status(400).json({ message: 'Invalid plan ID format' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(productId)) {
+      return res.status(400).json({ message: 'Invalid product ID format' });
     }
     
     // Find the plan and product
