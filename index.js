@@ -286,7 +286,7 @@ app.use("/api/admin/notifications", adminNotificationRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/admin/chat", adminChatRoutes);
 
-// FIXED — wishlist MUST NOT override /users
+// FIXED wishlist MUST NOT override /users
 app.use("/api/wishlist", wishlistRoutes);
 
 // cart also correct
