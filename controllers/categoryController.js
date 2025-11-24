@@ -70,13 +70,14 @@ exports.createCategory = async (req, res) => {
       name,
       description,
       slug,
-      image: finalSingleImage,
-      images: finalImages,
+      image: image || {},
       parentCategoryId: parentCategoryId || null,
       subCategories: [],
       displayOrder: displayOrder || 0,
       meta: meta || {},
       isActive: true,
+      isFeatured:
+        req.body.isFeatured === true || req.body.isFeatured === "true", // ✅ FIX
     });
 
     await newCategory.save();
@@ -274,12 +275,10 @@ exports.updateCategory = async (req, res) => {
       });
 
       if (exists)
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: "Category with this name already exists",
-          });
+        return res.status(400).json({
+          success: false,
+          message: "Category with this name already exists",
+        });
 
       category.name = name;
       category.slug = name
@@ -314,12 +313,10 @@ exports.updateCategory = async (req, res) => {
     // Parent handling
     if (parentCategoryId !== undefined) {
       if (parentCategoryId === categoryId) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: "Category cannot be its own parent",
-          });
+        return res.status(400).json({
+          success: false,
+          message: "Category cannot be its own parent",
+        });
       }
 
       const oldParent = category.parentCategoryId;
