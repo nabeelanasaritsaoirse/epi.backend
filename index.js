@@ -269,7 +269,7 @@ app.use((err, req, res, next) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/products", productRoutes);
-app.use("/api/users", userRoutes);
+app.use("/api/users", userRoutes);   // USERS ROUTES ONLY HERE
 app.use("/api/wallet", walletRoutes);
 app.use("/api/admin/wallet", adminWalletRoutes);
 app.use("/api/referral-commission", referralCommissionRoutes);
@@ -286,9 +286,12 @@ app.use("/api/admin/notifications", adminNotificationRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/admin/chat", adminChatRoutes);
 
-// ⭐ CART & WISHLIST (subroutes with /count, /clear, /add, /remove, /toggle)
-app.use("/api/cart", cartRoutes);
+// FIXED wishlist MUST NOT override /users
 app.use("/api/wishlist", wishlistRoutes);
+
+// cart also correct
+app.use("/api/cart", cartRoutes);
+
 
 // HEALTH CHECK ROUTES (API Testing Dashboard)
 app.use("/api/health-check", healthCheckRoutes);
