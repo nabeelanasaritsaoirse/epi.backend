@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const mongoose = require("mongoose");
 const Order = require("../models/Order");
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
@@ -12,6 +13,11 @@ const recalcWallet = require("../services/walletCalculator");
 router.post("/credit/:orderId", async (req, res) => {
   try {
     const { orderId } = req.params;
+
+    // Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({ success: false, message: "Invalid order ID format" });
+    }
 
     // 1. Fetch order
     const order = await Order.findById(orderId).populate("user");

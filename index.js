@@ -173,7 +173,7 @@ require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 const express = require("express");
 const cors = require("cors");
-const admin = require("firebase-admin");
+require("./config/firebase"); // Initialize Firebase
 const initializeReferralSystem = require("./scripts/initializeReferralSystem");
 const connectDB = require("./config/database");
 
@@ -199,6 +199,10 @@ const bannerRoutes = require("./routes/bannerRoutes");
 const successStoryRoutes = require("./routes/successStoryRoutes");
 const installmentRoutes = require("./routes/installmentRoutes");
 const healthCheckRoutes = require("./routes/healthCheckRoutes");
+const notificationRoutes = require("./routes/notificationRoutes");
+const adminNotificationRoutes = require("./routes/adminNotificationRoutes");
+const chatRoutes = require("./routes/chatRoutes");
+const adminChatRoutes = require("./routes/adminChatRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -243,29 +247,7 @@ app.use((err, req, res, next) => {
 // ======================================================================
 // FIREBASE INIT
 // ======================================================================
-try {
-  const { FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY } =
-    process.env;
-
-  let privateKey = FIREBASE_PRIVATE_KEY
-    ? FIREBASE_PRIVATE_KEY.replace(/^"|"$/g, "").replace(/\\n/g, "\n")
-    : null;
-
-  if (FIREBASE_PROJECT_ID && FIREBASE_CLIENT_EMAIL && privateKey) {
-    admin.initializeApp({
-      credential: admin.credential.cert({
-        project_id: FIREBASE_PROJECT_ID,
-        client_email: FIREBASE_CLIENT_EMAIL,
-        private_key: privateKey
-      })
-    });
-    console.log("🔥 Firebase initialized");
-  } else {
-    console.log("⚠️ Firebase not initialized (missing env vars)");
-  }
-} catch (e) {
-  console.error("Firebase init error:", e.message);
-}
+// Firebase is initialized in config/firebase.js
 
 // ======================================================================
 // MONGO CONNECTION
@@ -287,7 +269,7 @@ try {
 app.use("/api/auth", authRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/products", productRoutes);
-app.use("/api/users", userRoutes);
+app.use("/api/users", userRoutes);   // USERS ROUTES ONLY HERE
 app.use("/api/wallet", walletRoutes);
 app.use("/api/admin/wallet", adminWalletRoutes);
 app.use("/api/referral-commission", referralCommissionRoutes);
@@ -299,10 +281,17 @@ app.use("/api/image-store", imageStoreRoutes);
 app.use("/api/banners", bannerRoutes);
 app.use("/api/success-stories", successStoryRoutes);
 app.use("/api/installments", installmentRoutes);
+app.use("/api/notifications", notificationRoutes);
+app.use("/api/admin/notifications", adminNotificationRoutes);
+app.use("/api/chat", chatRoutes);
+app.use("/api/admin/chat", adminChatRoutes);
 
-// ⭐ CART & WISHLIST (subroutes with /count, /clear, /add, /remove, /toggle)
-app.use("/api/cart", cartRoutes);
+// FIXED wishlist MUST NOT override /users
 app.use("/api/wishlist", wishlistRoutes);
+
+// cart also correct
+app.use("/api/cart", cartRoutes);
+
 
 // HEALTH CHECK ROUTES (API Testing Dashboard)
 app.use("/api/health-check", healthCheckRoutes);

@@ -3,8 +3,11 @@
  * Handles push notification delivery to mobile devices
  */
 
-const { admin, firebaseInitialized } = require('../config/firebase');
+const { admin } = require('../config/firebase');
 const User = require('../models/User');
+
+// Check if Firebase is initialized
+const firebaseInitialized = admin.apps.length > 0;
 
 /**
  * Send push notification to specific user(s)

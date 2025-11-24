@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const mongoose = require("mongoose");
 const { verifyToken } = require("../middlewares/auth");
 const Order = require("../models/Order");
 const Product = require("../models/Product");
@@ -11,34 +12,146 @@ const recalcWallet = require("../services/walletCalculator");
 // -----------------------------------------------------------
 // CREATE ORDER
 // -----------------------------------------------------------
-router.post("/", async (req, res) => {
+router.post("/", verifyToken, async (req, res) => {
   try {
-    const { productId, paymentOption, paymentDetails, deliveryAddress, userId } = req.body;
+    const { productId, paymentOption, paymentDetails, deliveryAddress, couponCode } = req.body;
+    const userId = req.user._id; // Token se user ID liya
 
     if (!productId || !paymentOption)
       return res.status(400).json({ message: "Missing required fields" });
 
-    const product = await Product.findById(productId);
+    // Handle both custom productId and MongoDB _id
+    let product;
+    if (mongoose.Types.ObjectId.isValid(productId) && productId.length === 24) {
+      product = await Product.findById(productId);
+    }
+    if (!product) {
+      product = await Product.findOne({ productId });
+    }
     if (!product) return res.status(404).json({ message: "Product not found" });
+
+    // Validate product has pricing information
+    if (!product.pricing || !product.pricing.finalPrice) {
+      return res.status(400).json({ message: "Product pricing information is missing" });
+    }
+
+    // ---------------------------------------------
+    // 🎟️ COUPON VALIDATION
+    // ---------------------------------------------
+    let finalPrice = product.pricing.finalPrice;
+    let appliedCoupon = null;
+
+    if (couponCode) {
+      const Coupon = require('../models/Coupon');
+      const coupon = await Coupon.findOne({ couponCode: couponCode.toUpperCase() });
+
+      if (!coupon) {
+        return res.status(404).json({ message: `Coupon '${couponCode}' not found` });
+      }
+
+      if (!coupon.isActive) {
+        return res.status(400).json({ message: `Coupon '${couponCode}' is not active` });
+      }
+
+      const now = new Date();
+      if (now > coupon.expiryDate) {
+        return res.status(400).json({ message: `Coupon '${couponCode}' has expired` });
+      }
+
+      if (product.pricing.finalPrice < coupon.minOrderValue) {
+        return res.status(400).json({
+          message: `Minimum order value of ₹${coupon.minOrderValue} required for this coupon`,
+          minOrderValue: coupon.minOrderValue
+        });
+      }
+
+      // Calculate discount
+      let discountAmount = 0;
+      if (coupon.discountType === 'flat') {
+        discountAmount = coupon.discountValue;
+      } else if (coupon.discountType === 'percentage') {
+        discountAmount = Math.round((product.pricing.finalPrice * coupon.discountValue) / 100);
+      }
+
+      discountAmount = Math.min(discountAmount, product.pricing.finalPrice);
+      finalPrice = product.pricing.finalPrice - discountAmount;
+
+      appliedCoupon = {
+        code: coupon.couponCode,
+        discountType: coupon.discountType,
+        discountValue: coupon.discountValue,
+        discountAmount: discountAmount
+      };
+    }
 
     const standardizedPayment = { ...paymentDetails, startDate: new Date() };
 
+    // ---------------------------------------------
+    // 💰 DAILY PAYMENT CALCULATION
+    // ---------------------------------------------
     if (paymentOption === "daily") {
-      const dailyAmount = paymentDetails?.dailyAmount || 100;
-      const days = Math.ceil(product.price / dailyAmount);
+      let dailyAmount, totalDays;
+
+      // Case 1: Frontend sent totalDays → Calculate dailyAmount
+      if (paymentDetails?.totalDays) {
+        totalDays = paymentDetails.totalDays;
+        dailyAmount = Math.ceil(finalPrice / totalDays);
+      }
+      // Case 2: Frontend sent dailyAmount → Calculate totalDays
+      else if (paymentDetails?.dailyAmount) {
+        dailyAmount = paymentDetails.dailyAmount;
+        totalDays = Math.ceil(finalPrice / dailyAmount);
+      }
+      // Case 3: Neither sent → Default dailyAmount = 100
+      else {
+        dailyAmount = 100;
+        totalDays = Math.ceil(finalPrice / dailyAmount);
+      }
+
+      // ✅ Validation: Minimum daily amount ₹50
+      if (dailyAmount < 50) {
+        return res.status(400).json({
+          message: "Minimum daily payment is ₹50",
+          calculatedDailyAmount: dailyAmount,
+          suggestedDays: Math.ceil(finalPrice / 50)
+        });
+      }
+
+      // ✅ Validation: Minimum 5 days investment period
+      if (totalDays < 5) {
+        return res.status(400).json({
+          message: "Minimum investment period is 5 days",
+          calculatedDays: totalDays,
+          suggestedDailyAmount: Math.ceil(finalPrice / 5)
+        });
+      }
+
+      // ✅ Validation: Total amount should match final price
+      const calculatedTotal = dailyAmount * totalDays;
+      if (calculatedTotal < finalPrice) {
+        return res.status(400).json({
+          message: "Total payment amount is less than product price",
+          productPrice: finalPrice,
+          dailyAmount: dailyAmount,
+          totalDays: totalDays,
+          calculatedTotal: calculatedTotal,
+          shortfall: finalPrice - calculatedTotal
+        });
+      }
 
       const end = new Date();
-      end.setDate(end.getDate() + days);
+      end.setDate(end.getDate() + totalDays);
 
       standardizedPayment.dailyAmount = dailyAmount;
-      standardizedPayment.totalDuration = days;
+      standardizedPayment.totalDuration = totalDays;
       standardizedPayment.endDate = end;
+      standardizedPayment.totalEmis = totalDays;
     }
 
     const order = new Order({
       user: userId,
-      product: productId,
-      orderAmount: product.price,
+      product: product._id, // Store MongoDB ObjectId, not custom productId
+      orderAmount: finalPrice, // Final price after coupon discount
       paymentOption,
       paymentDetails: standardizedPayment,
       deliveryAddress,
@@ -49,13 +162,17 @@ router.post("/", async (req, res) => {
     // -------------------------------
     if (paymentOption === "upfront") {
       const user = await User.findById(userId);
-      if (user.wallet.balance < product.price)
-        return res.status(400).json({ message: "Insufficient wallet balance" });
+      if (user.wallet.balance < finalPrice)
+        return res.status(400).json({
+          message: "Insufficient wallet balance",
+          required: finalPrice,
+          available: user.wallet.balance
+        });
 
       const tx = new Transaction({
         user: userId,
         type: "purchase",
-        amount: product.price,
+        amount: finalPrice,
         status: "completed",
         paymentMethod: "system",
         product: productId,
@@ -64,7 +181,7 @@ router.post("/", async (req, res) => {
 
       await tx.save();
 
-      user.wallet.balance -= product.price;
+      user.wallet.balance -= finalPrice;
       await user.save();
 
       order.paymentStatus = "completed";
@@ -107,6 +224,11 @@ router.post("/", async (req, res) => {
       return res.status(201).json({
         message: "Order created",
         order,
+        pricing: {
+          originalPrice: product.pricing.finalPrice,
+          finalPrice: finalPrice,
+          coupon: appliedCoupon
+        },
         payment: {
           order_id: rpOrder.id,
           amount: rpOrder.amount,
@@ -117,7 +239,15 @@ router.post("/", async (req, res) => {
       });
     }
 
-    return res.status(201).json({ message: "Order created", order });
+    return res.status(201).json({
+      message: "Order created",
+      order,
+      pricing: {
+        originalPrice: product.pricing.finalPrice,
+        finalPrice: finalPrice,
+        coupon: appliedCoupon
+      }
+    });
 
   } catch (err) {
     console.error("Order create error:", err);
@@ -134,6 +264,11 @@ router.post("/:id/create-payment", verifyToken, async (req, res) => {
 
     if (!paymentAmount || paymentAmount <= 0)
       return res.status(400).json({ message: "Invalid amount" });
+
+    // Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "Invalid order ID format" });
+    }
 
     const order = await Order.findOne({
       _id: req.params.id,
@@ -191,6 +326,11 @@ router.post("/:id/create-payment", verifyToken, async (req, res) => {
 router.post("/:id/verify-payment", verifyToken, async (req, res) => {
   try {
     const { razorpay_payment_id, razorpay_signature, transaction_id } = req.body;
+
+    // Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "Invalid order ID format" });
+    }
 
     const tx = await Transaction.findById(transaction_id);
     if (!tx) return res.status(404).json({ message: "Transaction not found" });
@@ -254,19 +394,98 @@ router.post("/:id/verify-payment", verifyToken, async (req, res) => {
       await recalcWallet(adminUser._id);
     }
 
-    // Update order status
-    if (order.paymentStatus === "pending") order.paymentStatus = "partial";
-    order.orderStatus = "confirmed";
+    // ---------------------------------------------
+    // 3. UPDATE ORDER PROGRESS
+    // ---------------------------------------------
+    order.currentEmiNumber += 1; // Increment EMI count
+    order.emiPaidAmount += tx.amount; // Add to EMI paid amount
+    order.totalPaid += tx.amount; // Add to total paid
+
+    // Update payment status
+    if (order.paymentStatus === "pending") {
+      order.paymentStatus = "partial";
+    }
+
+    // Confirm order on first payment
+    if (order.orderStatus === "pending") {
+      order.orderStatus = "confirmed";
+    }
+
+    // ✅ CHECK: Minimum 5 days completed
+    const totalEmis = order.paymentDetails.totalEmis || order.paymentDetails.totalDuration;
+    const minDaysCompleted = order.currentEmiNumber >= 5;
+
+    // ✅ CHECK: All EMIs completed
+    const allEmisCompleted = order.currentEmiNumber >= totalEmis;
+
+    if (allEmisCompleted || order.totalPaid >= order.orderAmount) {
+      order.paymentStatus = "completed";
+      order.orderStatus = "completed";
+    }
+
     await order.save();
 
     res.status(200).json({
       message: "Payment successful",
       order,
       transaction: tx,
+      progress: {
+        currentEmi: order.currentEmiNumber,
+        totalEmis: totalEmis,
+        paidAmount: order.totalPaid,
+        remainingAmount: order.orderAmount - order.totalPaid,
+        minDaysCompleted: minDaysCompleted,
+        orderComplete: order.orderStatus === "completed"
+      }
     });
 
   } catch (err) {
     console.error("Verify EMI payment error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// -----------------------------------------------------------
+// GET USER'S ORDER HISTORY
+// -----------------------------------------------------------
+router.get("/user/history", verifyToken, async (req, res) => {
+  try {
+    const orders = await Order.find({ user: req.user._id })
+      .populate("product")
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      orders,
+      count: orders.length
+    });
+
+  } catch (err) {
+    console.error("Order history fetch error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// -----------------------------------------------------------
+// GET USER'S DELIVERED PRODUCTS
+// -----------------------------------------------------------
+router.get("/user/delivered", verifyToken, async (req, res) => {
+  try {
+    const deliveredOrders = await Order.find({
+      user: req.user._id,
+      orderStatus: "completed"
+    })
+      .populate("product")
+      .sort({ updatedAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      orders: deliveredOrders,
+      count: deliveredOrders.length
+    });
+
+  } catch (err) {
+    console.error("Delivered products fetch error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -293,6 +512,11 @@ router.get("/", async (req, res) => {
 // -----------------------------------------------------------
 router.get("/:id", verifyToken, async (req, res) => {
   try {
+    // Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "Invalid order ID format" });
+    }
+
     const order = await Order.findOne({
       _id: req.params.id,
       user: req.user._id,
@@ -313,6 +537,11 @@ router.get("/:id", verifyToken, async (req, res) => {
 // -----------------------------------------------------------
 router.put("/:id/cancel", verifyToken, async (req, res) => {
   try {
+    // Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "Invalid order ID format" });
+    }
+
     const order = await Order.findOne({
       _id: req.params.id,
       user: req.user._id,

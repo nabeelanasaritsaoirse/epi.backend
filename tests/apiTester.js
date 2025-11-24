@@ -180,13 +180,12 @@ class APITester {
     }
 
     try {
-      // 6. Get sample banner (admin)
+      // 6. Get sample banner
       console.log('\n  📦 Fetching sample banner...');
       const bannersResponse = await this.makeRequest({
         method: 'GET',
-        path: '/api/banners/admin/all',
-        query: { limit: 1 },
-        token: this.tokens.adminToken
+        path: '/api/banners',
+        query: { limit: 1 }
       });
 
       if (bannersResponse.success && bannersResponse.data) {
@@ -201,13 +200,12 @@ class APITester {
     }
 
     try {
-      // 7. Get sample success story (admin)
+      // 7. Get sample success story
       console.log('\n  📦 Fetching sample success story...');
       const storiesResponse = await this.makeRequest({
         method: 'GET',
-        path: '/api/success-stories/admin/all',
-        query: { limit: 1 },
-        token: this.tokens.adminToken
+        path: '/api/success-stories',
+        query: { limit: 1 }
       });
 
       if (storiesResponse.success && storiesResponse.data) {
@@ -222,13 +220,12 @@ class APITester {
     }
 
     try {
-      // 8. Get sample image (admin)
+      // 8. Get sample image
       console.log('\n  📦 Fetching sample image...');
       const imagesResponse = await this.makeRequest({
         method: 'GET',
-        path: '/api/images/admin/all',
-        query: { limit: 1 },
-        token: this.tokens.adminToken
+        path: '/api/image-store',
+        query: { limit: 1 }
       });
 
       if (imagesResponse.success && imagesResponse.data) {

@@ -227,9 +227,19 @@ exports.addProductToPlan = async (req, res) => {
     if (!productId || !dailyPayment || dailyPayment <= 0) {
       return res.status(400).json({ message: 'Product ID and valid daily payment amount are required' });
     }
-    
-    // Get the product
-    const product = await Product.findById(productId);
+
+    // Get the product - handle both custom productId and MongoDB _id
+    let product;
+    if (mongoose.Types.ObjectId.isValid(productId) && productId.length === 24) {
+      // If it's a valid ObjectId, try finding by _id
+      product = await Product.findById(productId);
+    }
+
+    // If not found or not a valid ObjectId, try finding by custom productId field
+    if (!product) {
+      product = await Product.findOne({ productId });
+    }
+
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
     }
@@ -248,7 +258,7 @@ exports.addProductToPlan = async (req, res) => {
         user: userId,
         totalAmount: product.price,
         products: [{
-          product: productId,
+          product: product._id,
           dailyPayment,
           totalProductAmount: product.price,
           startDate: new Date(),
@@ -261,16 +271,16 @@ exports.addProductToPlan = async (req, res) => {
       });
     } else {
       // Check if product already exists in plan
-      const existingProduct = plan.products.find(p => p.product.toString() === productId);
-      
+      const existingProduct = plan.products.find(p => p.product.toString() === product._id.toString());
+
       if (existingProduct) {
         return res.status(400).json({ message: 'This product is already in your plan' });
       }
-      
+
       // Add product to existing plan
       plan.totalAmount += product.price;
       plan.products.push({
-        product: productId,
+        product: product._id,
         dailyPayment,
         totalProductAmount: product.price,
         startDate: new Date(),

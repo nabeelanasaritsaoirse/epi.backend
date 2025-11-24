@@ -1,4 +1,5 @@
 // controllers/referralController.js
+const mongoose = require("mongoose");
 const User = require("../models/User");
 const Referral = require("../models/Referral");
 const DailyCommission = require("../models/DailyCommission");
@@ -86,7 +87,13 @@ exports.processReferral = async (referrerId, referredUserId, installmentDetails)
       const productSnapshot = {};
       if (productId) {
         try {
-          const product = await Product.findById(productId).select("productId name");
+          let product;
+          if (mongoose.Types.ObjectId.isValid(productId) && productId.length === 24) {
+            product = await Product.findById(productId).select("productId name");
+          }
+          if (!product) {
+            product = await Product.findOne({ productId }).select("productId name");
+          }
           if (product) {
             productSnapshot.productId = product.productId;
             productSnapshot.productName = product.name;
@@ -102,7 +109,13 @@ exports.processReferral = async (referrerId, referredUserId, installmentDetails)
         const productSnapshot = {};
         if (installmentDetails.productId) {
           try {
-            const product = await Product.findById(installmentDetails.productId).select("productId name");
+            let product;
+            if (mongoose.Types.ObjectId.isValid(installmentDetails.productId) && installmentDetails.productId.length === 24) {
+              product = await Product.findById(installmentDetails.productId).select("productId name");
+            }
+            if (!product) {
+              product = await Product.findOne({ productId: installmentDetails.productId }).select("productId name");
+            }
             if (product) {
               productSnapshot.productId = product.productId;
               productSnapshot.productName = product.name;

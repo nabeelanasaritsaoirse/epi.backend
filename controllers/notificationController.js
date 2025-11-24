@@ -474,30 +474,66 @@ async function markAsRead(req, res) {
   try {
     const { id } = req.params;
 
-    const notification = await Notification.findOne({
-      _id: id,
-      isDeleted: false,
-      status: 'PUBLISHED'
-    });
+    // Validate ObjectId format
+    if (!require('mongoose').Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid notification ID format'
+      });
+    }
 
-    if (!notification) {
+    // First, check if notification exists at all
+    const notificationRaw = await Notification.findById(id);
+
+    if (!notificationRaw) {
       return res.status(404).json({
         success: false,
-        message: 'Notification not found'
+        message: 'Notification not found',
+        details: 'This notification does not exist in the database'
+      });
+    }
+
+    // Check if notification is deleted
+    if (notificationRaw.isDeleted) {
+      return res.status(404).json({
+        success: false,
+        message: 'Notification not found',
+        details: 'This notification has been deleted'
+      });
+    }
+
+    // Check if notification is published
+    if (notificationRaw.status !== 'PUBLISHED') {
+      return res.status(404).json({
+        success: false,
+        message: 'Notification not found',
+        details: `This notification is not published yet (current status: ${notificationRaw.status})`
       });
     }
 
     // Increment view count
-    notification.viewCount += 1;
-    await notification.save();
+    notificationRaw.viewCount += 1;
+    await notificationRaw.save();
 
     res.status(200).json({
       success: true,
-      message: 'Notification marked as read'
+      message: 'Notification marked as read',
+      data: {
+        viewCount: notificationRaw.viewCount
+      }
     });
 
   } catch (error) {
     console.error('Error in markAsRead:', error);
+
+    // Handle CastError for invalid ObjectId format (fallback)
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid notification ID format'
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: 'Failed to mark notification as read',

@@ -49,9 +49,12 @@ const messageRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
-    // Rate limit per user
-    return req.user ? (req.user._id || req.user.uid).toString() : req.ip;
+  skip: (req) => {
+    // Rate limit per user if authenticated, otherwise skip (will use default IP-based)
+    if (req.user) {
+      req.rateLimit = { key: (req.user._id || req.user.uid).toString() };
+    }
+    return false;
   }
 });
 
@@ -62,8 +65,11 @@ const conversationRateLimit = rateLimit({
     success: false,
     message: 'Too many conversation creation attempts. Please try again later.'
   },
-  keyGenerator: (req) => {
-    return req.user ? (req.user._id || req.user.uid).toString() : req.ip;
+  skip: (req) => {
+    if (req.user) {
+      req.rateLimit = { key: (req.user._id || req.user.uid).toString() };
+    }
+    return false;
   }
 });
 
@@ -74,8 +80,11 @@ const reportRateLimit = rateLimit({
     success: false,
     message: 'Too many report submissions. Please try again later.'
   },
-  keyGenerator: (req) => {
-    return req.user ? (req.user._id || req.user.uid).toString() : req.ip;
+  skip: (req) => {
+    if (req.user) {
+      req.rateLimit = { key: (req.user._id || req.user.uid).toString() };
+    }
+    return false;
   }
 });
 
@@ -86,8 +95,11 @@ const pollRateLimit = rateLimit({
     success: false,
     message: 'Polling too frequently. Please slow down.'
   },
-  keyGenerator: (req) => {
-    return req.user ? (req.user._id || req.user.uid).toString() : req.ip;
+  skip: (req) => {
+    if (req.user) {
+      req.rateLimit = { key: (req.user._id || req.user.uid).toString() };
+    }
+    return false;
   }
 });
 
