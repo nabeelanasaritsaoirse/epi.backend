@@ -148,49 +148,69 @@ exports.getAllProducts = async (req, res) => {
       minPrice,
       maxPrice,
       status,
-      region = 'global'
+      region = "global",
+      hasVariants,
+      simpleOnly
     } = req.query;
 
-    // Build filter object
     const filter = {};
-    
+
+    // -----------------------------------------
+    // VARIANT FILTERING (CLEAN + NO CONFLICTS)
+    // -----------------------------------------
+
+    if (simpleOnly === "true") {
+      // Highest priority → force simple products
+      filter.hasVariants = false;
+    } else if (hasVariants === "true") {
+      filter.hasVariants = true;
+    } else if (hasVariants === "false") {
+      filter.hasVariants = false;
+    }
+
+    // -----------------------------------------
+    // SEARCH
+    // -----------------------------------------
     if (search) {
       filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } },
-        { 'regionalSeo.metaTitle': { $regex: search, $options: 'i' } }
+        { name: { $regex: search, $options: "i" } },
+        { description: { $regex: search, $options: "i" } },
+        { "regionalSeo.metaTitle": { $regex: search, $options: "i" } },
       ];
     }
-    
-    if (category) filter['category.main'] = category;
+
+    // -----------------------------------------
+    // BASIC FILTERS
+    // -----------------------------------------
+    if (category) filter["category.main"] = category;
     if (brand) filter.brand = brand;
     if (status) filter.status = status;
-    
-    // Regional availability filter
-    if (region && region !== 'all' && region !== 'global') {
-      filter['regionalAvailability.region'] = region;
-      filter['regionalAvailability.isAvailable'] = true;
-    }
-    
-    // Price range filter for specific region
-    if ((minPrice || maxPrice) && region && region !== 'all' && region !== 'global') {
-      filter['regionalPricing'] = {
-        $elemMatch: {
-          region: region,
-          finalPrice: {}
-        }
-      };
-      if (minPrice) filter['regionalPricing'].$elemMatch.finalPrice.$gte = parseFloat(minPrice);
-      if (maxPrice) filter['regionalPricing'].$elemMatch.finalPrice.$lte = parseFloat(maxPrice);
+
+    // -----------------------------------------
+    // REGION FILTER
+    // -----------------------------------------
+    if (region && region !== "all" && region !== "global") {
+      filter["regionalAvailability.region"] = region;
+      filter["regionalAvailability.isAvailable"] = true;
     }
 
-    // Execute query with pagination
+    // -----------------------------------------
+    // PRICE FILTER
+    // -----------------------------------------
+    if (minPrice || maxPrice) {
+      filter["pricing.finalPrice"] = {};
+      if (minPrice) filter["pricing.finalPrice"].$gte = parseFloat(minPrice);
+      if (maxPrice) filter["pricing.finalPrice"].$lte = parseFloat(maxPrice);
+    }
+
+    // -----------------------------------------
+    // EXECUTE QUERY
+    // -----------------------------------------
     const products = await Product.find(filter)
       .sort({ createdAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit);
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
 
-    // Get total count for pagination info
     const total = await Product.countDocuments(filter);
 
     res.json({
@@ -198,19 +218,19 @@ exports.getAllProducts = async (req, res) => {
       data: products,
       pagination: {
         current: parseInt(page),
-        pages: Math.ceil(total / limit),
+        pages: Math.ceil(total / parseInt(limit)),
         total,
-        hasNext: page * limit < total,
-        hasPrev: page > 1
-      }
+      },
     });
+
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      message: error.message
+    res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 };
+
 
 // Add this new endpoint for stats
 exports.getProductStats = async (req, res) => {
