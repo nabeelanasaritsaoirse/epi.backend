@@ -327,6 +327,21 @@ const userSchema = new Schema({
     }
   },
 
+
+  deletionRequest: {
+  requestedAt: {
+    type: Date
+  },
+  reason: {
+    type: String
+  },
+  status: {
+    type: String,
+    enum: ['pending', 'cancelled', 'completed'],
+    default: 'pending'
+  }
+  },
+
   createdAt: {
     type: Date,
     default: Date.now

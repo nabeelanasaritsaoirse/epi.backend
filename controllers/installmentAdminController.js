@@ -5,6 +5,7 @@
  * All endpoints require admin role verification.
  */
 
+const mongoose = require('mongoose');
 const orderService = require('../services/installmentOrderService');
 const paymentService = require('../services/installmentPaymentService');
 const InstallmentOrder = require('../models/InstallmentOrder');
@@ -325,6 +326,12 @@ const getPendingApprovalOrders = asyncHandler(async (req, res) => {
 const addAdminNotes = asyncHandler(async (req, res) => {
   const { orderId } = req.params;
   const { notes } = req.body;
+
+  // Validate ObjectId only if it looks like one (24 hex chars)
+  // Otherwise, treat it as a custom order ID
+  if (orderId.length === 24 && !mongoose.Types.ObjectId.isValid(orderId)) {
+    throw new Error('Invalid order ID format');
+  }
 
   const order = await InstallmentOrder.findOne({
     $or: [{ _id: orderId }, { orderId }]
