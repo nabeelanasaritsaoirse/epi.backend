@@ -12,21 +12,21 @@
  * - Order completion detection
  */
 
-const mongoose = require('mongoose');
-const crypto = require('crypto');
-const InstallmentOrder = require('../models/InstallmentOrder');
-const PaymentRecord = require('../models/PaymentRecord');
-const User = require('../models/User');
-const razorpay = require('../config/razorpay');
+const mongoose = require("mongoose");
+const crypto = require("crypto");
+const InstallmentOrder = require("../models/InstallmentOrder");
+const PaymentRecord = require("../models/PaymentRecord");
+const User = require("../models/User");
+const razorpay = require("../config/razorpay");
 const {
   deductFromWallet,
-  creditCommissionToWallet
-} = require('./installmentWalletService');
+  creditCommissionToWallet,
+} = require("./installmentWalletService");
 const {
   calculateCommission,
   generateIdempotencyKey,
-  isOrderFullyPaid
-} = require('../utils/installmentHelpers');
+  isOrderFullyPaid,
+} = require("../utils/installmentHelpers");
 const {
   OrderNotFoundError,
   OrderAlreadyCompletedError,
@@ -35,8 +35,8 @@ const {
   InvalidOrderStatusError,
   PaymentAlreadyProcessedError,
   RazorpayVerificationError,
-  TransactionFailedError
-} = require('../utils/customErrors');
+  TransactionFailedError,
+} = require("../utils/customErrors");
 
 /**
  * Verify Razorpay payment signature
@@ -47,12 +47,16 @@ const {
  * @returns {boolean} True if signature is valid
  * @throws {RazorpayVerificationError} If signature verification fails
  */
-function verifyRazorpaySignature(razorpayOrderId, razorpayPaymentId, razorpaySignature) {
+function verifyRazorpaySignature(
+  razorpayOrderId,
+  razorpayPaymentId,
+  razorpaySignature
+) {
   const secret = process.env.RAZORPAY_KEY_SECRET;
   const generatedSignature = crypto
-    .createHmac('sha256', secret)
+    .createHmac("sha256", secret)
     .update(`${razorpayOrderId}|${razorpayPaymentId}`)
-    .digest('hex');
+    .digest("hex");
 
   if (generatedSignature !== razorpaySignature) {
     throw new RazorpayVerificationError();
@@ -84,15 +88,15 @@ async function processPayment(paymentData) {
     paymentMethod,
     razorpayOrderId,
     razorpayPaymentId,
-    razorpaySignature
+    razorpaySignature,
   } = paymentData;
 
   // ========================================
   // 1. Get and Validate Order
   // ========================================
   const order = await InstallmentOrder.findOne({
-    $or: [{ _id: orderId }, { orderId }]
-  }).populate('referrer', 'name email');
+    $or: [{ _id: orderId }, { orderId }],
+  }).populate("referrer", "name email");
 
   if (!order) {
     throw new OrderNotFoundError(orderId);
@@ -104,16 +108,16 @@ async function processPayment(paymentData) {
   }
 
   // Check order status
-  if (order.status === 'COMPLETED') {
+  if (order.status === "COMPLETED") {
     throw new OrderAlreadyCompletedError(orderId);
   }
 
-  if (order.status === 'CANCELLED') {
-    throw new InvalidOrderStatusError(order.status, 'ACTIVE');
+  if (order.status === "CANCELLED") {
+    throw new InvalidOrderStatusError(order.status, "ACTIVE");
   }
 
-  if (order.status !== 'ACTIVE') {
-    throw new InvalidOrderStatusError(order.status, 'ACTIVE');
+  if (order.status !== "ACTIVE") {
+    throw new InvalidOrderStatusError(order.status, "ACTIVE");
   }
 
   // Check if already fully paid
@@ -127,7 +131,7 @@ async function processPayment(paymentData) {
   const nextInstallment = order.getNextPendingInstallment();
 
   if (!nextInstallment) {
-    throw new Error('No pending installments found');
+    throw new Error("No pending installments found");
   }
 
   const installmentNumber = nextInstallment.installmentNumber;
@@ -136,22 +140,32 @@ async function processPayment(paymentData) {
   // ========================================
   // 3. Check Idempotency (Prevent Duplicate Processing)
   // ========================================
-  const idempotencyKey = generateIdempotencyKey(order._id.toString(), userId, installmentNumber);
-  const existingPayment = await PaymentRecord.findByIdempotencyKey(idempotencyKey);
+  const idempotencyKey = generateIdempotencyKey(
+    order._id.toString(),
+    userId,
+    installmentNumber
+  );
+  const existingPayment = await PaymentRecord.findByIdempotencyKey(
+    idempotencyKey
+  );
 
-  if (existingPayment && existingPayment.status === 'COMPLETED') {
+  if (existingPayment && existingPayment.status === "COMPLETED") {
     throw new PaymentAlreadyProcessedError(existingPayment.paymentId);
   }
 
   // ========================================
   // 4. Verify Razorpay Signature (if Razorpay payment)
   // ========================================
-  if (paymentMethod === 'RAZORPAY') {
+  if (paymentMethod === "RAZORPAY") {
     if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
-      throw new Error('Missing Razorpay payment details');
+      throw new Error("Missing Razorpay payment details");
     }
 
-    verifyRazorpaySignature(razorpayOrderId, razorpayPaymentId, razorpaySignature);
+    verifyRazorpaySignature(
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature
+    );
   }
 
   // ========================================
@@ -166,7 +180,7 @@ async function processPayment(paymentData) {
     // ========================================
     // 6. Process Payment Based on Method
     // ========================================
-    if (paymentMethod === 'WALLET') {
+    if (paymentMethod === "WALLET") {
       // Deduct from wallet
       const walletDeduction = await deductFromWallet(
         userId,
@@ -175,7 +189,7 @@ async function processPayment(paymentData) {
         session,
         {
           orderId: order._id,
-          installmentNumber
+          installmentNumber,
         }
       );
 
@@ -194,12 +208,12 @@ async function processPayment(paymentData) {
       razorpayOrderId: razorpayOrderId || null,
       razorpayPaymentId: razorpayPaymentId || null,
       razorpaySignature: razorpaySignature || null,
-      razorpayVerified: paymentMethod === 'RAZORPAY' ? true : false,
+      razorpayVerified: paymentMethod === "RAZORPAY" ? true : false,
       walletTransactionId,
-      status: 'COMPLETED',
+      status: "COMPLETED",
       idempotencyKey,
       processedAt: new Date(),
-      completedAt: new Date()
+      completedAt: new Date(),
     });
 
     await payment.save({ session });
@@ -209,22 +223,25 @@ async function processPayment(paymentData) {
     // ========================================
     order.paidInstallments += 1;
     order.totalPaidAmount += paymentAmount;
-    order.remainingAmount = Math.max(0, order.productPrice - order.totalPaidAmount);
+    order.remainingAmount = Math.max(
+      0,
+      order.productPrice - order.totalPaidAmount
+    );
 
     // Update payment schedule
     const scheduleIndex = order.paymentSchedule.findIndex(
-      item => item.installmentNumber === installmentNumber
+      (item) => item.installmentNumber === installmentNumber
     );
 
     if (scheduleIndex !== -1) {
-      order.paymentSchedule[scheduleIndex].status = 'PAID';
+      order.paymentSchedule[scheduleIndex].status = "PAID";
       order.paymentSchedule[scheduleIndex].paidDate = new Date();
       order.paymentSchedule[scheduleIndex].paymentId = payment._id;
     }
 
     // Check if order is fully paid
     if (isOrderFullyPaid(order.productPrice, order.totalPaidAmount)) {
-      order.status = 'COMPLETED';
+      order.status = "COMPLETED";
       order.completedAt = new Date();
     }
 
@@ -271,17 +288,18 @@ async function processPayment(paymentData) {
     return {
       payment: payment.getSummary(),
       order: order.getSummary(),
-      commission: commissionResult ? {
-        amount: commissionResult.totalCommission,
-        availableAmount: commissionResult.availableAmount,
-        lockedAmount: commissionResult.lockedAmount,
-        referrer: order.referrer?.name
-      } : null
+      commission: commissionResult
+        ? {
+            amount: commissionResult.totalCommission,
+            availableAmount: commissionResult.availableAmount,
+            lockedAmount: commissionResult.lockedAmount,
+            referrer: order.referrer?.name,
+          }
+        : null,
     };
-
   } catch (error) {
     await session.abortTransaction();
-    console.error('Payment processing failed:', error);
+    console.error("Payment processing failed:", error);
     throw new TransactionFailedError(error.message);
   } finally {
     session.endSession();
@@ -298,7 +316,7 @@ async function processPayment(paymentData) {
 async function createRazorpayOrderForPayment(orderId, userId) {
   // Get order
   const order = await InstallmentOrder.findOne({
-    $or: [{ _id: orderId }, { orderId }]
+    $or: [{ _id: orderId }, { orderId }],
   });
 
   if (!order) {
@@ -312,27 +330,27 @@ async function createRazorpayOrderForPayment(orderId, userId) {
 
   // Check order can accept payment
   if (!order.canAcceptPayment()) {
-    throw new Error('Order cannot accept payment at this time');
+    throw new Error("Order cannot accept payment at this time");
   }
 
   // Get next installment
   const nextInstallment = order.getNextPendingInstallment();
 
   if (!nextInstallment) {
-    throw new Error('No pending installments found');
+    throw new Error("No pending installments found");
   }
 
   // Create Razorpay order
   const razorpayOrder = await razorpay.orders.create({
     amount: order.dailyPaymentAmount * 100, // Convert to paise
-    currency: 'INR',
+    currency: "INR",
     receipt: `order_${Date.now()}`,
     payment_capture: 1,
     notes: {
       orderId: order._id.toString(),
       installmentNumber: nextInstallment.installmentNumber,
-      userId: userId
-    }
+      userId: userId,
+    },
   });
 
   return {
@@ -344,8 +362,8 @@ async function createRazorpayOrderForPayment(orderId, userId) {
     orderDetails: {
       orderId: order.orderId,
       productName: order.productName,
-      dailyAmount: order.dailyPaymentAmount
-    }
+      dailyAmount: order.dailyPaymentAmount,
+    },
   };
 }
 
@@ -358,7 +376,7 @@ async function createRazorpayOrderForPayment(orderId, userId) {
  */
 async function getPaymentHistory(orderId, userId = null) {
   const order = await InstallmentOrder.findOne({
-    $or: [{ _id: orderId }, { orderId }]
+    $or: [{ _id: orderId }, { orderId }],
   });
 
   if (!order) {
@@ -393,19 +411,19 @@ async function getUserPaymentHistory(userId, options = {}) {
  */
 async function retryFailedPayment(paymentId) {
   const payment = await PaymentRecord.findOne({
-    $or: [{ _id: paymentId }, { paymentId }]
+    $or: [{ _id: paymentId }, { paymentId }],
   });
 
   if (!payment) {
-    throw new Error('Payment not found');
+    throw new Error("Payment not found");
   }
 
   if (!payment.canRetry()) {
-    throw new Error('Payment cannot be retried');
+    throw new Error("Payment cannot be retried");
   }
 
   // Reset payment status for retry
-  payment.status = 'PENDING';
+  payment.status = "PENDING";
   payment.errorMessage = null;
   await payment.save();
 
@@ -419,21 +437,70 @@ async function retryFailedPayment(paymentId) {
  * @returns {Promise<Object>} Payment statistics
  */
 async function getPaymentStats(userId = null) {
-  const query = userId ? { user: userId, status: 'COMPLETED' } : { status: 'COMPLETED' };
+  const query = userId
+    ? { user: userId, status: "COMPLETED" }
+    : { status: "COMPLETED" };
 
   const stats = await PaymentRecord.aggregate([
     { $match: query },
     {
       $group: {
-        _id: '$paymentMethod',
+        _id: "$paymentMethod",
         count: { $sum: 1 },
-        totalAmount: { $sum: '$amount' },
-        totalCommission: { $sum: '$commissionAmount' }
-      }
-    }
+        totalAmount: { $sum: "$amount" },
+        totalCommission: { $sum: "$commissionAmount" },
+      },
+    },
   ]);
 
   return stats;
+}
+/**
+ * Get daily pending installment payments for user
+ */
+async function getDailyPendingPayments(userId) {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date();
+  end.setHours(23, 59, 59, 999);
+
+  const orders = await InstallmentOrder.find({
+    user: userId,
+    status: "ACTIVE",
+    paymentSchedule: {
+      $elemMatch: {
+        status: "PENDING",
+        dueDate: { $gte: start, $lte: end },
+      },
+    },
+  });
+
+  let pendingList = [];
+
+  for (const order of orders) {
+    order.paymentSchedule.forEach((inst) => {
+      if (
+        inst.status === "PENDING" &&
+        inst.dueDate >= start &&
+        inst.dueDate <= end
+      ) {
+        pendingList.push({
+          orderId: order.orderId,
+          productName: order.productName,
+          installmentNumber: inst.installmentNumber,
+          amount: order.dailyPaymentAmount,
+          dueDate: inst.dueDate,
+        });
+      }
+    });
+  }
+
+  return {
+    count: pendingList.length,
+    totalAmount: pendingList.reduce((sum, p) => sum + p.amount, 0),
+    payments: pendingList,
+  };
 }
 
 module.exports = {
@@ -443,5 +510,6 @@ module.exports = {
   getUserPaymentHistory,
   retryFailedPayment,
   getPaymentStats,
-  verifyRazorpaySignature
+  verifyRazorpaySignature,
+  getDailyPendingPayments,
 };

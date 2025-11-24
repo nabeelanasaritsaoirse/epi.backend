@@ -1,4 +1,5 @@
 const Product = require('../models/Product');
+const mongoose = require('mongoose');
 const { calculateEquivalentValues, generateInstallmentOptions } = require('../utils/productUtils');
 const { uploadSingleFileToS3, uploadMultipleFilesToS3 } = require('../services/awsUploadService');
 
@@ -274,7 +275,13 @@ exports.getProductStats = async (req, res) => {
 
 exports.getProductById = async (req, res) => {
   try {
-    const product = await Product.findOne({ productId: req.params.productId });
+    const id = req.params.productId;
+    let product = await Product.findOne({ productId: id });
+
+    // Fallback to Mongo _id if not found by productId
+    if (!product && mongoose.isValidObjectId(id)) {
+      product = await Product.findById(id);
+    }
 
     if (!product) {
       return res.status(404).json({ 
@@ -297,7 +304,13 @@ exports.getProductById = async (req, res) => {
 
 exports.updateProduct = async (req, res) => {
   try {
-    const product = await Product.findOne({ productId: req.params.productId });
+    const id = req.params.productId;
+
+    let product = await Product.findOne({ productId: id });
+    if (!product && mongoose.isValidObjectId(id)) {
+      product = await Product.findById(id);
+    }
+
     if (!product) {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
@@ -368,9 +381,12 @@ exports.updateProduct = async (req, res) => {
 
 exports.deleteProduct = async (req, res) => {
   try {
-    const deleted = await Product.findOneAndDelete({ 
-      productId: req.params.productId 
-    });
+    const id = req.params.productId;
+
+    let deleted = await Product.findOneAndDelete({ productId: id });
+    if (!deleted && mongoose.isValidObjectId(id)) {
+      deleted = await Product.findByIdAndDelete(id);
+    }
 
     if (!deleted) {
       return res.status(404).json({ 
@@ -533,7 +549,11 @@ exports.addRegionalPricing = async (req, res) => {
     const { productId } = req.params;
     const { region, currency, regularPrice, salePrice, costPrice } = req.body;
 
-    const product = await Product.findOne({ productId });
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
     if (!product) {
       return res.status(404).json({ 
         success: false, 
@@ -576,7 +596,11 @@ exports.addRegionalAvailability = async (req, res) => {
     const { productId } = req.params;
     const { region, stockQuantity, lowStockLevel, isAvailable = true } = req.body;
 
-    const product = await Product.findOne({ productId });
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
     if (!product) {
       return res.status(404).json({ 
         success: false, 
@@ -626,7 +650,11 @@ exports.addRegionalSeo = async (req, res) => {
     const { productId } = req.params;
     const { region, metaTitle, metaDescription, keywords, slug } = req.body;
 
-    const product = await Product.findOne({ productId });
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
     if (!product) {
       return res.status(404).json({ 
         success: false, 
@@ -666,7 +694,11 @@ exports.addRelatedProducts = async (req, res) => {
     const { productId } = req.params;
     const { relatedProducts } = req.body;
 
-    const product = await Product.findOne({ productId });
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
     if (!product) {
       return res.status(404).json({ 
         success: false, 
@@ -705,11 +737,19 @@ exports.getProductByRegion = async (req, res) => {
   try {
     const { productId, region } = req.params;
 
-    const product = await Product.findOne({ 
+    let product = await Product.findOne({ 
       productId,
       'regionalAvailability.region': region,
       'regionalAvailability.isAvailable': true
     });
+
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findOne({
+        _id: productId,
+        'regionalAvailability.region': region,
+        'regionalAvailability.isAvailable': true
+      });
+    }
 
     if (!product) {
       return res.status(404).json({ 
@@ -765,7 +805,11 @@ exports.bulkUpdateRegionalPricing = async (req, res) => {
       try {
         const { productId, region, currency, regularPrice, salePrice, costPrice } = update;
         
-        const product = await Product.findOne({ productId });
+        let product = await Product.findOne({ productId });
+        if (!product && mongoose.isValidObjectId(productId)) {
+          product = await Product.findById(productId);
+        }
+
         if (!product) {
           errors.push(`Product ${productId} not found`);
           continue;
@@ -879,7 +923,11 @@ exports.syncRegionalData = async (req, res) => {
     const { productId } = req.params;
     const { sourceRegion, targetRegions } = req.body;
 
-    const product = await Product.findOne({ productId });
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
     if (!product) {
       return res.status(404).json({ 
         success: false, 
@@ -904,7 +952,7 @@ exports.syncRegionalData = async (req, res) => {
       // Sync pricing
       product.regionalPricing = product.regionalPricing.filter(p => p.region !== targetRegion);
       product.regionalPricing.push({
-        ...sourcePricing.toObject ? sourcePricing.toObject() : sourcePricing,
+        ... (sourcePricing.toObject ? sourcePricing.toObject() : sourcePricing),
         region: targetRegion
       });
 
@@ -912,7 +960,7 @@ exports.syncRegionalData = async (req, res) => {
       if (sourceSeo) {
         product.regionalSeo = product.regionalSeo.filter(s => s.region !== targetRegion);
         product.regionalSeo.push({
-          ...sourceSeo.toObject ? sourceSeo.toObject() : sourceSeo,
+          ... (sourceSeo.toObject ? sourceSeo.toObject() : sourceSeo),
           region: targetRegion
         });
       }
@@ -921,7 +969,7 @@ exports.syncRegionalData = async (req, res) => {
       if (sourceAvailability) {
         product.regionalAvailability = product.regionalAvailability.filter(a => a.region !== targetRegion);
         product.regionalAvailability.push({
-          ...sourceAvailability.toObject ? sourceAvailability.toObject() : sourceAvailability,
+          ... (sourceAvailability.toObject ? sourceAvailability.toObject() : sourceAvailability),
           region: targetRegion
         });
       }
@@ -1091,7 +1139,10 @@ exports.updateProductImages = async (req, res) => {
       });
     }
 
-    const product = await Product.findOne({ productId });
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
 
     if (!product) {
       return res.status(404).json({
@@ -1148,7 +1199,10 @@ exports.updateVariantImages = async (req, res) => {
       });
     }
 
-    const product = await Product.findOne({ productId });
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
 
     if (!product) {
       return res.status(404).json({
@@ -1209,7 +1263,10 @@ exports.updateProductSEO = async (req, res) => {
     const { productId } = req.params;
     const { metaTitle, metaDescription, keywords } = req.body;
 
-    const product = await Product.findOne({ productId });
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
 
     if (!product) {
       return res.status(404).json({
@@ -1260,7 +1317,10 @@ exports.updateProductPlans = async (req, res) => {
       });
     }
 
-    const product = await Product.findOne({ productId });
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
 
     if (!product) {
       return res.status(404).json({
