@@ -106,24 +106,19 @@ exports.createCategory = async (req, res) => {
  */
 exports.getAllCategories = async (req, res) => {
   try {
-    const { parentCategoryId, isActive = true } = req.query;
+    const { parentCategoryId, isActive } = req.query;
 
     let filter = {};
 
-    // Filter by parent category
+    // Parent filter
     if (parentCategoryId) {
       filter.parentCategoryId =
         parentCategoryId === "null" ? null : parentCategoryId;
     }
 
-    // Filter by active status
-    if (isActive !== "all") {
+    // Status filter ONLY if provided
+    if (isActive !== undefined && isActive !== "all") {
       filter.isActive = isActive === "true" || isActive === true;
-    }
-
-    // Get only main categories (no parent)
-    if (!parentCategoryId) {
-      filter.parentCategoryId = null;
     }
 
     const categories = await Category.find(filter)
