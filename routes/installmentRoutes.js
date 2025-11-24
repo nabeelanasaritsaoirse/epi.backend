@@ -5,11 +5,11 @@
  * Includes user routes and admin routes.
  */
 
-const express = require('express');
+const express = require("express");
 const router = express.Router();
 
 // Import middleware
-const { verifyToken, isAdmin } = require('../middlewares/auth');
+const { verifyToken, isAdmin } = require("../middlewares/auth");
 const {
   validateCreateOrder,
   validateProcessPayment,
@@ -18,13 +18,13 @@ const {
   validateUpdateDeliveryStatus,
   validateCancelOrder,
   validateQueryParams,
-  sanitizeInput
-} = require('../middlewares/installmentValidation');
+  sanitizeInput,
+} = require("../middlewares/installmentValidation");
 
 // Import controllers
-const orderController = require('../controllers/installmentOrderController');
-const paymentController = require('../controllers/installmentPaymentController');
-const adminController = require('../controllers/installmentAdminController');
+const orderController = require("../controllers/installmentOrderController");
+const paymentController = require("../controllers/installmentPaymentController");
+const adminController = require("../controllers/installmentAdminController");
 
 // ============================================
 // USER ROUTES - Order Management
@@ -36,7 +36,7 @@ const adminController = require('../controllers/installmentAdminController');
  * @access  Private
  */
 router.post(
-  '/orders',
+  "/orders",
   verifyToken,
   sanitizeInput,
   validateCreateOrder,
@@ -49,7 +49,7 @@ router.post(
  * @access  Private
  */
 router.get(
-  '/orders',
+  "/orders",
   verifyToken,
   validateQueryParams,
   orderController.getUserOrders
@@ -60,22 +60,14 @@ router.get(
  * @desc    Get user's order statistics
  * @access  Private
  */
-router.get(
-  '/orders/stats',
-  verifyToken,
-  orderController.getOrderStats
-);
+router.get("/orders/stats", verifyToken, orderController.getOrderStats);
 
 /**
  * @route   POST /api/installment/validate-coupon
  * @desc    Validate coupon and calculate discount for installment orders
  * @access  Public
  */
-router.post(
-  '/validate-coupon',
-  sanitizeInput,
-  orderController.validateCoupon
-);
+router.post("/validate-coupon", sanitizeInput, orderController.validateCoupon);
 
 /**
  * @route   GET /api/installment-orders/:orderId
@@ -83,7 +75,7 @@ router.post(
  * @access  Private
  */
 router.get(
-  '/orders/:orderId',
+  "/orders/:orderId",
   verifyToken,
   validateGetOrder,
   orderController.getOrder
@@ -95,7 +87,7 @@ router.get(
  * @access  Private
  */
 router.get(
-  '/orders/:orderId/summary',
+  "/orders/:orderId/summary",
   verifyToken,
   validateGetOrder,
   orderController.getOrderSummary
@@ -107,7 +99,7 @@ router.get(
  * @access  Private
  */
 router.get(
-  '/orders/:orderId/schedule',
+  "/orders/:orderId/schedule",
   verifyToken,
   validateGetOrder,
   orderController.getPaymentSchedule
@@ -119,7 +111,7 @@ router.get(
  * @access  Private
  */
 router.post(
-  '/orders/:orderId/cancel',
+  "/orders/:orderId/cancel",
   verifyToken,
   sanitizeInput,
   validateCancelOrder,
@@ -136,7 +128,7 @@ router.post(
  * @access  Private
  */
 router.post(
-  '/payments/create-razorpay-order',
+  "/payments/create-razorpay-order",
   verifyToken,
   sanitizeInput,
   paymentController.createRazorpayOrder
@@ -148,7 +140,7 @@ router.post(
  * @access  Private
  */
 router.post(
-  '/payments/process',
+  "/payments/process",
   verifyToken,
   sanitizeInput,
   validateProcessPayment,
@@ -161,7 +153,7 @@ router.post(
  * @access  Private
  */
 router.get(
-  '/payments/my-payments',
+  "/payments/my-payments",
   verifyToken,
   validateQueryParams,
   paymentController.getMyPayments
@@ -172,11 +164,7 @@ router.get(
  * @desc    Get payment statistics
  * @access  Private
  */
-router.get(
-  '/payments/stats',
-  verifyToken,
-  paymentController.getPaymentStats
-);
+router.get("/payments/stats", verifyToken, paymentController.getPaymentStats);
 
 /**
  * @route   GET /api/installment-payments/history/:orderId
@@ -184,7 +172,7 @@ router.get(
  * @access  Private
  */
 router.get(
-  '/payments/history/:orderId',
+  "/payments/history/:orderId",
   verifyToken,
   validateGetOrder,
   paymentController.getPaymentHistory
@@ -196,10 +184,20 @@ router.get(
  * @access  Private
  */
 router.get(
-  '/payments/next-due/:orderId',
+  "/payments/next-due/:orderId",
   verifyToken,
   validateGetOrder,
   paymentController.getNextDuePayment
+);
+/**
+ * @route   GET /api/installment-payments/daily-pending
+ * @desc    Get daily pending installment transactions
+ * @access  Private
+ */
+router.get(
+  "/payments/daily-pending",
+  verifyToken,
+  paymentController.getDailyPendingPayments
 );
 
 /**
@@ -208,7 +206,7 @@ router.get(
  * @access  Private
  */
 router.post(
-  '/payments/:paymentId/retry',
+  "/payments/:paymentId/retry",
   verifyToken,
   paymentController.retryPayment
 );
@@ -223,7 +221,7 @@ router.post(
  * @access  Private (Admin)
  */
 router.get(
-  '/admin/orders/dashboard/stats',
+  "/admin/orders/dashboard/stats",
   verifyToken,
   isAdmin,
   adminController.getDashboardStats
@@ -235,7 +233,7 @@ router.get(
  * @access  Private (Admin)
  */
 router.get(
-  '/admin/orders/all',
+  "/admin/orders/all",
   verifyToken,
   isAdmin,
   validateQueryParams,
@@ -248,7 +246,7 @@ router.get(
  * @access  Private (Admin)
  */
 router.get(
-  '/admin/orders/completed',
+  "/admin/orders/completed",
   verifyToken,
   isAdmin,
   validateQueryParams,
@@ -261,7 +259,7 @@ router.get(
  * @access  Private (Admin)
  */
 router.get(
-  '/admin/orders/pending-approval',
+  "/admin/orders/pending-approval",
   verifyToken,
   isAdmin,
   adminController.getPendingApprovalOrders
@@ -273,7 +271,7 @@ router.get(
  * @access  Private (Admin)
  */
 router.get(
-  '/admin/orders/:orderId',
+  "/admin/orders/:orderId",
   verifyToken,
   isAdmin,
   validateGetOrder,
@@ -286,7 +284,7 @@ router.get(
  * @access  Private (Admin)
  */
 router.post(
-  '/admin/orders/:orderId/approve-delivery',
+  "/admin/orders/:orderId/approve-delivery",
   verifyToken,
   isAdmin,
   validateApproveDelivery,
@@ -299,7 +297,7 @@ router.post(
  * @access  Private (Admin)
  */
 router.put(
-  '/admin/orders/:orderId/delivery-status',
+  "/admin/orders/:orderId/delivery-status",
   verifyToken,
   isAdmin,
   sanitizeInput,
@@ -313,7 +311,7 @@ router.put(
  * @access  Private (Admin)
  */
 router.put(
-  '/admin/orders/:orderId/notes',
+  "/admin/orders/:orderId/notes",
   verifyToken,
   isAdmin,
   sanitizeInput,
@@ -326,7 +324,7 @@ router.put(
  * @access  Private (Admin)
  */
 router.get(
-  '/admin/payments/all',
+  "/admin/payments/all",
   verifyToken,
   isAdmin,
   validateQueryParams,
