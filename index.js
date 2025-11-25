@@ -179,7 +179,7 @@ const connectDB = require("./config/database");
 
 // ====== ROUTES ======
 const authRoutes = require("./routes/auth");
-const productRoutes = require("./routes/products");
+const productRoutes = require("./routes/productRoutes");
 const categoryRoutes = require("./routes/categoryRoutes");
 const userRoutes = require("./routes/users");
 const walletRoutes = require("./routes/wallet");        // USER WALLET
