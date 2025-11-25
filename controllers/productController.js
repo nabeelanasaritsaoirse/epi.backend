@@ -1378,3 +1378,39 @@ exports.updateProductPlans = async (req, res) => {
     });
   }
 };
+/**
+ * @desc    Get product investment plans
+ * @route   GET /api/products/:productId/plans
+ * @access  Public
+ */
+exports.getProductPlans = async (req, res) => {
+  try {
+    const { productId } = req.params;
+
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found"
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        productId: product.productId,
+        plans: product.plans || []
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching product plans:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
