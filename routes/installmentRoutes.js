@@ -63,7 +63,7 @@ router.get(
 router.get("/orders/stats", verifyToken, orderController.getOrderStats);
 
 /**
- * @route   GET /api/installments/orders/overall-status
+  * @route   GET /api/installment-orders/orders/overall-status
  * @desc    Get overall investment status across ALL installment orders
  * @access  Private
  */
