@@ -28,16 +28,16 @@ router.get('/category/:category', productController.getProductsByCategory);
 router.get('/project/:projectId', productController.getProductsByProject);
 
 // ============================================
-// PRODUCT PLANS ROUTE — MUST BE ABOVE ANY :productId ROUTE
-// ============================================
-router.get('/:productId/plans', productController.getProductPlans);
-
-// ============================================
-// REGION ROUTES — MUST BE ABOVE :productId
+// REGION ROUTES — MUST BE ABOVE ANY :productId ROUTE
 // ============================================
 router.get('/region/:region', productController.getProductsByRegion);
 router.get('/region/:region/stats', productController.getRegionalStats);
 router.get('/:productId/region/:region', productController.getProductByRegion);
+
+// ============================================
+// PRODUCT PLANS ROUTE — MUST BE ABOVE /:productId
+// ============================================
+router.get('/:productId/plans', productController.getProductPlans);
 
 // ============================================
 // INDIVIDUAL PRODUCT ROUTES — KEEP AT BOTTOM
