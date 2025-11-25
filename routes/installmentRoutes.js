@@ -63,6 +63,17 @@ router.get(
 router.get("/orders/stats", verifyToken, orderController.getOrderStats);
 
 /**
+ * @route   GET /api/installments/orders/overall-status
+ * @desc    Get overall investment status across ALL installment orders
+ * @access  Private
+ */
+router.get(
+  "/orders/overall-status",
+  verifyToken,
+  orderController.getOverallInvestmentStatus
+);
+
+/**
  * @route   POST /api/installment/validate-coupon
  * @desc    Validate coupon and calculate discount for installment orders
  * @access  Public
@@ -189,6 +200,7 @@ router.get(
   validateGetOrder,
   paymentController.getNextDuePayment
 );
+
 /**
  * @route   GET /api/installment-payments/daily-pending
  * @desc    Get daily pending installment transactions
