@@ -14,7 +14,7 @@ router.get('/search', productController.searchProductsAdvanced);
 router.get('/low-stock', productController.getLowStockProducts);
 
 // ============================================
-// FEATURED PRODUCT ROUTES – MUST COME BEFORE ANY :productId ROUTE
+// FEATURED PRODUCT ROUTES
 // ============================================
 router.get('/featured/all', productFeaturedController.getAllFeaturedProducts);
 router.get('/featured/popular', productFeaturedController.getMostPopularProducts);
@@ -28,7 +28,7 @@ router.get('/category/:category', productController.getProductsByCategory);
 router.get('/project/:projectId', productController.getProductsByProject);
 
 // ============================================
-// PRODUCT PLANS ROUTE (CORRECT LOCATION)
+// PRODUCT PLANS ROUTE — MUST BE ABOVE ANY :productId ROUTE
 // ============================================
 router.get('/:productId/plans', productController.getProductPlans);
 
@@ -40,7 +40,7 @@ router.get('/region/:region/stats', productController.getRegionalStats);
 router.get('/:productId/region/:region', productController.getProductByRegion);
 
 // ============================================
-// INDIVIDUAL PRODUCT ROUTES
+// INDIVIDUAL PRODUCT ROUTES — KEEP AT BOTTOM
 // ============================================
 router.get('/:productId', productController.getProductById);
 router.put('/:productId', productController.updateProduct);
@@ -61,7 +61,6 @@ router.post('/:productId/mark-popular', productFeaturedController.markAsPopular)
 router.post('/:productId/mark-bestseller', productFeaturedController.markAsBestSeller);
 router.post('/:productId/mark-trending', productFeaturedController.markAsTrending);
 
-// Remove flags
 router.delete('/:productId/remove-popular', productFeaturedController.removePopular);
 router.delete('/:productId/remove-bestseller', productFeaturedController.removeBestSeller);
 router.delete('/:productId/remove-trending', productFeaturedController.removeTrending);
