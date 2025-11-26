@@ -11,29 +11,29 @@
  * - Product snapshot preservation
  */
 
-const mongoose = require('mongoose');
-const InstallmentOrder = require('../models/InstallmentOrder');
-const PaymentRecord = require('../models/PaymentRecord');
-const Product = require('../models/Product');
-const User = require('../models/User');
-const razorpay = require('../config/razorpay');
+const mongoose = require("mongoose");
+const InstallmentOrder = require("../models/InstallmentOrder");
+const PaymentRecord = require("../models/PaymentRecord");
+const Product = require("../models/Product");
+const User = require("../models/User");
+const razorpay = require("../config/razorpay");
 const {
   calculateDailyAmount,
   generatePaymentSchedule,
   validateInstallmentDuration,
-  getMaxAllowedDays
-} = require('../utils/installmentHelpers');
+  getMaxAllowedDays,
+} = require("../utils/installmentHelpers");
 const {
   deductFromWallet,
-  creditCommissionToWallet
-} = require('./installmentWalletService');
+  creditCommissionToWallet,
+} = require("./installmentWalletService");
 const {
   ProductNotFoundError,
   UserNotFoundError,
   InvalidInstallmentDurationError,
   ProductOutOfStockError,
-  TransactionFailedError
-} = require('../utils/customErrors');
+  TransactionFailedError,
+} = require("../utils/customErrors");
 
 /**
  * Create new installment order with first payment
@@ -64,7 +64,7 @@ async function createOrder(orderData) {
     totalDays,
     dailyAmount,
     paymentMethod,
-    deliveryAddress
+    deliveryAddress,
   } = orderData;
 
   // ========================================
@@ -91,8 +91,10 @@ async function createOrder(orderData) {
   }
 
   // Check product availability
-  if (product.availability?.stockStatus === 'out_of_stock' ||
-      product.availability?.isAvailable === false) {
+  if (
+    product.availability?.stockStatus === "out_of_stock" ||
+    product.availability?.isAvailable === false
+  ) {
     throw new ProductOutOfStockError(productId);
   }
 
@@ -100,15 +102,18 @@ async function createOrder(orderData) {
   // 2.1. Handle Product Variant (if provided)
   // ========================================
   let selectedVariant = null;
-  let productPrice = product.pricing?.finalPrice || product.pricing?.regularPrice || 0;
+  let productPrice =
+    product.pricing?.finalPrice || product.pricing?.regularPrice || 0;
   let variantDetails = null;
 
   if (variantId && product.variants && product.variants.length > 0) {
     // Find the variant
-    selectedVariant = product.variants.find(v => v.variantId === variantId);
+    selectedVariant = product.variants.find((v) => v.variantId === variantId);
 
     if (!selectedVariant) {
-      throw new Error(`Variant with ID ${variantId} not found for this product`);
+      throw new Error(
+        `Variant with ID ${variantId} not found for this product`
+      );
     }
 
     if (!selectedVariant.isActive) {
@@ -128,7 +133,8 @@ async function createOrder(orderData) {
       sku: selectedVariant.sku,
       attributes: selectedVariant.attributes,
       price: productPrice,
-      description: selectedVariant.description?.short || selectedVariant.description?.long
+      description:
+        selectedVariant.description?.short || selectedVariant.description?.long,
     };
   }
 
@@ -140,8 +146,10 @@ async function createOrder(orderData) {
   let appliedCouponCode = null;
 
   if (couponCode) {
-    const Coupon = require('../models/Coupon');
-    const coupon = await Coupon.findOne({ couponCode: couponCode.toUpperCase() });
+    const Coupon = require("../models/Coupon");
+    const coupon = await Coupon.findOne({
+      couponCode: couponCode.toUpperCase(),
+    });
 
     if (!coupon) {
       throw new Error(`Coupon '${couponCode}' not found`);
@@ -166,9 +174,9 @@ async function createOrder(orderData) {
     }
 
     // Calculate discount
-    if (coupon.discountType === 'flat') {
+    if (coupon.discountType === "flat") {
       couponDiscount = coupon.discountValue;
-    } else if (coupon.discountType === 'percentage') {
+    } else if (coupon.discountType === "percentage") {
       couponDiscount = Math.round((productPrice * coupon.discountValue) / 100);
     }
 
@@ -179,13 +187,18 @@ async function createOrder(orderData) {
     productPrice = productPrice - couponDiscount;
     appliedCouponCode = coupon.couponCode;
 
-    console.log(`✅ Coupon '${appliedCouponCode}' applied: -₹${couponDiscount}`);
+    console.log(
+      `✅ Coupon '${appliedCouponCode}' applied: -₹${couponDiscount}`
+    );
   }
 
   // ========================================
   // 3. Validate Installment Duration
   // ========================================
-  const durationValidation = validateInstallmentDuration(totalDays, productPrice);
+  const durationValidation = validateInstallmentDuration(
+    totalDays,
+    productPrice
+  );
   if (!durationValidation.valid) {
     throw new InvalidInstallmentDurationError(
       totalDays,
@@ -197,11 +210,12 @@ async function createOrder(orderData) {
   // ========================================
   // 4. Calculate Daily Amount
   // ========================================
-  const calculatedDailyAmount = dailyAmount || calculateDailyAmount(productPrice, totalDays);
+  const calculatedDailyAmount =
+    dailyAmount || calculateDailyAmount(productPrice, totalDays);
 
   // Validate minimum daily amount (₹50)
   if (calculatedDailyAmount < 50) {
-    throw new Error('Daily payment amount must be at least ₹50');
+    throw new Error("Daily payment amount must be at least ₹50");
   }
 
   // ========================================
@@ -235,7 +249,7 @@ async function createOrder(orderData) {
     pricing: product.pricing,
     images: product.images,
     brand: product.brand,
-    category: product.category
+    category: product.category,
   };
 
   // ========================================
@@ -249,25 +263,25 @@ async function createOrder(orderData) {
     // 9. Handle Payment Method
     // ========================================
     let razorpayOrder = null;
-    let firstPaymentStatus = 'PENDING';
+    let firstPaymentStatus = "PENDING";
     let walletTransactionId = null;
 
-    if (paymentMethod === 'RAZORPAY') {
+    if (paymentMethod === "RAZORPAY") {
       // Create Razorpay order for first payment
       razorpayOrder = await razorpay.orders.create({
         amount: calculatedDailyAmount * 100, // Convert to paise
-        currency: 'INR',
+        currency: "INR",
         receipt: `order_${Date.now()}`,
         payment_capture: 1,
         notes: {
           productId: product._id.toString(),
           userId: user._id.toString(),
-          installment: 1
-        }
+          installment: 1,
+        },
       });
 
-      firstPaymentStatus = 'PENDING'; // Awaiting Razorpay verification
-    } else if (paymentMethod === 'WALLET') {
+      firstPaymentStatus = "PENDING"; // Awaiting Razorpay verification
+    } else if (paymentMethod === "WALLET") {
       // Process wallet deduction immediately
       const walletDeduction = await deductFromWallet(
         userId,
@@ -276,12 +290,12 @@ async function createOrder(orderData) {
         session,
         {
           productId: product._id,
-          installmentNumber: 1
+          installmentNumber: 1,
         }
       );
 
       walletTransactionId = walletDeduction.walletTransaction._id;
-      firstPaymentStatus = 'COMPLETED';
+      firstPaymentStatus = "COMPLETED";
     }
 
     // ========================================
@@ -303,16 +317,17 @@ async function createOrder(orderData) {
       // Installment details
       totalDays,
       dailyPaymentAmount: calculatedDailyAmount,
-      paidInstallments: paymentMethod === 'WALLET' ? 1 : 0,
-      totalPaidAmount: paymentMethod === 'WALLET' ? calculatedDailyAmount : 0,
-      remainingAmount: productPrice - (paymentMethod === 'WALLET' ? calculatedDailyAmount : 0),
+      paidInstallments: paymentMethod === "WALLET" ? 1 : 0,
+      totalPaidAmount: paymentMethod === "WALLET" ? calculatedDailyAmount : 0,
+      remainingAmount:
+        productPrice - (paymentMethod === "WALLET" ? calculatedDailyAmount : 0),
       paymentSchedule,
-      status: paymentMethod === 'WALLET' ? 'ACTIVE' : 'PENDING',
+      status: paymentMethod === "WALLET" ? "ACTIVE" : "PENDING",
       deliveryAddress,
-      deliveryStatus: 'PENDING',
+      deliveryStatus: "PENDING",
       referrer: referrer?._id || null,
       productCommissionPercentage: commissionPercentage,
-      firstPaymentMethod: paymentMethod
+      firstPaymentMethod: paymentMethod,
     });
 
     await order.save({ session });
@@ -329,9 +344,8 @@ async function createOrder(orderData) {
       razorpayOrderId: razorpayOrder?.id || null,
       status: firstPaymentStatus,
       walletTransactionId,
-      idempotencyKey: paymentMethod === 'WALLET'
-        ? `${order._id}-${userId}-1`
-        : null
+      idempotencyKey:
+        paymentMethod === "WALLET" ? `${order._id}-${userId}-1` : null,
     });
 
     await firstPayment.save({ session });
@@ -339,11 +353,11 @@ async function createOrder(orderData) {
     // Update order with first payment reference
     order.firstPaymentId = firstPayment._id;
 
-    if (paymentMethod === 'WALLET') {
+    if (paymentMethod === "WALLET") {
       order.firstPaymentCompletedAt = new Date();
 
       // Update payment schedule - mark first installment as PAID
-      order.paymentSchedule[0].status = 'PAID';
+      order.paymentSchedule[0].status = "PAID";
       order.paymentSchedule[0].paidDate = new Date();
       order.paymentSchedule[0].paymentId = firstPayment._id;
     }
@@ -353,8 +367,9 @@ async function createOrder(orderData) {
     // ========================================
     // 12. Process Commission (if wallet payment and has referrer)
     // ========================================
-    if (paymentMethod === 'WALLET' && referrer && commissionPercentage > 0) {
-      const commissionAmount = (calculatedDailyAmount * commissionPercentage) / 100;
+    if (paymentMethod === "WALLET" && referrer && commissionPercentage > 0) {
+      const commissionAmount =
+        (calculatedDailyAmount * commissionPercentage) / 100;
 
       const commissionResult = await creditCommissionToWallet(
         referrer._id,
@@ -384,17 +399,18 @@ async function createOrder(orderData) {
     return {
       order: order.getSummary(),
       firstPayment: firstPayment.getSummary(),
-      razorpayOrder: razorpayOrder ? {
-        id: razorpayOrder.id,
-        amount: razorpayOrder.amount,
-        currency: razorpayOrder.currency,
-        keyId: process.env.RAZORPAY_KEY_ID
-      } : null
+      razorpayOrder: razorpayOrder
+        ? {
+            id: razorpayOrder.id,
+            amount: razorpayOrder.amount,
+            currency: razorpayOrder.currency,
+            keyId: process.env.RAZORPAY_KEY_ID,
+          }
+        : null,
     };
-
   } catch (error) {
     await session.abortTransaction();
-    console.error('Order creation failed:', error);
+    console.error("Order creation failed:", error);
     throw new TransactionFailedError(error.message);
   } finally {
     session.endSession();
@@ -418,9 +434,9 @@ async function getOrderById(orderId, userId = null) {
   }
 
   const order = await InstallmentOrder.findOne(query)
-    .populate('product', 'name images pricing availability')
-    .populate('user', 'name email phoneNumber')
-    .populate('referrer', 'name email');
+    .populate("product", "name images pricing availability")
+    .populate("user", "name email phoneNumber")
+    .populate("referrer", "name email");
 
   return order;
 }
@@ -458,18 +474,18 @@ async function cancelOrder(orderId, userId, reason) {
   const order = await getOrderById(orderId, userId);
 
   if (!order) {
-    throw new Error('Order not found');
+    throw new Error("Order not found");
   }
 
-  if (order.status === 'COMPLETED') {
-    throw new Error('Cannot cancel completed order');
+  if (order.status === "COMPLETED") {
+    throw new Error("Cannot cancel completed order");
   }
 
-  if (order.status === 'CANCELLED') {
-    throw new Error('Order already cancelled');
+  if (order.status === "CANCELLED") {
+    throw new Error("Order already cancelled");
   }
 
-  order.status = 'CANCELLED';
+  order.status = "CANCELLED";
   order.cancelledAt = new Date();
   order.cancelledBy = userId;
   order.cancellationReason = reason;
@@ -488,22 +504,22 @@ async function cancelOrder(orderId, userId, reason) {
  */
 async function approveDelivery(orderId, adminId) {
   const order = await InstallmentOrder.findOne({
-    $or: [{ _id: orderId }, { orderId }]
+    $or: [{ _id: orderId }, { orderId }],
   });
 
   if (!order) {
-    throw new Error('Order not found');
+    throw new Error("Order not found");
   }
 
-  if (order.status !== 'COMPLETED') {
-    throw new Error('Order must be fully paid before delivery approval');
+  if (order.status !== "COMPLETED") {
+    throw new Error("Order must be fully paid before delivery approval");
   }
 
-  if (order.deliveryStatus === 'APPROVED') {
-    throw new Error('Delivery already approved');
+  if (order.deliveryStatus === "APPROVED") {
+    throw new Error("Delivery already approved");
   }
 
-  order.deliveryStatus = 'APPROVED';
+  order.deliveryStatus = "APPROVED";
   order.deliveryApprovedBy = adminId;
   order.deliveryApprovedAt = new Date();
 
@@ -521,16 +537,16 @@ async function approveDelivery(orderId, adminId) {
  */
 async function updateDeliveryStatus(orderId, status) {
   const order = await InstallmentOrder.findOne({
-    $or: [{ _id: orderId }, { orderId }]
+    $or: [{ _id: orderId }, { orderId }],
   });
 
   if (!order) {
-    throw new Error('Order not found');
+    throw new Error("Order not found");
   }
 
-  const validStatuses = ['PENDING', 'APPROVED', 'SHIPPED', 'DELIVERED'];
+  const validStatuses = ["PENDING", "APPROVED", "SHIPPED", "DELIVERED"];
   if (!validStatuses.includes(status)) {
-    throw new Error('Invalid delivery status');
+    throw new Error("Invalid delivery status");
   }
 
   order.deliveryStatus = status;
@@ -552,15 +568,146 @@ async function getOrderStats(userId = null) {
     { $match: query },
     {
       $group: {
-        _id: '$status',
+        _id: "$status",
         count: { $sum: 1 },
-        totalValue: { $sum: '$productPrice' },
-        totalPaid: { $sum: '$totalPaidAmount' }
-      }
-    }
+        totalValue: { $sum: "$productPrice" },
+        totalPaid: { $sum: "$totalPaidAmount" },
+      },
+    },
   ]);
 
   return stats;
+}
+/**
+ * Get overall investment status for a user
+ *
+ * Aggregates all NON-CANCELLED installment orders:
+ * - Total amount of all products
+ * - Total paid
+ * - Total remaining
+ * - Total days & paid days
+ * - Overall progress %
+ * - Status breakdown
+ */
+async function getOverallInvestmentStatus(userId) {
+  const userObjectId = new mongoose.Types.ObjectId(userId);
+
+  // Aggregate totals across all NON-CANCELLED orders
+  const [totals] = await InstallmentOrder.aggregate([
+    {
+      $match: {
+        user: userObjectId,
+        status: { $ne: "CANCELLED" },
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        totalOrders: { $sum: 1 },
+        totalAmount: { $sum: "$productPrice" },
+        totalPaidAmount: { $sum: "$totalPaidAmount" },
+        totalRemainingAmount: { $sum: "$remainingAmount" },
+        totalDays: { $sum: "$totalDays" },
+        totalPaidInstallments: { $sum: "$paidInstallments" },
+      },
+    },
+  ]);
+
+  // If user has no orders at all
+  if (!totals) {
+    return {
+      totalOrders: 0,
+      totalAmount: 0,
+      totalPaidAmount: 0,
+      totalRemainingAmount: 0,
+      totalDays: 0,
+      totalPaidInstallments: 0,
+      remainingDays: 0,
+      progressPercent: 0,
+      statusBreakdown: {},
+      nextDueInstallment: null,
+    };
+  }
+
+  // Status breakdown (ACTIVE, COMPLETED, PENDING, etc.)
+  const statusStats = await InstallmentOrder.aggregate([
+    {
+      $match: {
+        user: userObjectId,
+        status: { $ne: "CANCELLED" },
+      },
+    },
+    {
+      $group: {
+        _id: "$status",
+        count: { $sum: 1 },
+      },
+    },
+  ]);
+
+  const statusBreakdown = {};
+  statusStats.forEach((s) => {
+    statusBreakdown[s._id] = s.count;
+  });
+
+  // Compute overall progress and remaining days
+  const {
+    totalOrders,
+    totalAmount,
+    totalPaidAmount,
+    totalRemainingAmount,
+    totalDays,
+    totalPaidInstallments,
+  } = totals;
+
+  const remainingDays = Math.max(0, totalDays - totalPaidInstallments);
+  const progressPercent =
+    totalAmount > 0
+      ? Math.round((totalPaidAmount / totalAmount) * 100 * 100) / 100 // 2 decimal %
+      : 0;
+
+  // Find the next nearest pending installment due date across all ACTIVE/PENDING orders
+  const [nextDue] = await InstallmentOrder.aggregate([
+    {
+      $match: {
+        user: userObjectId,
+        status: { $in: ["PENDING", "ACTIVE"] },
+      },
+    },
+    { $unwind: "$paymentSchedule" },
+    {
+      $match: {
+        "paymentSchedule.status": "PENDING",
+      },
+    },
+    {
+      $sort: {
+        "paymentSchedule.dueDate": 1,
+      },
+    },
+    { $limit: 1 },
+    {
+      $project: {
+        _id: 0,
+        orderId: "$orderId",
+        dueDate: "$paymentSchedule.dueDate",
+        amount: "$paymentSchedule.amount",
+      },
+    },
+  ]);
+
+  return {
+    totalOrders,
+    totalAmount,
+    totalPaidAmount,
+    totalRemainingAmount,
+    totalDays,
+    totalPaidInstallments,
+    remainingDays,
+    progressPercent,
+    statusBreakdown,
+    nextDueInstallment: nextDue || null,
+  };
 }
 
 module.exports = {
@@ -571,5 +718,7 @@ module.exports = {
   cancelOrder,
   approveDelivery,
   updateDeliveryStatus,
-  getOrderStats
+  getOrderStats,
+  getOverallInvestmentStatus
 };
+

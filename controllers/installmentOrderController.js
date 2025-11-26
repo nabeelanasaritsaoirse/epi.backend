@@ -5,9 +5,12 @@
  * All controller methods are wrapped with asyncHandler for automatic error handling.
  */
 
-const orderService = require('../services/installmentOrderService');
-const { asyncHandler, successResponse } = require('../middlewares/errorHandler');
-const { OrderNotFoundError } = require('../utils/customErrors');
+const orderService = require("../services/installmentOrderService");
+const {
+  asyncHandler,
+  successResponse,
+} = require("../middlewares/errorHandler");
+const { OrderNotFoundError } = require("../utils/customErrors");
 
 /**
  * @route   POST /api/installment-orders
@@ -19,15 +22,15 @@ const createOrder = asyncHandler(async (req, res) => {
 
   const orderData = {
     userId,
-    ...req.body
+    ...req.body,
   };
 
   const result = await orderService.createOrder(orderData);
 
   const message =
-    req.body.paymentMethod === 'WALLET'
-      ? 'Order created successfully. First payment completed via wallet.'
-      : 'Order created successfully. Please complete payment via Razorpay.';
+    req.body.paymentMethod === "WALLET"
+      ? "Order created successfully. First payment completed via wallet."
+      : "Order created successfully. Please complete payment via Razorpay.";
 
   successResponse(res, result, message, 201);
 });
@@ -45,7 +48,7 @@ const getOrder = asyncHandler(async (req, res) => {
 
   if (!order) throw new OrderNotFoundError(orderId);
 
-  successResponse(res, { order }, 'Order retrieved successfully');
+  successResponse(res, { order }, "Order retrieved successfully");
 });
 
 /**
@@ -62,7 +65,7 @@ const getUserOrders = asyncHandler(async (req, res) => {
   const options = {
     status,
     limit: Math.min(limit, 100),
-    skip: actualSkip
+    skip: actualSkip,
   };
 
   const orders = await orderService.getUserOrders(userId, options);
@@ -73,9 +76,9 @@ const getUserOrders = asyncHandler(async (req, res) => {
       orders,
       count: orders.length,
       page: page || Math.floor(actualSkip / limit) + 1,
-      limit
+      limit,
     },
-    'Orders retrieved successfully'
+    "Orders retrieved successfully"
   );
 });
 
@@ -91,7 +94,7 @@ const cancelOrder = asyncHandler(async (req, res) => {
 
   const order = await orderService.cancelOrder(orderId, userId, reason);
 
-  successResponse(res, { order }, 'Order cancelled successfully');
+  successResponse(res, { order }, "Order cancelled successfully");
 });
 
 /**
@@ -108,21 +111,25 @@ const getOrderStats = asyncHandler(async (req, res) => {
     total: 0,
     totalValue: 0,
     totalPaid: 0,
-    byStatus: {}
+    byStatus: {},
   };
 
-  stats.forEach(stat => {
+  stats.forEach((stat) => {
     transformedStats.total += stat.count;
     transformedStats.totalValue += stat.totalValue;
     transformedStats.totalPaid += stat.totalPaid;
     transformedStats.byStatus[stat._id] = {
       count: stat.count,
       totalValue: stat.totalValue,
-      totalPaid: stat.totalPaid
+      totalPaid: stat.totalPaid,
     };
   });
 
-  successResponse(res, { stats: transformedStats }, 'Order statistics retrieved successfully');
+  successResponse(
+    res,
+    { stats: transformedStats },
+    "Order statistics retrieved successfully"
+  );
 });
 
 /**
@@ -139,7 +146,7 @@ const getOrderSummary = asyncHandler(async (req, res) => {
 
   const summary = order.getSummary();
 
-  successResponse(res, { summary }, 'Order summary retrieved successfully');
+  successResponse(res, { summary }, "Order summary retrieved successfully");
 });
 
 /**
@@ -156,15 +163,20 @@ const getPaymentSchedule = asyncHandler(async (req, res) => {
 
   const summary = {
     totalInstallments: order.paymentSchedule.length,
-    paidInstallments: order.paymentSchedule.filter(s => s.status === 'PAID').length,
-    pendingInstallments: order.paymentSchedule.filter(s => s.status === 'PENDING').length,
-    skippedInstallments: order.paymentSchedule.filter(s => s.status === 'SKIPPED').length
+    paidInstallments: order.paymentSchedule.filter((s) => s.status === "PAID")
+      .length,
+    pendingInstallments: order.paymentSchedule.filter(
+      (s) => s.status === "PENDING"
+    ).length,
+    skippedInstallments: order.paymentSchedule.filter(
+      (s) => s.status === "SKIPPED"
+    ).length,
   };
 
   successResponse(
     res,
     { schedule: order.paymentSchedule, summary },
-    'Payment schedule retrieved successfully'
+    "Payment schedule retrieved successfully"
   );
 });
 
@@ -179,31 +191,31 @@ const validateCoupon = asyncHandler(async (req, res) => {
   if (!couponCode || productPrice === undefined) {
     return res.status(400).json({
       success: false,
-      message: 'couponCode and productPrice are required'
+      message: "couponCode and productPrice are required",
     });
   }
 
   if (productPrice < 0) {
     return res.status(400).json({
       success: false,
-      message: 'productPrice must be a positive number'
+      message: "productPrice must be a positive number",
     });
   }
 
-  const Coupon = require('../models/Coupon');
+  const Coupon = require("../models/Coupon");
   const coupon = await Coupon.findOne({ couponCode: couponCode.toUpperCase() });
 
   if (!coupon) {
     return res.status(404).json({
       success: false,
-      message: `Coupon '${couponCode}' not found`
+      message: `Coupon '${couponCode}' not found`,
     });
   }
 
   if (!coupon.isActive) {
     return res.status(400).json({
       success: false,
-      message: `Coupon '${couponCode}' is not active`
+      message: `Coupon '${couponCode}' is not active`,
     });
   }
 
@@ -211,19 +223,19 @@ const validateCoupon = asyncHandler(async (req, res) => {
   if (now > coupon.expiryDate) {
     return res.status(400).json({
       success: false,
-      message: `Coupon '${couponCode}' has expired`
+      message: `Coupon '${couponCode}' has expired`,
     });
   }
 
   if (productPrice < coupon.minOrderValue) {
     return res.status(400).json({
       success: false,
-      message: `Minimum order value of ₹${coupon.minOrderValue} is required for this coupon`
+      message: `Minimum order value of ₹${coupon.minOrderValue} is required for this coupon`,
     });
   }
 
   let discountAmount = 0;
-  if (coupon.discountType === 'flat') discountAmount = coupon.discountValue;
+  if (coupon.discountType === "flat") discountAmount = coupon.discountValue;
   else discountAmount = Math.round((productPrice * coupon.discountValue) / 100);
 
   discountAmount = Math.min(discountAmount, productPrice);
@@ -239,10 +251,10 @@ const validateCoupon = asyncHandler(async (req, res) => {
         discountValue: coupon.discountValue,
         discountAmount,
         originalPrice: productPrice,
-        finalPrice
-      }
+        finalPrice,
+      },
     },
-    'Coupon is valid'
+    "Coupon is valid"
   );
 });
 
@@ -278,9 +290,26 @@ const getInvestmentStatus = asyncHandler(async (req, res) => {
       totalDays,
       paidDays,
       daysLeft,
-      nextDue: nextInstallment || null
+      nextDue: nextInstallment || null,
     },
-    'Investment status retrieved successfully'
+    "Investment status retrieved successfully"
+  );
+});
+/**
+ * ✅ NEW API
+ * @route   GET /api/installments/orders/overall-status
+ * @desc    Get overall investment status across ALL installment orders
+ * @access  Private
+ */
+const getOverallInvestmentStatus = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+
+  const overview = await orderService.getOverallInvestmentStatus(userId);
+
+  successResponse(
+    res,
+    { overview },
+    "Overall investment status retrieved successfully"
   );
 });
 
@@ -293,5 +322,7 @@ module.exports = {
   getOrderSummary,
   getPaymentSchedule,
   validateCoupon,
-  getInvestmentStatus
+  getInvestmentStatus,
+  getOverallInvestmentStatus
 };
+
