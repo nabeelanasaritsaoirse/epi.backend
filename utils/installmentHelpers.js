@@ -124,24 +124,44 @@ function splitCommission(totalCommission) {
 
 /**
  * Generate payment schedule for order
- * Creates array of installment objects
+ * ⭐ ENHANCED: Now supports REDUCE_DAYS coupons with FREE days and remainder
  *
  * @param {number} totalDays - Total number of installment days
  * @param {number} dailyAmount - Daily payment amount
  * @param {Date} startDate - Order start date
+ * @param {Object} couponInfo - Optional coupon information
+ * @param {string} couponInfo.type - 'REDUCE_DAYS' or null
+ * @param {number} couponInfo.discount - Coupon discount amount
  * @returns {Array} Array of payment schedule items
  */
-function generatePaymentSchedule(totalDays, dailyAmount, startDate = new Date()) {
+function generatePaymentSchedule(totalDays, dailyAmount, startDate = new Date(), couponInfo = null) {
   const schedule = [];
+  let freeDays = 0;
+  let remainder = 0;
+
+  // ⭐ Calculate free days and remainder for REDUCE_DAYS coupon
+  if (couponInfo && couponInfo.type === 'REDUCE_DAYS' && couponInfo.discount > 0) {
+    freeDays = Math.floor(couponInfo.discount / dailyAmount);
+    remainder = couponInfo.discount % dailyAmount;
+  }
 
   for (let i = 0; i < totalDays; i++) {
     const dueDate = addDays(startDate, i);
+    const installmentNumber = i + 1;
+
+    // ⭐ Determine if this installment is FREE (last X days before the very last day)
+    const isFreeByCoupon = freeDays > 0 && (installmentNumber > totalDays - freeDays - (remainder > 0 ? 1 : 0)) && (installmentNumber < totalDays || remainder === 0);
+
+    // ⭐ Last day might have reduced amount if there's a remainder
+    const isLastDay = installmentNumber === totalDays;
+    const amount = isLastDay && remainder > 0 ? remainder : dailyAmount;
 
     schedule.push({
-      installmentNumber: i + 1,
+      installmentNumber,
       dueDate: dueDate,
-      amount: dailyAmount,
-      status: 'PENDING', // PENDING | PAID | SKIPPED
+      amount: amount,
+      status: isFreeByCoupon ? 'FREE' : 'PENDING', // FREE for coupon-benefited days
+      isCouponBenefit: isFreeByCoupon,
       paidDate: null,
       paymentId: null
     });
@@ -318,6 +338,67 @@ function calculateOrderSummary(order) {
   };
 }
 
+// ⭐ NEW: Calculate total product price (pricePerUnit × quantity)
+/**
+ * Calculate total product price with quantity
+ * @param {number} pricePerUnit - Price per unit
+ * @param {number} quantity - Quantity ordered
+ * @returns {number} Total price
+ */
+function calculateTotalProductPrice(pricePerUnit, quantity = 1) {
+  return pricePerUnit * quantity;
+}
+
+// ⭐ NEW: Apply INSTANT coupon (reduces price immediately)
+/**
+ * Apply INSTANT type coupon
+ * @param {number} totalPrice - Total product price
+ * @param {number} couponDiscount - Coupon discount amount
+ * @returns {Object} { finalPrice, discountApplied }
+ */
+function applyInstantCoupon(totalPrice, couponDiscount) {
+  const discountApplied = Math.min(couponDiscount, totalPrice);
+  const finalPrice = totalPrice - discountApplied;
+  return {
+    finalPrice: Math.max(0, finalPrice),
+    discountApplied
+  };
+}
+
+// ⭐ NEW: Calculate free days for REDUCE_DAYS coupon
+/**
+ * Calculate how many days should be marked FREE for REDUCE_DAYS coupon
+ * @param {number} couponDiscount - Coupon discount amount
+ * @param {number} dailyAmount - Daily payment amount
+ * @returns {Object} { freeDays, remainder }
+ */
+function calculateCouponDaysReduction(couponDiscount, dailyAmount) {
+  const freeDays = Math.floor(couponDiscount / dailyAmount);
+  const remainder = couponDiscount % dailyAmount;
+  return {
+    freeDays,
+    remainder
+  };
+}
+
+// ⭐ NEW: Check if payment is allowed today (one-per-day rule)
+/**
+ * Check if user can pay today based on last payment date
+ * @param {Date} lastPaymentDate - Date of last payment
+ * @returns {boolean} True if payment allowed today
+ */
+function canPayToday(lastPaymentDate) {
+  if (!lastPaymentDate) return true;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const lastPayment = new Date(lastPaymentDate);
+  lastPayment.setHours(0, 0, 0, 0);
+
+  return lastPayment.getTime() < today.getTime();
+}
+
 module.exports = {
   // ID Generators
   generateOrderId,
@@ -342,6 +423,12 @@ module.exports = {
   // Payment Calculations
   calculateRemainingPayment,
   isOrderFullyPaid,
+
+  // ⭐ NEW: Quantity & Pricing
+  calculateTotalProductPrice,
+  applyInstantCoupon,
+  calculateCouponDaysReduction,
+  canPayToday,
 
   // Utilities
   formatCurrency,
