@@ -1,43 +1,58 @@
-const axios = require('axios');
+const mongoose = require("mongoose");
+require("dotenv").config();
 
-const BASE_URL = "http://localhost:3000/api";
-const USER_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2OTFkNjAzNTk2MjU0MmJmNDEyMGYzMGIiLCJyb2xlIjoidXNlciIsImlhdCI6MTc2Mzk1NDU4MywiZXhwIjoxNzY0NTU5MzgzfQ.F-goKWFq0_8QG6yy26W-rjMpiBZqSKVBCzz7QZnDMNI"; // add your token here
+const InstallmentOrder = require("../models/InstallmentOrder");
 
-async function seedPendingPayments() {
+const MONGO_URI =
+  process.env.MONGODB_URI ||
+  process.env.MONGO_URI ||
+  "mongodb://127.0.0.1:27017/epi_backend";
+
+(async () => {
   try {
-    console.log("🚀 Seeding fake pending installment payments...");
+    console.log("🔄 Connecting to MongoDB...");
+    await mongoose.connect(MONGO_URI);
+    console.log("✅ Connected to MongoDB");
 
-    const fakeData = [
-      {
-        orderId: "ORDERTEST01",
-        installmentNumber: 5,
-        amount: 249,
-        status: "PENDING",
-        dueDate: "2025-12-01T10:00:00Z"
-      },
-      {
-        orderId: "ORDERTEST02",
-        installmentNumber: 3,
-        amount: 149,
-        status: "PENDING",
-        dueDate: "2025-12-02T10:00:00Z"
-      }
-    ];
+    console.log("📝 Creating 1 fake pending installment (today)…");
 
-    for (const item of fakeData) {
-      await axios.post(
-        `${BASE_URL}/installments/payments/process`,
-        item,
+    // TODAY in IST
+    const todayIST = new Date(
+      new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+    );
+
+    const order = await InstallmentOrder.create({
+      orderId: `TEST-${Date.now()}`,   // FIXED SYNTAX
+      user: "691d6035962542bf4120f30b", // PUT YOUR USER ID
+      product: "69182fed420789490a734cf5", // PUT VALID PRODUCT ID
+
+      productName: "Test Product",
+      productPrice: 1000,
+      dailyPaymentAmount: 100,
+      totalDays: 10,
+
+      paidInstallments: 0,
+      totalPaidAmount: 0,
+      remainingAmount: 1000,
+
+      status: "ACTIVE",
+      firstPaymentMethod: "WALLET",
+
+      paymentSchedule: [
         {
-          headers: { Authorization: `Bearer ${USER_TOKEN}` }
+          installmentNumber: 1,
+          amount: 100,
+          status: "PENDING",
+          dueDate: todayIST,  // IMPORTANT
         }
-      );
-    }
+      ],
+    });
 
-    console.log("✅ Dummy pending payments inserted!");
+    console.log("✅ Inserted Order:", order.orderId);
+    process.exit(0);
+
   } catch (err) {
-    console.error("❌ Error seeding data:", err.response?.data || err.message);
+    console.error("❌ Error:", err);
+    process.exit(1);
   }
-}
-
-seedPendingPayments();
+})();
