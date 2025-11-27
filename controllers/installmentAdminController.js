@@ -399,6 +399,81 @@ const getAllPayments = asyncHandler(async (req, res) => {
   }, 'Payments retrieved successfully');
 });
 
+/**
+ * @route   POST /api/admin/installments/adjust-payment-dates
+ * @desc    Adjust payment due dates for testing (Admin only)
+ * @access  Private (Admin only)
+ *
+ * @body {
+ *   userId?: string (optional, adjusts all user's active orders),
+ *   orderId?: string (optional, adjusts specific order),
+ *   adjustDays: number (negative = move to past, 0 = today, positive = future)
+ * }
+ */
+const adjustPaymentDates = asyncHandler(async (req, res) => {
+  const { userId, orderId, adjustDays = -1 } = req.body;
+
+  if (!userId && !orderId) {
+    return res.status(400).json({
+      success: false,
+      message: 'Either userId or orderId is required'
+    });
+  }
+
+  const query = { status: 'ACTIVE' };
+  if (orderId) {
+    query.orderId = orderId;
+  } else if (userId) {
+    query.user = userId;
+  }
+
+  const orders = await InstallmentOrder.find(query);
+
+  if (orders.length === 0) {
+    return res.status(404).json({
+      success: false,
+      message: 'No active orders found'
+    });
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  let totalUpdated = 0;
+  let totalPendingAdjusted = 0;
+
+  for (const order of orders) {
+    let orderUpdated = false;
+
+    for (let i = 0; i < order.paymentSchedule.length; i++) {
+      const installment = order.paymentSchedule[i];
+
+      if (installment.status === 'PENDING') {
+        const newDate = new Date(today);
+        newDate.setDate(newDate.getDate() + adjustDays);
+
+        order.paymentSchedule[i].dueDate = newDate;
+        orderUpdated = true;
+        totalPendingAdjusted++;
+
+        // Only adjust first 3 pending payments per order
+        if (totalPendingAdjusted >= 3 * orders.length) break;
+      }
+    }
+
+    if (orderUpdated) {
+      await order.save();
+      totalUpdated++;
+    }
+  }
+
+  successResponse(res, {
+    ordersUpdated: totalUpdated,
+    paymentsAdjusted: totalPendingAdjusted,
+    adjustedTo: adjustDays === 0 ? 'today' : adjustDays < 0 ? `${Math.abs(adjustDays)} day(s) ago` : `${adjustDays} day(s) from now`
+  }, 'Payment dates adjusted successfully');
+});
+
 module.exports = {
   getCompletedOrders,
   approveDelivery,
@@ -408,5 +483,6 @@ module.exports = {
   getDashboardStats,
   getPendingApprovalOrders,
   addAdminNotes,
-  getAllPayments
+  getAllPayments,
+  adjustPaymentDates
 };

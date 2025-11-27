@@ -343,4 +343,17 @@ router.get(
   adminController.getAllPayments
 );
 
+/**
+ * @route   POST /api/installments/admin/adjust-payment-dates
+ * @desc    Adjust payment due dates for testing
+ * @access  Private (Admin)
+ */
+router.post(
+  "/admin/adjust-payment-dates",
+  verifyToken,
+  isAdmin,
+  sanitizeInput,
+  adminController.adjustPaymentDates
+);
+
 module.exports = router;
