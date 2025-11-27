@@ -1,8 +1,8 @@
 const axios = require('axios');
 
-const BASE_URL = 'http://localhost:3000';  // ✅ Changed to localhost for testing
-const USER_ACCESS_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2OTI3MmE4N2JiNDQyODliZWY3MDUzNDMiLCJyb2xlIjoidXNlciIsImlhdCI6MTc2NDE3NDU3OCwiZXhwIjoxNzY0Nzc5Mzc4fQ.FNwxpLQiDp7L9m6IL7Nb4gSuwZ0XtkcYjy0qQOvOp94';
-const USER_ID = '69272a87bb44289bef705343';
+const BASE_URL = 'http://65.0.64.8:5000';
+const USER_ACCESS_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2OTFkNjAzNTk2MjU0MmJmNDEyMGYzMGIiLCJyb2xlIjoidXNlciIsImlhdCI6MTc2Mzk1NDU4MywiZXhwIjoxNzY0NTU5MzgzfQ.F-goKWFq0_8QG6yy26W-rjMpiBZqSKVBCzz7QZnDMNI';
+const USER_ID = '691d6035962542bf4120f30b';
 
 const api = axios.create({
   baseURL: BASE_URL,
