@@ -19,7 +19,7 @@ const paymentRecordSchema = new mongoose.Schema({
   paymentId: {
     type: String,
     unique: true,
-    required: true,
+    required: false,  // Auto-generated in pre-save hook
     index: true
   },
 
@@ -174,12 +174,21 @@ paymentRecordSchema.index({ razorpayPaymentId: 1 }, { sparse: true });
 // ============================================
 
 /**
- * Auto-generate paymentId before saving new payment
+ * Auto-generate paymentId and idempotencyKey before saving new payment
  */
 paymentRecordSchema.pre('save', async function(next) {
+  // Auto-generate paymentId if not provided
   if (this.isNew && !this.paymentId) {
     this.paymentId = generatePaymentId();
   }
+
+  // ⭐ FIX: Auto-generate idempotencyKey if not provided
+  // Format: {orderId}-{installmentNumber}-{timestamp}
+  if (this.isNew && !this.idempotencyKey) {
+    this.idempotencyKey = `${this.order}-${this.installmentNumber}-${Date.now()}`;
+    console.log(`🔍 Auto-generated idempotencyKey: ${this.idempotencyKey}`);
+  }
+
   next();
 });
 

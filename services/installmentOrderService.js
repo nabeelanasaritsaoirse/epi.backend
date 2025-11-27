@@ -77,6 +77,20 @@ async function createOrder(orderData) {
     throw new Error('Quantity must be between 1 and 10');
   }
 
+  console.log('\n========================================');
+  console.log('🔍 DEBUG: Service - createOrder called');
+  console.log('========================================');
+  console.log('📦 Input Data:', {
+    userId,
+    productId,
+    variantId,
+    quantity,
+    couponCode,
+    totalDays,
+    dailyAmount,
+    paymentMethod
+  });
+
   // ========================================
   // 1. Validate User
   // ========================================
@@ -151,7 +165,7 @@ async function createOrder(orderData) {
   // ⭐ NEW: Calculate total product price (pricePerUnit × quantity)
   const totalProductPrice = calculateTotalProductPrice(pricePerUnit, quantity);
 
-  console.log(`💰 Pricing calculation:`);
+  console.log('\n💰 Pricing Calculation:');
   console.log(`   Price per unit: ₹${pricePerUnit}`);
   console.log(`   Quantity: ${quantity}`);
   console.log(`   Total product price: ₹${totalProductPrice}`);
@@ -268,7 +282,14 @@ async function createOrder(orderData) {
     couponInfo  // ⭐ NEW: Pass coupon info
   );
 
-  console.log(`📅 Payment schedule generated: ${totalDays} days, ₹${calculatedDailyAmount}/day`);
+  console.log(`\n📅 Payment Schedule:`);
+  console.log(`   Total days: ${totalDays}`);
+  console.log(`   Daily amount: ₹${calculatedDailyAmount}`);
+  if (couponInfo) {
+    const { freeDays, remainder } = calculateCouponDaysReduction(couponDiscount, calculatedDailyAmount);
+    console.log(`   FREE days (coupon): ${freeDays}`);
+    console.log(`   Remainder on last day: ₹${remainder}`);
+  }
 
   // ========================================
   // 6. Get Referrer Information
@@ -298,8 +319,11 @@ async function createOrder(orderData) {
   // ========================================
   // 8. Start MongoDB Transaction
   // ========================================
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  // DISABLED FOR LOCAL DEVELOPMENT: MongoDB transactions require replica set
+  // Uncomment for production use with replica set
+  // const session = await mongoose.startSession();
+  // session.startTransaction();
+  const session = null; // Disabled for local development
 
   try {
     // ========================================
@@ -330,7 +354,7 @@ async function createOrder(orderData) {
         userId,
         calculatedDailyAmount,
         `First installment payment for ${product.name}`,
-        session,
+        null, // session disabled for local development
         {
           productId: product._id,
           installmentNumber: 1,
@@ -344,27 +368,31 @@ async function createOrder(orderData) {
     // ========================================
     // 10. Create Order Document
     // ========================================
-    const order = new InstallmentOrder({
-      orderId: generateOrderId(), // ✅ FIX: Generate orderId before save
-      user: userId,
-      product: product._id, // Store MongoDB ObjectId, not custom productId
+    const generatedOrderId = generateOrderId();
+    console.log('\n📝 Creating Order Document...');
+    console.log(`   Generated orderId: ${generatedOrderId}`);
 
-      // ⭐ NEW: Quantity & Pricing fields
+    const orderData = {
+      orderId: generatedOrderId,
+      user: userId,
+      product: product._id,
+
+      // Quantity & Pricing fields
       quantity,
       pricePerUnit,
       totalProductPrice,
-      productPrice,  // After coupon (if INSTANT)
+      productPrice,
       productName: product.name,
       productSnapshot,
 
-      // Variant information (if applicable)
+      // Variant information
       variantId: variantId || null,
       variantDetails: variantDetails || undefined,
 
-      // Coupon information (if applicable)
+      // Coupon information
       couponCode: appliedCouponCode || null,
       couponDiscount: couponDiscount || 0,
-      couponType: couponType || null,  // ⭐ NEW
+      couponType: couponType || null,
       originalPrice: couponDiscount > 0 ? originalPrice : null,
 
       // Installment details
@@ -372,8 +400,7 @@ async function createOrder(orderData) {
       dailyPaymentAmount: calculatedDailyAmount,
       paidInstallments: paymentMethod === "WALLET" ? 1 : 0,
       totalPaidAmount: paymentMethod === "WALLET" ? calculatedDailyAmount : 0,
-      remainingAmount:
-        productPrice - (paymentMethod === "WALLET" ? calculatedDailyAmount : 0),
+      remainingAmount: productPrice - (paymentMethod === "WALLET" ? calculatedDailyAmount : 0),
       paymentSchedule,
       status: paymentMethod === "WALLET" ? "ACTIVE" : "PENDING",
       deliveryAddress,
@@ -382,19 +409,37 @@ async function createOrder(orderData) {
       // Referral & Commission
       referrer: referrer?._id || null,
       productCommissionPercentage: commissionPercentage,
-      commissionPercentage,  // ⭐ NEW: Store at order level
+      commissionPercentage,
 
       // Payment tracking
       firstPaymentMethod: paymentMethod,
-      lastPaymentDate: paymentMethod === "WALLET" ? new Date() : null,  // ⭐ NEW
+      lastPaymentDate: paymentMethod === "WALLET" ? new Date() : null,
+    };
+
+    console.log('   Order data prepared:', {
+      orderId: orderData.orderId,
+      quantity: orderData.quantity,
+      pricePerUnit: orderData.pricePerUnit,
+      totalProductPrice: orderData.totalProductPrice,
+      productPrice: orderData.productPrice,
+      dailyPaymentAmount: orderData.dailyPaymentAmount,
+      totalDays: orderData.totalDays,
+      couponType: orderData.couponType,
+      couponDiscount: orderData.couponDiscount
     });
 
-    await order.save({ session });
+    const order = new InstallmentOrder(orderData);
+
+    console.log('   Saving order to database...');
+    await order.save();
+    console.log(`   ✅ Order saved successfully! ID: ${order._id}`);
 
     // ========================================
     // 11. Create First Payment Record
     // ========================================
-    const firstPayment = new PaymentRecord({
+    console.log('\n💳 Creating First Payment Record...');
+
+    const paymentData = {
       order: order._id,
       user: userId,
       amount: calculatedDailyAmount,
@@ -403,40 +448,62 @@ async function createOrder(orderData) {
       razorpayOrderId: razorpayOrder?.id || null,
       status: firstPaymentStatus,
       walletTransactionId,
-      idempotencyKey:
-        paymentMethod === "WALLET" ? `${order._id}-${userId}-1` : null,
+      processedAt: paymentMethod === "WALLET" ? new Date() : null,
+      completedAt: paymentMethod === "WALLET" ? new Date() : null,
+      // idempotencyKey will be auto-generated in pre-save hook
+    };
+
+    console.log('   Payment data:', {
+      order: paymentData.order,
+      amount: paymentData.amount,
+      installmentNumber: paymentData.installmentNumber,
+      paymentMethod: paymentData.paymentMethod,
+      status: paymentData.status
     });
 
-    await firstPayment.save({ session });
+    const firstPayment = new PaymentRecord(paymentData);
 
-    // Update order with first payment reference
+    console.log('   Saving payment record to database...');
+    await firstPayment.save();
+    console.log(`   ✅ Payment record saved! ID: ${firstPayment._id}, PaymentID: ${firstPayment.paymentId}`);
+
+    // ========================================
+    // 11.1. Update Order with Payment Reference
+    // ========================================
+    console.log('\n🔄 Updating order with payment reference...');
+
     order.firstPaymentId = firstPayment._id;
 
     if (paymentMethod === "WALLET") {
       order.firstPaymentCompletedAt = new Date();
-
-      // Update payment schedule - mark first installment as PAID
       order.paymentSchedule[0].status = "PAID";
       order.paymentSchedule[0].paidDate = new Date();
       order.paymentSchedule[0].paymentId = firstPayment._id;
+      console.log('   ✅ Marked first installment as PAID');
     }
 
-    await order.save({ session });
+    await order.save();
+    console.log('   ✅ Order updated with payment reference');
 
     // ========================================
     // 12. Process Commission (if wallet payment and has referrer)
     // ========================================
     if (paymentMethod === "WALLET" && referrer && commissionPercentage > 0) {
-      const commissionAmount =
-        (calculatedDailyAmount * commissionPercentage) / 100;
+      console.log('\n💰 Processing Commission...');
+
+      const commissionAmount = (calculatedDailyAmount * commissionPercentage) / 100;
+      console.log(`   Commission amount: ₹${commissionAmount} (${commissionPercentage}%)`);
+      console.log(`   Referrer: ${referrer._id}`);
 
       const commissionResult = await creditCommissionToWallet(
         referrer._id,
         commissionAmount,
         order._id.toString(),
         firstPayment._id.toString(),
-        session
+        null
       );
+
+      console.log('   ✅ Commission credited to referrer wallet');
 
       // Update payment record with commission details
       await firstPayment.recordCommission(
@@ -445,19 +512,74 @@ async function createOrder(orderData) {
         commissionResult.walletTransaction._id
       );
 
+      console.log('   ✅ Payment record updated with commission');
+
       // Update order total commission
       order.totalCommissionPaid = commissionAmount;
-      await order.save({ session });
+      await order.save();
+      console.log('   ✅ Order updated with total commission');
+    } else {
+      console.log('\n⏭️  Skipping commission (no referrer or non-wallet payment)');
     }
 
     // ========================================
-    // 13. Commit Transaction
+    // 13. Prepare Response
     // ========================================
-    await session.commitTransaction();
+    console.log('\n✅ Order Creation Successful!');
+    console.log('========================================');
+    console.log('📦 Order Summary:');
+    console.log(`   Order ID: ${order.orderId}`);
+    console.log(`   Status: ${order.status}`);
+    console.log(`   Product: ${order.productName}`);
+    console.log(`   Quantity: ${order.quantity}`);
+    console.log(`   Price per unit: ₹${order.pricePerUnit}`);
+    console.log(`   Total product price: ₹${order.totalProductPrice}`);
+    console.log(`   Final price (after coupon): ₹${order.productPrice}`);
+    console.log(`   Daily amount: ₹${order.dailyPaymentAmount}`);
+    console.log(`   Total days: ${order.totalDays}`);
+    console.log(`   Paid installments: ${order.paidInstallments}`);
+    console.log(`   Total paid: ₹${order.totalPaidAmount}`);
+    console.log(`   Remaining: ₹${order.remainingAmount}`);
+    console.log('========================================\n');
 
-    return {
-      order: order.getSummary(),
-      firstPayment: firstPayment.getSummary(),
+    const response = {
+      order: {
+        orderId: order.orderId,
+        _id: order._id,
+        status: order.status,
+        quantity: order.quantity,
+        pricePerUnit: order.pricePerUnit,
+        totalProductPrice: order.totalProductPrice,
+        productPrice: order.productPrice,
+        productName: order.productName,
+        dailyPaymentAmount: order.dailyPaymentAmount,
+        totalDays: order.totalDays,
+        paidInstallments: order.paidInstallments,
+        totalPaidAmount: order.totalPaidAmount,
+        remainingAmount: order.remainingAmount,
+        couponCode: order.couponCode,
+        couponDiscount: order.couponDiscount,
+        couponType: order.couponType,
+        paymentSchedule: order.paymentSchedule,
+        deliveryAddress: order.deliveryAddress,
+        deliveryStatus: order.deliveryStatus,
+        firstPaymentMethod: order.firstPaymentMethod,
+        createdAt: order.createdAt,
+        canPayToday: order.canPayToday ? order.canPayToday() : true
+      },
+      firstPayment: {
+        paymentId: firstPayment.paymentId,
+        _id: firstPayment._id,
+        amount: firstPayment.amount,
+        installmentNumber: firstPayment.installmentNumber,
+        paymentMethod: firstPayment.paymentMethod,
+        status: firstPayment.status,
+        razorpayOrderId: firstPayment.razorpayOrderId,
+        commissionAmount: firstPayment.commissionAmount,
+        commissionCalculated: firstPayment.commissionCalculated,
+        completedAt: firstPayment.completedAt,
+        createdAt: firstPayment.createdAt
+      },
       razorpayOrder: razorpayOrder
         ? {
             id: razorpayOrder.id,
@@ -467,12 +589,15 @@ async function createOrder(orderData) {
           }
         : null,
     };
+
+    return response;
   } catch (error) {
-    await session.abortTransaction();
-    console.error("Order creation failed:", error);
+    console.error('\n❌ Order creation failed!');
+    console.error('========================================');
+    console.error('Error:', error.message);
+    console.error('Stack:', error.stack);
+    console.error('========================================\n');
     throw new TransactionFailedError(error.message);
-  } finally {
-    session.endSession();
   }
 }
 

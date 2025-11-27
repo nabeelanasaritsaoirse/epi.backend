@@ -1,6 +1,6 @@
 const axios = require('axios');
 
-const BASE_URL = 'https://api.epielio.com';
+const BASE_URL = 'http://65.0.64.8:5000';
 const USER_ACCESS_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2OTFkNjAzNTk2MjU0MmJmNDEyMGYzMGIiLCJyb2xlIjoidXNlciIsImlhdCI6MTc2Mzk1NDU4MywiZXhwIjoxNzY0NTU5MzgzfQ.F-goKWFq0_8QG6yy26W-rjMpiBZqSKVBCzz7QZnDMNI';
 const USER_ID = '691d6035962542bf4120f30b';
 

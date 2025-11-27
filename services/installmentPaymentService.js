@@ -176,8 +176,11 @@ async function processPayment(paymentData) {
   // ========================================
   // 5. Start MongoDB Transaction
   // ========================================
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  // DISABLED FOR LOCAL DEVELOPMENT: MongoDB transactions require replica set
+  // Uncomment for production use with replica set
+  // const session = await mongoose.startSession();
+  // session.startTransaction();
+  const session = null; // Disabled for local development
 
   try {
     let walletTransactionId = null;
@@ -191,7 +194,7 @@ async function processPayment(paymentData) {
         userId,
         paymentAmount,
         `Installment ${installmentNumber} payment for ${order.productName}`,
-        session,
+        null, // session disabled for local development
         {
           orderId: order._id,
           installmentNumber,
@@ -221,7 +224,7 @@ async function processPayment(paymentData) {
       completedAt: new Date(),
     });
 
-    await payment.save({ session });
+    await payment.save(); // session disabled for local development
 
     // ========================================
     // 8. Update Order
@@ -250,7 +253,7 @@ async function processPayment(paymentData) {
       order.completedAt = new Date();
     }
 
-    await order.save({ session });
+    await order.save(); // session disabled for local development
 
     // ========================================
     // 9. Calculate and Credit Commission (if referrer exists)
@@ -268,7 +271,7 @@ async function processPayment(paymentData) {
         commissionAmount,
         order._id.toString(),
         payment._id.toString(),
-        session
+        null // session disabled for local development
       );
 
       // Update payment record with commission details
@@ -278,7 +281,7 @@ async function processPayment(paymentData) {
       payment.commissionCreditedToReferrer = true;
       payment.commissionTransactionId = commissionResult.walletTransaction._id;
 
-      await payment.save({ session });
+      await payment.save(); // session disabled for local development
 
       // Update order total commission
       order.totalCommissionPaid += commissionAmount;
@@ -286,13 +289,14 @@ async function processPayment(paymentData) {
       // ⭐ NEW: Update lastPaymentDate for one-per-day rule
       order.lastPaymentDate = new Date();
 
-      await order.save({ session });
+      await order.save(); // session disabled for local development
     }
 
     // ========================================
     // 10. Commit Transaction
     // ========================================
-    await session.commitTransaction();
+    // DISABLED FOR LOCAL DEVELOPMENT: MongoDB transactions require replica set
+    // await session.commitTransaction();
 
     return {
       payment: payment.getSummary(),
@@ -307,11 +311,13 @@ async function processPayment(paymentData) {
         : null,
     };
   } catch (error) {
-    await session.abortTransaction();
+    // DISABLED FOR LOCAL DEVELOPMENT: MongoDB transactions require replica set
+    // await session.abortTransaction();
     console.error("Payment processing failed:", error);
     throw new TransactionFailedError(error.message);
   } finally {
-    session.endSession();
+    // DISABLED FOR LOCAL DEVELOPMENT: MongoDB transactions require replica set
+    // session.endSession();
   }
 }
 
@@ -596,8 +602,11 @@ async function processSelectedDailyPayments(data) {
   // ========================================
   // 5. Start MongoDB Transaction
   // ========================================
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  // DISABLED FOR LOCAL DEVELOPMENT: MongoDB transactions require replica set
+  // Uncomment for production use with replica set
+  // const session = await mongoose.startSession();
+  // session.startTransaction();
+  const session = null; // Disabled for local development
 
   try {
     const results = [];
@@ -618,7 +627,7 @@ async function processSelectedDailyPayments(data) {
           userId,
           paymentAmount,
           `Payment for order ${order.orderId}`,
-          session,
+          null, // session disabled for local development
           { orderId: order._id, installmentNumber: nextInstallment.installmentNumber }
         );
         walletTransactionId = walletResult.walletTransaction._id;
@@ -642,7 +651,7 @@ async function processSelectedDailyPayments(data) {
         completedAt: new Date()
       });
 
-      await payment.save({ session });
+      await payment.save(); // session disabled for local development
 
       // Update order
       order.paidInstallments += 1;
@@ -662,13 +671,13 @@ async function processSelectedDailyPayments(data) {
         console.log(`✅ Order ${order.orderId} completed!`);
       }
 
-      await order.save({ session });
+      await order.save(); // session disabled for local development
 
       // Calculate commission
       const commissionResult = await commissionService.calculateAndCreditCommission({
         order,
         payment,
-        session
+        session: null // session disabled for local development
       });
 
       commissionResults.push(commissionResult);
@@ -685,7 +694,8 @@ async function processSelectedDailyPayments(data) {
     // ========================================
     // 7. Commit Transaction
     // ========================================
-    await session.commitTransaction();
+    // DISABLED FOR LOCAL DEVELOPMENT: MongoDB transactions require replica set
+    // await session.commitTransaction();
 
     console.log(`✅ Combined payment successful for ${results.length} orders`);
 
@@ -698,11 +708,13 @@ async function processSelectedDailyPayments(data) {
     };
 
   } catch (error) {
-    await session.abortTransaction();
+    // DISABLED FOR LOCAL DEVELOPMENT: MongoDB transactions require replica set
+    // await session.abortTransaction();
     console.error('❌ Combined payment failed:', error);
     throw new TransactionFailedError(error.message);
   } finally {
-    session.endSession();
+    // DISABLED FOR LOCAL DEVELOPMENT: MongoDB transactions require replica set
+    // session.endSession();
   }
 }
 
