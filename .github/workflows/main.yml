@@ -113,10 +113,6 @@ jobs:
           echo "${EC2_GITHUB_DEPLOY_KEY}" > ~/.ssh/github-actions
           chmod 600 ~/.ssh/github-actions
           
-          # Load the key into SSH agent
-          eval "$(ssh-agent -s)"
-          ssh-add ~/.ssh/github-actions
-          
           # SSH config
           cat << CONFIG_EOF > ~/.ssh/config
           Host github.com
