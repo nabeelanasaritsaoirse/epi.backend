@@ -108,15 +108,16 @@ jobs:
           echo "✅ Cleanup completed"
           echo "🔐 Setting up SSH config for GitHub..."
           mkdir -p ~/.ssh
-          
-          # Write GitHub deploy key
-          cat << KEYEOF > ~/.ssh/github-actions
-          ${EC2_GITHUB_DEPLOY_KEY}
-          KEYEOF
-          
+
+          # Write GitHub deploy key (private key from GitHub secret)
+          echo "${EC2_GITHUB_DEPLOY_KEY}" > ~/.ssh/github-actions
           chmod 600 ~/.ssh/github-actions
           
-          # Write SSH config
+          # Load the key into SSH agent
+          eval "$(ssh-agent -s)"
+          ssh-add ~/.ssh/github-actions
+          
+          # SSH config
           cat << CONFIG_EOF > ~/.ssh/config
           Host github.com
               HostName github.com
@@ -125,6 +126,9 @@ jobs:
               IdentitiesOnly yes
           CONFIG_EOF
           chmod 600 ~/.ssh/config
+
+
+
           
           # Pull latest repo version
           if [ -d .git ]; then
