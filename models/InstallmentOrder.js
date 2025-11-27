@@ -12,8 +12,12 @@
  * - Commission credited on EVERY payment (not after completion)
  */
 
+console.log('🔍 DEBUG: Loading InstallmentOrder model file...');
+
 const mongoose = require('mongoose');
 const { generateOrderId } = require('../utils/installmentHelpers');
+
+console.log('🔍 DEBUG: Defining schema with orderId required=false');
 
 /**
  * Payment Schedule Item Schema
@@ -60,12 +64,7 @@ const paymentScheduleItemSchema = new mongoose.Schema({
  */
 const installmentOrderSchema = new mongoose.Schema({
   // Unique Order Identifier
-  orderId: {
-    type: String,
-    unique: true,
-    required: true,
-    index: true
-  },
+  orderId: String,  // ✅ Simplified: Just a String, no constraints
 
   // User Information
   user: {
@@ -171,7 +170,7 @@ const installmentOrderSchema = new mongoose.Schema({
    */
   couponType: {
     type: String,
-    enum: ['INSTANT', 'REDUCE_DAYS'],
+    enum: ['INSTANT', 'REDUCE_DAYS', null],
     default: null
   },
   originalPrice: {
@@ -545,6 +544,25 @@ installmentOrderSchema.virtual('totalInstallments').get(function() {
 installmentOrderSchema.set('toJSON', { virtuals: true });
 installmentOrderSchema.set('toObject', { virtuals: true });
 
+// ✅ Force delete ALL cached models and clear connection
+try {
+  if (mongoose.connection.models.InstallmentOrder) {
+    delete mongoose.connection.models.InstallmentOrder;
+  }
+  if (mongoose.models.InstallmentOrder) {
+    delete mongoose.models.InstallmentOrder;
+  }
+  if (mongoose.modelSchemas && mongoose.modelSchemas.InstallmentOrder) {
+    delete mongoose.modelSchemas.InstallmentOrder;
+  }
+} catch (e) {
+  console.log('⚠️  Error clearing model cache:', e.message);
+}
+
 const InstallmentOrder = mongoose.model('InstallmentOrder', installmentOrderSchema);
+
+// 🔍 DEBUG: Log the actual compiled schema to verify
+console.log('🔍 DEBUG: Compiled schema paths:', Object.keys(InstallmentOrder.schema.paths));
+console.log('🔍 DEBUG: orderId field info:', InstallmentOrder.schema.paths.orderId);
 
 module.exports = InstallmentOrder;
