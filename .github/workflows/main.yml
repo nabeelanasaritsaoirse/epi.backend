@@ -89,8 +89,18 @@ jobs:
           echo "${PRIVATE_KEY}" > private_key.pem
           chmod 600 private_key.pem
           
+          # echo "Connecting to EC2 and deploying..."
+          # ssh -o StrictHostKeyChecking=no -i private_key.pem ${EC2_USER}@${EC2_HOST} << EOF
+          # set -e
+          # echo "🚀 Deployment started on EC2..."
+
           echo "Connecting to EC2 and deploying..."
-          ssh -o StrictHostKeyChecking=no -i private_key.pem ${EC2_USER}@${EC2_HOST} << EOF
+          ssh \
+            -i private_key.pem \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=no \
+            ${EC2_USER}@${EC2_HOST} << 'EOF'
+          
           set -e
           echo "🚀 Deployment started on EC2..."
           
