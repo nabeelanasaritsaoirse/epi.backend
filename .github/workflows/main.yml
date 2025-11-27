@@ -76,6 +76,11 @@ jobs:
         run: |
           echo "🔍 Checking Node.js syntax..."
           node --check index.js
+
+      - name: Create SSH Private Key
+        run: |
+          echo "${PRIVATE_KEY}" > private_key.pem
+          chmod 600 private_key.pem
           
       - name: Test SSH connectivity
         run: |
