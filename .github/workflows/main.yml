@@ -17,8 +17,8 @@ jobs:
     runs-on: ubuntu-24.04
 
     concurrency:
-          group: deploy-epi
-          cancel-in-progress: true
+      group: deploy-epi
+      cancel-in-progress: true
           
     env:
       EC2_HOST: ${{ secrets.EC2_HOST }}
@@ -155,11 +155,14 @@ jobs:
           AWS_BUCKET_NAME=company-video-storage-prod
           ENVEND
           echo "🔁 Restarting PM2..."
-          if pm2 describe epi-backend > /dev/null; then
-            pm2 restart epi-backend --update-env
+          pm2 describe epi-backend >/dev/null 2>&1
+          
+          if [ $? -eq 0 ]; then
+            pm2 restart epi-backend --update-env || true
           else
-            pm2 start index.js --name epi-backend
+            pm2 start index.js --name epi-backend || true
           fi
+
           pm2 save
           pm2 save
           echo "-------------------------------------"
