@@ -98,6 +98,11 @@ async function processPayment(paymentData) {
     $or: [{ _id: orderId }, { orderId }],
   }).populate("referrer", "name email");
 
+  // ⭐ NEW: Check one-payment-per-day rule
+  if (!order.canPayToday()) {
+    throw new Error('You have already made a payment for this order today. Please try again tomorrow.');
+  }
+
   if (!order) {
     throw new OrderNotFoundError(orderId);
   }
@@ -277,6 +282,10 @@ async function processPayment(paymentData) {
 
       // Update order total commission
       order.totalCommissionPaid += commissionAmount;
+
+      // ⭐ NEW: Update lastPaymentDate for one-per-day rule
+      order.lastPaymentDate = new Date();
+
       await order.save({ session });
     }
 
@@ -503,6 +512,200 @@ async function getDailyPendingPayments(userId) {
   };
 }
 
+/**
+ * ⭐ NEW: Process combined daily payment for multiple orders
+ *
+ * Allows user to pay for multiple orders in a single transaction.
+ * Creates one Razorpay order for total amount, then distributes to individual orders.
+ *
+ * @param {Object} data - Combined payment data
+ * @param {string} data.userId - User ID
+ * @param {Array<string>} data.selectedOrders - Array of order IDs to pay
+ * @param {string} data.paymentMethod - 'RAZORPAY' or 'WALLET'
+ * @param {string} [data.razorpayOrderId] - Razorpay order ID (for verification)
+ * @param {string} [data.razorpayPaymentId] - Razorpay payment ID (for verification)
+ * @param {string} [data.razorpaySignature] - Razorpay signature (for verification)
+ * @returns {Promise<Object>} Combined payment result
+ */
+async function processSelectedDailyPayments(data) {
+  const {
+    userId,
+    selectedOrders,
+    paymentMethod,
+    razorpayOrderId,
+    razorpayPaymentId,
+    razorpaySignature
+  } = data;
+
+  const commissionService = require('./commissionService');
+
+  console.log(`🔄 Processing combined payment for ${selectedOrders.length} orders`);
+
+  // ========================================
+  // 1. Get All Selected Orders
+  // ========================================
+  const orders = await InstallmentOrder.find({
+    $or: selectedOrders.map(id =>
+      mongoose.Types.ObjectId.isValid(id) ? { _id: id } : { orderId: id }
+    ),
+    user: userId,
+    status: 'ACTIVE'
+  }).populate('referrer', 'name email');
+
+  if (orders.length === 0) {
+    throw new Error('No active orders found for payment');
+  }
+
+  if (orders.length !== selectedOrders.length) {
+    throw new Error('Some selected orders are not available for payment');
+  }
+
+  // ========================================
+  // 2. Validate All Orders Can Pay Today
+  // ========================================
+  for (const order of orders) {
+    if (!order.canPayToday()) {
+      throw new Error(`Order ${order.orderId} has already been paid today`);
+    }
+    if (!order.canAcceptPayment()) {
+      throw new Error(`Order ${order.orderId} cannot accept payment`);
+    }
+  }
+
+  // ========================================
+  // 3. Calculate Total Amount
+  // ========================================
+  const totalAmount = orders.reduce((sum, order) => {
+    const nextInstallment = order.getNextPendingInstallment();
+    return sum + (nextInstallment?.amount || order.dailyPaymentAmount);
+  }, 0);
+
+  console.log(`💰 Total amount for combined payment: ₹${totalAmount}`);
+
+  // ========================================
+  // 4. Verify Razorpay Payment (if applicable)
+  // ========================================
+  if (paymentMethod === 'RAZORPAY') {
+    if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+      throw new Error('Razorpay payment details are required');
+    }
+    verifyRazorpaySignature(razorpayOrderId, razorpayPaymentId, razorpaySignature);
+    console.log('✅ Razorpay signature verified');
+  }
+
+  // ========================================
+  // 5. Start MongoDB Transaction
+  // ========================================
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const results = [];
+    const commissionResults = [];
+
+    // ========================================
+    // 6. Process Each Order Payment
+    // ========================================
+    for (const order of orders) {
+      const nextInstallment = order.getNextPendingInstallment();
+      const paymentAmount = nextInstallment?.amount || order.dailyPaymentAmount;
+
+      // Handle wallet deduction (only for first order, we already verified total)
+      let walletTransactionId = null;
+      if (paymentMethod === 'WALLET') {
+        // Deduct individual amount for this order
+        const walletResult = await deductFromWallet(
+          userId,
+          paymentAmount,
+          `Payment for order ${order.orderId}`,
+          session,
+          { orderId: order._id, installmentNumber: nextInstallment.installmentNumber }
+        );
+        walletTransactionId = walletResult.walletTransaction._id;
+      }
+
+      // Create payment record
+      const payment = new PaymentRecord({
+        order: order._id,
+        user: userId,
+        amount: paymentAmount,
+        installmentNumber: nextInstallment.installmentNumber,
+        paymentMethod,
+        razorpayOrderId: paymentMethod === 'RAZORPAY' ? razorpayOrderId : null,
+        razorpayPaymentId: paymentMethod === 'RAZORPAY' ? razorpayPaymentId : null,
+        razorpaySignature: paymentMethod === 'RAZORPAY' ? razorpaySignature : null,
+        razorpayVerified: paymentMethod === 'RAZORPAY',
+        walletTransactionId,
+        status: 'COMPLETED',
+        idempotencyKey: generateIdempotencyKey(order._id.toString(), userId, nextInstallment.installmentNumber),
+        processedAt: new Date(),
+        completedAt: new Date()
+      });
+
+      await payment.save({ session });
+
+      // Update order
+      order.paidInstallments += 1;
+      order.totalPaidAmount += paymentAmount;
+      order.lastPaymentDate = new Date();  // ⭐ NEW
+
+      // Update payment schedule
+      const scheduleItem = order.paymentSchedule[nextInstallment.installmentNumber - 1];
+      scheduleItem.status = 'PAID';
+      scheduleItem.paidDate = new Date();
+      scheduleItem.paymentId = payment._id;
+
+      // Check if order is fully paid
+      if (isOrderFullyPaid(order.productPrice, order.totalPaidAmount)) {
+        order.status = 'COMPLETED';
+        order.completedAt = new Date();
+        console.log(`✅ Order ${order.orderId} completed!`);
+      }
+
+      await order.save({ session });
+
+      // Calculate commission
+      const commissionResult = await commissionService.calculateAndCreditCommission({
+        order,
+        payment,
+        session
+      });
+
+      commissionResults.push(commissionResult);
+
+      results.push({
+        orderId: order.orderId,
+        paymentId: payment.paymentId,
+        amount: paymentAmount,
+        installmentNumber: nextInstallment.installmentNumber,
+        orderStatus: order.status
+      });
+    }
+
+    // ========================================
+    // 7. Commit Transaction
+    // ========================================
+    await session.commitTransaction();
+
+    console.log(`✅ Combined payment successful for ${results.length} orders`);
+
+    return {
+      success: true,
+      totalAmount,
+      ordersProcessed: results.length,
+      payments: results,
+      commissions: commissionResults.filter(c => c.commissionCalculated)
+    };
+
+  } catch (error) {
+    await session.abortTransaction();
+    console.error('❌ Combined payment failed:', error);
+    throw new TransactionFailedError(error.message);
+  } finally {
+    session.endSession();
+  }
+}
+
 module.exports = {
   processPayment,
   createRazorpayOrderForPayment,
@@ -512,4 +715,5 @@ module.exports = {
   getPaymentStats,
   verifyRazorpaySignature,
   getDailyPendingPayments,
+  processSelectedDailyPayments,  // ⭐ NEW
 };

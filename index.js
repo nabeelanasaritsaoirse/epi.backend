@@ -189,6 +189,7 @@ const referralCommissionRoutes = require("./routes/referralCommission");
 const paymentRoutes = require("./routes/payments");
 const orderRoutes = require("./routes/orders");
 const adminRoutes = require("./routes/admin");
+// const accountDeletionRoutes = require('./routes/accountDeletion'); // TODO: Create this file
 
 const referralRoutes = require("./routes/referralRoutes");
 const planRoutes = require("./routes/plans");
@@ -272,7 +273,6 @@ app.use("/api/products", productRoutes);
 app.use("/api/users", userRoutes);   // USERS ROUTES ONLY HERE
 app.use("/api/wallet", walletRoutes);
 app.use("/api/admin/wallet", adminWalletRoutes);
-app.use("/api/referral", referralRoutes);
 app.use("/api/referral-commission", referralCommissionRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/orders", orderRoutes);
@@ -286,6 +286,8 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/admin/notifications", adminNotificationRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/admin/chat", adminChatRoutes);
+// app.use('/api/users', accountDeletionRoutes); // TODO: Uncomment when file is created
+
 
 // FIXED wishlist MUST NOT override /users
 app.use("/api/wishlist", wishlistRoutes);

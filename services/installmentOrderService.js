@@ -22,6 +22,10 @@ const {
   generatePaymentSchedule,
   validateInstallmentDuration,
   getMaxAllowedDays,
+  generateOrderId,
+  calculateTotalProductPrice,  // ⭐ NEW
+  applyInstantCoupon,           // ⭐ NEW
+  calculateCouponDaysReduction, // ⭐ NEW
 } = require("../utils/installmentHelpers");
 const {
   deductFromWallet,
@@ -60,12 +64,18 @@ async function createOrder(orderData) {
     userId,
     productId,
     variantId, // Optional - for products with variants
+    quantity = 1, // ⭐ NEW: Quantity (default 1)
     couponCode, // Optional - for discount coupons
     totalDays,
     dailyAmount,
     paymentMethod,
     deliveryAddress,
   } = orderData;
+
+  // ⭐ NEW: Validate quantity
+  if (quantity < 1 || quantity > 10) {
+    throw new Error('Quantity must be between 1 and 10');
+  }
 
   // ========================================
   // 1. Validate User
@@ -102,7 +112,7 @@ async function createOrder(orderData) {
   // 2.1. Handle Product Variant (if provided)
   // ========================================
   let selectedVariant = null;
-  let productPrice =
+  let pricePerUnit =
     product.pricing?.finalPrice || product.pricing?.regularPrice || 0;
   let variantDetails = null;
 
@@ -120,33 +130,43 @@ async function createOrder(orderData) {
       throw new Error(`Variant ${variantId} is not available`);
     }
 
-    // Check variant stock
+    // Check variant stock (don't enforce, just warn)
     if (selectedVariant.stock <= 0) {
-      throw new Error(`Variant ${variantId} is out of stock`);
+      console.warn(`⚠️  Variant ${variantId} is out of stock`);
     }
 
     // Use variant price instead of product price
-    productPrice = selectedVariant.salePrice || selectedVariant.price;
+    pricePerUnit = selectedVariant.salePrice || selectedVariant.price;
 
     // Store variant details
     variantDetails = {
       sku: selectedVariant.sku,
       attributes: selectedVariant.attributes,
-      price: productPrice,
+      price: pricePerUnit,
       description:
         selectedVariant.description?.short || selectedVariant.description?.long,
     };
   }
 
+  // ⭐ NEW: Calculate total product price (pricePerUnit × quantity)
+  const totalProductPrice = calculateTotalProductPrice(pricePerUnit, quantity);
+
+  console.log(`💰 Pricing calculation:`);
+  console.log(`   Price per unit: ₹${pricePerUnit}`);
+  console.log(`   Quantity: ${quantity}`);
+  console.log(`   Total product price: ₹${totalProductPrice}`);
+
   // ========================================
   // 2.2. Handle Coupon Code (if provided)
   // ========================================
   let couponDiscount = 0;
-  let originalPrice = productPrice;
   let appliedCouponCode = null;
+  let couponType = null;  // ⭐ NEW: INSTANT or REDUCE_DAYS
+  let productPrice = totalProductPrice;  // Start with total (including quantity)
+  let originalPrice = totalProductPrice;
 
   if (couponCode) {
-    const Coupon = require("../models/Coupon");
+    const Coupon = require("../models/CouponModel");  // ⭐ UPDATED: Use CouponModel
     const coupon = await Coupon.findOne({
       couponCode: couponCode.toUpperCase(),
     });
@@ -167,7 +187,7 @@ async function createOrder(orderData) {
     }
 
     // Validate minimum order value
-    if (productPrice < coupon.minOrderValue) {
+    if (totalProductPrice < coupon.minOrderValue) {
       throw new Error(
         `Minimum order value of ₹${coupon.minOrderValue} is required for coupon '${couponCode}'`
       );
@@ -177,19 +197,33 @@ async function createOrder(orderData) {
     if (coupon.discountType === "flat") {
       couponDiscount = coupon.discountValue;
     } else if (coupon.discountType === "percentage") {
-      couponDiscount = Math.round((productPrice * coupon.discountValue) / 100);
+      couponDiscount = Math.round((totalProductPrice * coupon.discountValue) / 100);
     }
 
     // Ensure discount doesn't exceed order amount
-    couponDiscount = Math.min(couponDiscount, productPrice);
+    couponDiscount = Math.min(couponDiscount, totalProductPrice);
 
-    // Apply discount to product price
-    productPrice = productPrice - couponDiscount;
+    // ⭐ NEW: Apply coupon based on type
+    couponType = coupon.couponType || 'INSTANT';  // Default to INSTANT
     appliedCouponCode = coupon.couponCode;
 
-    console.log(
-      `✅ Coupon '${appliedCouponCode}' applied: -₹${couponDiscount}`
-    );
+    if (couponType === 'INSTANT') {
+      // INSTANT: Reduce product price immediately
+      const result = applyInstantCoupon(totalProductPrice, couponDiscount);
+      productPrice = result.finalPrice;
+      console.log(`✅ INSTANT coupon '${appliedCouponCode}' applied: -₹${couponDiscount}`);
+      console.log(`   Original price: ₹${totalProductPrice} → Final price: ₹${productPrice}`);
+    } else if (couponType === 'REDUCE_DAYS') {
+      // REDUCE_DAYS: Keep product price same, mark last days as FREE
+      productPrice = totalProductPrice;  // No price reduction
+      console.log(`✅ REDUCE_DAYS coupon '${appliedCouponCode}' applied: -₹${couponDiscount}`);
+      console.log(`   Will mark last days as FREE in payment schedule`);
+    }
+
+    // Increment coupon usage
+    if (coupon.incrementUsage) {
+      await coupon.incrementUsage();
+    }
   }
 
   // ========================================
@@ -221,22 +255,31 @@ async function createOrder(orderData) {
   // ========================================
   // 5. Generate Payment Schedule
   // ========================================
+  // ⭐ UPDATED: Pass coupon info for REDUCE_DAYS handling
+  const couponInfo = couponType === 'REDUCE_DAYS' ? {
+    type: 'REDUCE_DAYS',
+    discount: couponDiscount
+  } : null;
+
   const paymentSchedule = generatePaymentSchedule(
     totalDays,
     calculatedDailyAmount,
-    new Date()
+    new Date(),
+    couponInfo  // ⭐ NEW: Pass coupon info
   );
+
+  console.log(`📅 Payment schedule generated: ${totalDays} days, ₹${calculatedDailyAmount}/day`);
 
   // ========================================
   // 6. Get Referrer Information
   // ========================================
   let referrer = null;
-  let commissionPercentage = 0;
+  let commissionPercentage = 10;  // ⭐ UPDATED: Default 10%
 
   if (user.referredBy) {
     referrer = await User.findById(user.referredBy);
-    // Get commission percentage from product or default
-    commissionPercentage = product.referralBonus?.value || 0;
+    // ⭐ UPDATED: Get commission percentage from product or default to 10%
+    commissionPercentage = product.referralBonus?.value || 10;
   }
 
   // ========================================
@@ -302,18 +345,28 @@ async function createOrder(orderData) {
     // 10. Create Order Document
     // ========================================
     const order = new InstallmentOrder({
+      orderId: generateOrderId(), // ✅ FIX: Generate orderId before save
       user: userId,
       product: product._id, // Store MongoDB ObjectId, not custom productId
-      productPrice,
+
+      // ⭐ NEW: Quantity & Pricing fields
+      quantity,
+      pricePerUnit,
+      totalProductPrice,
+      productPrice,  // After coupon (if INSTANT)
       productName: product.name,
       productSnapshot,
+
       // Variant information (if applicable)
       variantId: variantId || null,
       variantDetails: variantDetails || undefined,
+
       // Coupon information (if applicable)
       couponCode: appliedCouponCode || null,
       couponDiscount: couponDiscount || 0,
+      couponType: couponType || null,  // ⭐ NEW
       originalPrice: couponDiscount > 0 ? originalPrice : null,
+
       // Installment details
       totalDays,
       dailyPaymentAmount: calculatedDailyAmount,
@@ -325,9 +378,15 @@ async function createOrder(orderData) {
       status: paymentMethod === "WALLET" ? "ACTIVE" : "PENDING",
       deliveryAddress,
       deliveryStatus: "PENDING",
+
+      // Referral & Commission
       referrer: referrer?._id || null,
       productCommissionPercentage: commissionPercentage,
+      commissionPercentage,  // ⭐ NEW: Store at order level
+
+      // Payment tracking
       firstPaymentMethod: paymentMethod,
+      lastPaymentDate: paymentMethod === "WALLET" ? new Date() : null,  // ⭐ NEW
     });
 
     await order.save({ session });

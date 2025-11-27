@@ -36,8 +36,13 @@ const paymentScheduleItemSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['PENDING', 'PAID', 'SKIPPED'],
+    enum: ['PENDING', 'PAID', 'SKIPPED', 'FREE'],  // ⭐ NEW: Added 'FREE' for coupon benefits
     default: 'PENDING'
+  },
+  // ⭐ NEW: Flag for coupon-benefited installments
+  isCouponBenefit: {
+    type: Boolean,
+    default: false
   },
   paidDate: {
     type: Date,
@@ -77,6 +82,46 @@ const installmentOrderSchema = new mongoose.Schema({
     required: true,
     index: true
   },
+
+  // ⭐ NEW: Quantity Support (1-10 items per order)
+  /**
+   * quantity: Number of units being ordered
+   * Allows users to order multiple items in a single order
+   * Range: 1-10 items
+   */
+  quantity: {
+    type: Number,
+    required: true,
+    default: 1,
+    min: 1,
+    max: 10
+  },
+
+  // ⭐ NEW: Price Per Unit (original product/variant price)
+  /**
+   * pricePerUnit: Price of ONE unit before quantity multiplication
+   * Used for: refunds, price history, per-unit calculations
+   * If variant selected: variant price
+   * If no variant: product base price
+   */
+  pricePerUnit: {
+    type: Number,
+    required: true,
+    min: 0
+  },
+
+  // ⭐ NEW: Total Product Price (pricePerUnit × quantity, BEFORE coupon)
+  /**
+   * totalProductPrice: Final order value (pricePerUnit × quantity)
+   * This is the base amount before any coupon discount
+   * Installments are calculated on this amount (or productPrice if coupon applied)
+   */
+  totalProductPrice: {
+    type: Number,
+    required: true,
+    min: 0
+  },
+
   productPrice: {
     type: Number,
     required: true,
@@ -117,6 +162,17 @@ const installmentOrderSchema = new mongoose.Schema({
     type: Number,
     default: 0,
     min: 0
+  },
+  // ⭐ NEW: Coupon Application Type
+  /**
+   * couponType: How the coupon discount is applied
+   * - INSTANT: Reduces productPrice immediately (e.g., ₹4000 → ₹3800)
+   * - REDUCE_DAYS: Marks last X days as FREE in payment schedule
+   */
+  couponType: {
+    type: String,
+    enum: ['INSTANT', 'REDUCE_DAYS'],
+    default: null
   },
   originalPrice: {
     type: Number,
@@ -204,6 +260,18 @@ const installmentOrderSchema = new mongoose.Schema({
     min: 0,
     max: 100
   },
+  // ⭐ NEW: Commission Percentage (stored at order level for consistency)
+  /**
+   * commissionPercentage: Commission rate for this specific order
+   * Defaults to 10% if not set from product.referralBonus.value
+   * Stored at order level to prevent issues if product commission changes later
+   */
+  commissionPercentage: {
+    type: Number,
+    default: 10,
+    min: 0,
+    max: 100
+  },
   totalCommissionPaid: {
     type: Number,
     default: 0,
@@ -224,6 +292,18 @@ const installmentOrderSchema = new mongoose.Schema({
   firstPaymentCompletedAt: {
     type: Date,
     default: null
+  },
+
+  // ⭐ NEW: Last Payment Date (for one-payment-per-day rule)
+  /**
+   * lastPaymentDate: Date of the most recent payment
+   * Used to enforce "one payment per order per day" rule
+   * Resets at midnight (00:00) each day
+   */
+  lastPaymentDate: {
+    type: Date,
+    default: null,
+    index: true
   },
 
   // Order Metadata
@@ -282,9 +362,11 @@ installmentOrderSchema.pre('save', async function(next) {
 
 /**
  * Auto-update remainingAmount based on totalPaidAmount
+ * ⭐ UPDATED: Uses totalProductPrice if available, falls back to productPrice
  */
 installmentOrderSchema.pre('save', function(next) {
-  this.remainingAmount = Math.max(0, this.productPrice - this.totalPaidAmount);
+  const basePrice = this.totalProductPrice || this.productPrice;
+  this.remainingAmount = Math.max(0, basePrice - this.totalPaidAmount);
   next();
 });
 
@@ -337,6 +419,25 @@ installmentOrderSchema.methods.canAcceptPayment = function() {
     this.remainingAmount > 0 &&
     !this.isFullyPaid()
   );
+};
+
+// ⭐ NEW: Check if user can make payment TODAY (one-per-day rule)
+/**
+ * Check if payment is allowed today (one payment per order per day)
+ * Resets at midnight (00:00)
+ * @returns {boolean} True if payment allowed today
+ */
+installmentOrderSchema.methods.canPayToday = function() {
+  if (!this.lastPaymentDate) return true;  // No previous payment, allow
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const lastPayment = new Date(this.lastPaymentDate);
+  lastPayment.setHours(0, 0, 0, 0);
+
+  // Compare dates at midnight level
+  return lastPayment.getTime() < today.getTime();
 };
 
 /**
