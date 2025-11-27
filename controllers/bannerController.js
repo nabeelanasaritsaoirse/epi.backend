@@ -86,41 +86,35 @@ exports.createBanner = async (req, res) => {
  */
 exports.getActiveBanners = async (req, res) => {
   try {
-    const { platform = "web", page = 1, limit = 10 } = req.query;
+    const { platform = "all", page = 1, limit = 10 } = req.query;
+
+    const now = new Date();
 
     const query = {
       isActive: true,
       isDeleted: false,
+      $or: [
+        // No date fields or explicitly null
+        { startDate: null, endDate: null },
+
+        // Valid range (both dates exist)
+        { startDate: { $lte: now }, endDate: { $gte: now } },
+
+        // Only startDate exists & is before now
+        { startDate: { $lte: now }, endDate: null },
+
+        // Only endDate exists & is after now
+        { startDate: null, endDate: { $gte: now } },
+      ],
     };
 
-    // Filter by platform
-    if (platform && platform !== "all") {
+    // Platform filter
+    if (platform !== "all") {
       query.platform = { $in: [platform, "both"] };
     }
 
-    // Check if banner is currently within date range (if dates are set)
-    const now = new Date();
-    query.$or = [
-      {
-        startDate: { $exists: false },
-        endDate: { $exists: false },
-      },
-      {
-        startDate: { $lte: now },
-        endDate: { $gte: now },
-      },
-      {
-        startDate: { $lte: now },
-        endDate: { $exists: false },
-      },
-      {
-        startDate: { $exists: false },
-        endDate: { $gte: now },
-      },
-    ];
-
-    const pageNum = parseInt(page) || 1;
-    const limitNum = parseInt(limit) || 10;
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
 
     const banners = await Banner.find(query)
@@ -131,7 +125,7 @@ exports.getActiveBanners = async (req, res) => {
 
     const total = await Banner.countDocuments(query);
 
-    res.json({
+    return res.json({
       success: true,
       data: banners,
       pagination: {
@@ -143,7 +137,7 @@ exports.getActiveBanners = async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching active banners:", error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Error fetching banners",
       error: error.message,
