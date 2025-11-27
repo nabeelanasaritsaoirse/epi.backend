@@ -1,241 +1,195 @@
-const Coupon = require('../models/Coupon');
+// models/Coupon.js
+const mongoose = require('mongoose');
 
-/**
- * Create a new coupon (admin only)
- */
-exports.createCoupon = async (req, res) => {
-  try {
-    const { couponCode, discountType, discountValue, minOrderValue, expiryDate } = req.body;
+const couponSchema = new mongoose.Schema({
 
-    // Validate required fields
-    if (!couponCode || !discountType || discountValue === undefined || !expiryDate) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'couponCode, discountType, discountValue, and expiryDate are required' 
-      });
-    }
+  // Unique Coupon Code
+  couponCode: {
+    type: String,
+    required: true,
+    unique: true,
+    uppercase: true,
+    trim: true,
+    index: true
+  },
 
-    // Validate discountType
-    if (!['flat', 'percentage'].includes(discountType)) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'discountType must be either "flat" or "percentage"' 
-      });
-    }
+  // Discount base (used for INSTANT / REDUCE_DAYS)
+  discountType: {
+    type: String,
+    enum: ['flat', 'percentage', null],
+    default: null
+  },
 
-    // Validate discountValue
-    if (discountValue < 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'discountValue must be a positive number' 
-      });
-    }
+  discountValue: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
 
-    // Validate minOrderValue
-    if (minOrderValue !== undefined && minOrderValue < 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'minOrderValue must be a positive number' 
-      });
-    }
+  /**
+   * HOW the coupon works:
+   *  - INSTANT          → reduce price instantly
+   *  - REDUCE_DAYS      → convert ₹ discount into FREE installments
+   *  - MILESTONE_REWARD → give FREE days after X payments
+   */
+  couponType: {
+    type: String,
+    enum: ['INSTANT', 'REDUCE_DAYS', 'MILESTONE_REWARD'],
+    required: true,
+    index: true
+  },
 
-    // Validate expiryDate
-    const expiry = new Date(expiryDate);
-    if (isNaN(expiry.getTime())) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'expiryDate must be a valid date' 
-      });
-    }
+  // Minimum order amount requirement
+  minOrderValue: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
 
-    // Check if coupon already exists
-    const existingCoupon = await Coupon.findOne({ couponCode: couponCode.toUpperCase() });
-    if (existingCoupon) {
-      return res.status(409).json({ 
-        success: false, 
-        message: 'Coupon code already exists' 
-      });
-    }
+  // Validity
+  expiryDate: {
+    type: Date,
+    required: true
+  },
 
-    // Create coupon
-    const coupon = new Coupon({
-      couponCode: couponCode.toUpperCase(),
-      discountType,
-      discountValue,
-      minOrderValue: minOrderValue || 0,
-      expiryDate: expiry,
-      isActive: true
-    });
+  isActive: {
+    type: Boolean,
+    default: true
+  },
 
-    await coupon.save();
+  // Usage limits
+  maxUsageCount: { type: Number, default: null },
+  currentUsageCount: { type: Number, default: 0 },
 
-    res.status(201).json({
-      success: true,
-      message: 'Coupon created successfully',
-      coupon: coupon
-    });
-  } catch (error) {
-    console.error('Error creating coupon:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Server error', 
-      error: error.message 
-    });
+  // Per-user limit (future extension)
+  maxUsagePerUser: { type: Number, default: null },
+
+  // --------------------------------------
+  // MILESTONE REWARD EXCLUSIVE FIELDS
+  // --------------------------------------
+
+  /**
+   * rewardCondition: number of payments required (e.g., pay 10 days)
+   * rewardValue: number of free days (e.g., get 3 free)
+   */
+  rewardCondition: {
+    type: Number,
+    default: null,
+    min: 1
+  },
+
+  rewardValue: {
+    type: Number,
+    default: null,
+    min: 1
+  },
+
+  // Backward alias for clarity (not required, optional)
+  milestonePaymentsRequired: {
+    type: Number,
+    default: null
+  },
+
+  milestoneFreeDays: {
+    type: Number,
+    default: null
+  },
+
+  description: {
+    type: String,
+    default: ''
+  },
+
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+
+// INDEXES
+couponSchema.index({ couponCode: 1 });
+couponSchema.index({ couponType: 1 });
+couponSchema.index({ expiryDate: 1 });
+couponSchema.index({ isActive: 1, expiryDate: 1 });
+
+// --------------------------------------
+// PRE-SAVE
+// --------------------------------------
+couponSchema.pre('save', function (next) {
+  this.updatedAt = Date.now();
+
+  // Normalize milestone alias fields
+  if (this.couponType === 'MILESTONE_REWARD') {
+    this.milestonePaymentsRequired = this.rewardCondition;
+    this.milestoneFreeDays = this.rewardValue;
+
+    // Remove irrelevant fields
+    this.discountType = null;
+    this.discountValue = 0;
   }
+
+  next();
+});
+
+// --------------------------------------
+// INSTANCE METHODS
+// --------------------------------------
+
+couponSchema.methods.isValid = function () {
+  if (!this.isActive) return { valid: false, error: 'Coupon is not active' };
+
+  if (new Date() > this.expiryDate) {
+    return { valid: false, error: 'Coupon expired' };
+  }
+
+  if (this.maxUsageCount !== null && this.currentUsageCount >= this.maxUsageCount) {
+    return { valid: false, error: 'Usage limit reached' };
+  }
+
+  return { valid: true };
 };
 
-/**
- * Get all coupons (admin only)
- */
-exports.getCoupons = async (req, res) => {
-  try {
-    const coupons = await Coupon.find().sort({ createdAt: -1 });
+// Calculate discount (INSTANT / REDUCE_DAYS)
+couponSchema.methods.calculateDiscount = function (orderAmount) {
+  if (this.couponType === 'MILESTONE_REWARD') return 0;
 
-    res.status(200).json({
-      success: true,
-      message: 'Coupons retrieved successfully',
-      coupons: coupons
-    });
-  } catch (error) {
-    console.error('Error fetching coupons:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Server error', 
-      error: error.message 
-    });
+  if (this.discountType === 'flat') {
+    return Math.min(this.discountValue, orderAmount);
   }
+
+  if (this.discountType === 'percentage') {
+    return Math.round(orderAmount * (this.discountValue / 100));
+  }
+
+  return 0;
 };
 
-/**
- * Validate a coupon and calculate discount
- */
-exports.validateCoupon = async (req, res) => {
-  try {
-    const { couponCode, orderAmount } = req.body;
-
-    // Validate required fields
-    if (!couponCode || orderAmount === undefined) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'couponCode and orderAmount are required' 
-      });
-    }
-
-    // Validate orderAmount
-    if (orderAmount < 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'orderAmount must be a positive number' 
-      });
-    }
-
-    // Find coupon
-    const coupon = await Coupon.findOne({ couponCode: couponCode.toUpperCase() });
-
-    if (!coupon) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Coupon not found' 
-      });
-    }
-
-    // Check if coupon is active
-    if (!coupon.isActive) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Coupon is not active' 
-      });
-    }
-
-    // Check if coupon is expired
-    const now = new Date();
-    if (now > coupon.expiryDate) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Coupon has expired' 
-      });
-    }
-
-    // Check minimum order value
-    if (orderAmount < coupon.minOrderValue) {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Minimum order value of ₹${coupon.minOrderValue} is required to apply this coupon`,
-        minOrderValue: coupon.minOrderValue
-      });
-    }
-
-    // Calculate discount
-    let discountAmount = 0;
-    if (coupon.discountType === 'flat') {
-      discountAmount = coupon.discountValue;
-    } else if (coupon.discountType === 'percentage') {
-      discountAmount = Math.round((orderAmount * coupon.discountValue) / 100);
-    }
-
-    // Ensure discount doesn't exceed order amount
-    discountAmount = Math.min(discountAmount, orderAmount);
-
-    const finalAmount = orderAmount - discountAmount;
-
-    res.status(200).json({
-      success: true,
-      message: 'Coupon is valid',
-      coupon: {
-        code: coupon.couponCode,
-        discountType: coupon.discountType,
-        discountValue: coupon.discountValue,
-        discountAmount: discountAmount,
-        originalAmount: orderAmount,
-        finalAmount: finalAmount
-      }
-    });
-  } catch (error) {
-    console.error('Error validating coupon:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Server error', 
-      error: error.message 
-    });
-  }
+couponSchema.methods.incrementUsage = async function () {
+  this.currentUsageCount += 1;
+  await this.save();
 };
 
-/**
- * Delete a coupon by ID (admin only)
- */
-exports.deleteCoupon = async (req, res) => {
-  try {
-    const { id } = req.params;
+// --------------------------------------
+// STATIC METHODS
+// --------------------------------------
 
-    // Validate ID format
-    if (!id) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Coupon ID is required' 
-      });
-    }
-
-    // Find and delete the coupon
-    const coupon = await Coupon.findByIdAndDelete(id);
-
-    if (!coupon) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Coupon not found' 
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: 'Coupon deleted successfully',
-      coupon: coupon
-    });
-  } catch (error) {
-    console.error('Error deleting coupon:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Server error', 
-      error: error.message 
-    });
-  }
+couponSchema.statics.findActiveByCode = function (code) {
+  return this.findOne({
+    couponCode: code.toUpperCase(),
+    isActive: true,
+    expiryDate: { $gt: new Date() }
+  });
 };
+
+couponSchema.statics.getActiveCoupons = function () {
+  return this.find({
+    isActive: true,
+    expiryDate: { $gt: new Date() }
+  }).sort({ createdAt: -1 });
+};
+
+module.exports = mongoose.model('Coupon', couponSchema);
