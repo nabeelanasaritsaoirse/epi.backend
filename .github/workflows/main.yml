@@ -106,27 +106,22 @@ jobs:
           sudo chown ubuntu:ubuntu /var/www/epi-backend
           cd /var/www/epi-backend
       
-          # Pull latest code using HTTPS
           echo "🔄 Pulling latest code..."
           git config --global credential.helper store
           echo "https://${GITHUB_TOKEN}:x-oauth-basic@github.com" > ~/.git-credentials
       
           if [ -d .git ]; then
+            git remote set-url origin https://${GITHUB_TOKEN}:x-oauth-basic@github.com/nabeelanasaritsaoirse/epi.backend.git
             git fetch origin main
             git reset --hard origin/main
           else
             git clone https://${GITHUB_TOKEN}:x-oauth-basic@github.com/nabeelanasaritsaoirse/epi.backend.git .
           fi
+
       
-          # Cleanup
-          echo "🧹 Cleaning up..."
-          sudo rm -rf /tmp/* || true
-          sudo journalctl --vacuum-time=3d || true
-      
-          # Install dependencies
           echo "📦 Installing dependencies..."
           npm ci --omit=dev
-          
+         
           echo "🧾 Writing environment variables..."
           cat > .env << ENVEND
           PORT=5000
