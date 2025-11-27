@@ -89,14 +89,30 @@ jobs:
     
       #  Step 7: Deploy to EC2 via SSH
       - name: 🚀 Deploy application to EC2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-        
           echo "Connecting to EC2 and deploying..."
-
           ssh -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i private_key.pem ${EC2_USER}@${EC2_HOST} << EOF
           set -e
           echo "🚀 Deployment started on EC2..."
-
+          
+          sudo mkdir -p /var/www/epi-backend
+          sudo chown ubuntu:ubuntu /var/www/epi-backend
+          cd /var/www/epi-backend
+          
+          # Pull latest repo version using HTTPS
+          if [ -d .git ]; then
+            echo "🔄 Repo found — pulling latest changes..."
+            git config --global credential.helper store
+            echo "https://${GITHUB_TOKEN}@github.com" > ~/.git-credentials
+            git fetch origin main
+            git reset --hard origin/main
+          else
+            echo "🆕 Cloning repository for the first time..."
+            git clone https://${GITHUB_TOKEN}@github.com/nabeelanasaritsaoirse/epi.backend.git .
+          fi
+          
           # Ensure project directory exists
           sudo mkdir -p /var/www/epi-backend
           sudo chown ubuntu:ubuntu /var/www/epi-backend
@@ -122,9 +138,6 @@ jobs:
               IdentitiesOnly yes
           CONFIG_EOF
           chmod 600 ~/.ssh/config
-
-
-
           
           # Pull latest repo version
           if [ -d .git ]; then
