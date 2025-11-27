@@ -107,18 +107,18 @@ jobs:
           mkdir -p ~/.ssh
           
           # Write GitHub deploy key
-          cat << KEYEOF > ~/.ssh/deploy_key
+          cat << KEYEOF > ~/.ssh/github-actions
           ${EC2_GITHUB_DEPLOY_KEY}
           KEYEOF
           
-          chmod 600 ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/github-actions
           
           # Write SSH config
           cat << CONFIG_EOF > ~/.ssh/config
           Host github.com
               HostName github.com
               User git
-              IdentityFile ~/.ssh/deploy_key
+              IdentityFile ~/.ssh/github-actions
               IdentitiesOnly yes
           CONFIG_EOF
           chmod 600 ~/.ssh/config
