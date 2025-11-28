@@ -274,6 +274,7 @@ app.use("/api/users", userRoutes);   // USERS ROUTES ONLY HERE
 app.use("/api/wallet", walletRoutes);
 app.use("/api/admin/wallet", adminWalletRoutes);
 app.use("/api/referral-commission", referralCommissionRoutes);
+app.use("/api/referral", referralRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/admin", adminRoutes);
