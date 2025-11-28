@@ -129,6 +129,17 @@ router.post(
   orderController.cancelOrder
 );
 
+/**
+ * @route   GET /api/installments/dashboard/overview
+ * @desc    Get comprehensive dashboard overview
+ * @access  Private
+ */
+router.get(
+  "/dashboard/overview",
+  verifyToken,
+  orderController.getDashboardOverview
+);
+
 // ============================================
 // USER ROUTES - Payment Processing
 // ============================================

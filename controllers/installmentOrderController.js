@@ -335,6 +335,148 @@ const getOverallInvestmentStatus = asyncHandler(async (req, res) => {
   );
 });
 
+/**
+ * @route   GET /api/installments/dashboard/overview
+ * @desc    Get comprehensive dashboard overview for user
+ * @access  Private
+ *
+ * @returns {
+ *   todayPendingPayments: { count, totalAmount, orders: [...] },
+ *   allPendingOrders: { count, totalPendingAmount, maxDays, orders: [...] },
+ *   totalInvestment: { totalInvested, totalOrderValue, investmentPercentage },
+ *   summary: { totalOrders, activeOrders, completedOrders, pendingOrders }
+ * }
+ */
+const getDashboardOverview = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const InstallmentOrder = require('../models/InstallmentOrder');
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  // Get all user's orders
+  const allOrders = await InstallmentOrder.find({ user: userId })
+    .populate('product', 'name images')
+    .sort({ createdAt: -1 });
+
+  // 1. TODAY'S PENDING PAYMENTS
+  const todayPendingOrders = allOrders.filter(order => {
+    if (order.status !== 'ACTIVE') return false;
+
+    return order.paymentSchedule.some(item => {
+      if (item.status !== 'PENDING') return false;
+      const dueDate = new Date(item.dueDate);
+      return dueDate >= today && dueDate < tomorrow;
+    });
+  });
+
+  const todayPendingPayments = [];
+  let todayTotalAmount = 0;
+
+  todayPendingOrders.forEach(order => {
+    const todayPayments = order.paymentSchedule.filter(item => {
+      if (item.status !== 'PENDING') return false;
+      const dueDate = new Date(item.dueDate);
+      return dueDate >= today && dueDate < tomorrow;
+    });
+
+    todayPayments.forEach(payment => {
+      todayPendingPayments.push({
+        orderId: order.orderId,
+        productName: order.productName,
+        productImage: order.product?.images?.[0] || '',
+        installmentNumber: payment.installmentNumber,
+        amount: payment.amount,
+        dueDate: payment.dueDate
+      });
+      todayTotalAmount += payment.amount;
+    });
+  });
+
+  // 2. ALL PENDING ORDERS (orders with status PENDING - not yet started)
+  const pendingOrders = allOrders.filter(order => order.status === 'PENDING');
+
+  const pendingOrdersData = pendingOrders.map(order => ({
+    orderId: order.orderId,
+    productName: order.productName,
+    productImage: order.product?.images?.[0] || '',
+    totalAmount: order.totalProductPrice,
+    totalDays: order.totalDays,
+    dailyAmount: order.dailyPaymentAmount,
+    createdAt: order.createdAt
+  }));
+
+  const totalPendingAmount = pendingOrders.reduce((sum, order) => sum + order.totalProductPrice, 0);
+  const maxDays = pendingOrders.length > 0
+    ? Math.max(...pendingOrders.map(order => order.totalDays))
+    : 0;
+
+  // 3. TOTAL INVESTMENT (all orders - invested amount)
+  const totalOrderValue = allOrders.reduce((sum, order) => sum + order.totalProductPrice, 0);
+  const totalInvested = allOrders.reduce((sum, order) => sum + order.totalPaidAmount, 0);
+  const investmentPercentage = totalOrderValue > 0
+    ? Math.round((totalInvested / totalOrderValue) * 100)
+    : 0;
+
+  // 4. SUMMARY COUNTS
+  const summary = {
+    totalOrders: allOrders.length,
+    activeOrders: allOrders.filter(o => o.status === 'ACTIVE').length,
+    completedOrders: allOrders.filter(o => o.status === 'COMPLETED').length,
+    pendingOrders: allOrders.filter(o => o.status === 'PENDING').length,
+    cancelledOrders: allOrders.filter(o => o.status === 'CANCELLED').length
+  };
+
+  // 5. INVESTMENT BREAKDOWN BY STATUS
+  const investmentByStatus = {
+    active: {
+      count: summary.activeOrders,
+      totalValue: allOrders.filter(o => o.status === 'ACTIVE').reduce((sum, o) => sum + o.totalProductPrice, 0),
+      totalPaid: allOrders.filter(o => o.status === 'ACTIVE').reduce((sum, o) => sum + o.totalPaidAmount, 0)
+    },
+    completed: {
+      count: summary.completedOrders,
+      totalValue: allOrders.filter(o => o.status === 'COMPLETED').reduce((sum, o) => sum + o.totalProductPrice, 0),
+      totalPaid: allOrders.filter(o => o.status === 'COMPLETED').reduce((sum, o) => sum + o.totalPaidAmount, 0)
+    },
+    pending: {
+      count: summary.pendingOrders,
+      totalValue: totalPendingAmount,
+      totalPaid: 0
+    }
+  };
+
+  const responseData = {
+    todayPendingPayments: {
+      count: todayPendingPayments.length,
+      totalAmount: todayTotalAmount,
+      payments: todayPendingPayments
+    },
+    allPendingOrders: {
+      count: pendingOrders.length,
+      totalPendingAmount: totalPendingAmount,
+      maxDays: maxDays,
+      orders: pendingOrdersData
+    },
+    totalInvestment: {
+      totalInvested: totalInvested,
+      totalOrderValue: totalOrderValue,
+      investmentPercentage: investmentPercentage,
+      remainingAmount: totalOrderValue - totalInvested
+    },
+    summary: summary,
+    investmentByStatus: investmentByStatus
+  };
+
+  successResponse(
+    res,
+    responseData,
+    "Dashboard overview retrieved successfully"
+  );
+});
+
 module.exports = {
   createOrder,
   getOrder,
@@ -345,6 +487,7 @@ module.exports = {
   getPaymentSchedule,
   validateCoupon,
   getInvestmentStatus,
-  getOverallInvestmentStatus
+  getOverallInvestmentStatus,
+  getDashboardOverview
 };
 

@@ -1,5 +1,15 @@
 const mongoose = require('mongoose');
 
+// Image schema for categories with order field
+const imageSchema = new mongoose.Schema({
+  url: String,
+  altText: String,
+  order: {
+    type: Number,
+    default: 1
+  }
+}, { _id: false });
+
 const categorySchema = new mongoose.Schema({
   categoryId: {
     type: String,
@@ -26,6 +36,7 @@ const categorySchema = new mongoose.Schema({
     url: String,
     altText: String
   },
+  images: [imageSchema],
   banner: {
     url: String,
     altText: String,
@@ -83,6 +94,18 @@ const categorySchema = new mongoose.Schema({
   updatedAt: {
     type: Date,
     default: Date.now
+  },
+  // Soft delete fields
+  isDeleted: {
+    type: Boolean,
+    default: false
+  },
+  deletedAt: {
+    type: Date
+  },
+  deletedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
   }
 });
 
