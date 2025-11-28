@@ -121,32 +121,65 @@ router.post('/verify-payment', verifyToken, async (req, res) => {
 ===================================================================== */
 router.post('/withdraw', verifyToken, async (req, res) => {
   try {
-    const { amount } = req.body;
+    const { amount, paymentMethod, upiId, bankName, accountNumber, ifscCode, accountHolderName } = req.body;
 
+    // Validate amount
     if (!amount || amount < 1)
-      return res.status(400).json({ message: "Invalid amount" });
+      return res.status(400).json({ success: false, message: "Invalid amount" });
+
+    // Validate payment method
+    if (!paymentMethod || !['upi', 'bank_transfer'].includes(paymentMethod))
+      return res.status(400).json({ success: false, message: "Payment method must be 'upi' or 'bank_transfer'" });
+
+    // Validate UPI details
+    if (paymentMethod === 'upi' && !upiId)
+      return res.status(400).json({ success: false, message: "UPI ID is required for UPI withdrawal" });
+
+    // Validate bank details
+    if (paymentMethod === 'bank_transfer') {
+      if (!bankName || !accountNumber || !ifscCode || !accountHolderName)
+        return res.status(400).json({
+          success: false,
+          message: "Bank details required: bankName, accountNumber, ifscCode, accountHolderName"
+        });
+    }
 
     const user = await recalcWallet(req.user._id);
 
     if (user.availableBalance < amount)
-      return res.status(400).json({ message: "Insufficient withdrawable balance" });
+      return res.status(400).json({ success: false, message: "Insufficient withdrawable balance" });
 
+    // Create withdrawal transaction with pending status
     const tx = new Transaction({
       user: req.user._id,
       type: "withdrawal",
       amount,
-      status: "completed",
-      paymentMethod: "bank_transfer",
-      description: "Wallet withdrawal"
+      status: "pending",
+      paymentMethod,
+      paymentDetails: {
+        upiId: paymentMethod === 'upi' ? upiId : undefined,
+        bankName: paymentMethod === 'bank_transfer' ? bankName : undefined,
+        accountNumber: paymentMethod === 'bank_transfer' ? accountNumber : undefined,
+        ifscCode: paymentMethod === 'bank_transfer' ? ifscCode : undefined,
+        accountHolderName: paymentMethod === 'bank_transfer' ? accountHolderName : undefined
+      },
+      description: "Wallet withdrawal request"
     });
 
     await tx.save();
-    await recalcWallet(req.user._id);
+
+    // Note: We do NOT recalculate wallet here - amount will be deducted when admin approves
 
     res.status(200).json({
       success: true,
-      message: "Withdrawal processed",
-      withdrawal: tx
+      message: "Your withdrawal request has been submitted successfully. Money will be credited within 2 days.",
+      withdrawal: {
+        _id: tx._id,
+        amount: tx.amount,
+        paymentMethod: tx.paymentMethod,
+        status: tx.status,
+        createdAt: tx.createdAt
+      }
     });
 
   } catch (e) {

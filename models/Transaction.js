@@ -56,10 +56,25 @@ const transactionSchema = new Schema({
     signature: String,
     bankName: String,
     accountNumber: String,
+    ifscCode: String,              // IFSC code for bank transfers
+    accountHolderName: String,     // Account holder name
     upiId: String,
     referralCode: String,
     cardNumber: String,
     bank: String,
+
+    // 🔥 WITHDRAWAL APPROVAL/REJECTION DETAILS
+    approvedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    approvedAt: Date,
+    rejectedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    rejectedAt: Date,
+    rejectionReason: String,
 
     // 🔥 IMPORTANT FOR EMI LOGIC
     emiNumber: Number,             // 1st, 2nd, 3rd installment etc
