@@ -2,6 +2,7 @@ const Category = require("../models/Category");
 const {
   uploadSingleFileToS3,
   uploadMultipleFilesToS3,
+  deleteImageFromS3,
 } = require("../services/awsUploadService");
 
 /**
@@ -110,6 +111,13 @@ exports.getAllCategories = async (req, res) => {
 
     let filter = {};
 
+    // Filter out soft deleted categories for non-admin users
+    // Admin can see deleted categories only when explicitly requested
+    const isAdmin = req.user && req.user.role === 'admin';
+    if (!isAdmin) {
+      filter.isDeleted = false;
+    }
+
     // Parent filter
     if (parentCategoryId) {
       filter.parentCategoryId =
@@ -141,6 +149,53 @@ exports.getAllCategories = async (req, res) => {
 };
 
 /**
+ * @desc    Get all categories for admin (includes deleted with indicator)
+ * @route   GET /api/categories/admin/all
+ * @access  Admin
+ */
+exports.getAllCategoriesForAdmin = async (req, res) => {
+  try {
+    const { parentCategoryId, isActive, showDeleted } = req.query;
+
+    let filter = {};
+
+    // Show deleted categories only if explicitly requested
+    if (showDeleted !== 'true') {
+      filter.isDeleted = false;
+    }
+
+    // Parent filter
+    if (parentCategoryId) {
+      filter.parentCategoryId =
+        parentCategoryId === "null" ? null : parentCategoryId;
+    }
+
+    // Status filter ONLY if provided
+    if (isActive !== undefined && isActive !== "all") {
+      filter.isActive = isActive === "true" || isActive === true;
+    }
+
+    const categories = await Category.find(filter)
+      .populate("subCategories", "categoryId name slug image displayOrder isDeleted")
+      .populate("deletedBy", "name email")
+      .sort({ displayOrder: 1, name: 1 })
+      .exec();
+
+    res.status(200).json({
+      success: true,
+      count: categories.length,
+      data: categories,
+    });
+  } catch (error) {
+    console.error("Error fetching categories for admin:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+/**
  * @desc    Get category by ID
  * @route   GET /api/categories/:categoryId
  * @access  Public
@@ -153,6 +208,15 @@ exports.getCategoryById = async (req, res) => {
       .exec();
 
     if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found",
+      });
+    }
+
+    // Check if category is deleted and user is not admin
+    const isAdmin = req.user && req.user.role === 'admin';
+    if (category.isDeleted && !isAdmin) {
       return res.status(404).json({
         success: false,
         message: "Category not found",
@@ -363,6 +427,14 @@ exports.deleteCategory = async (req, res) => {
       });
     }
 
+    // Check if already deleted
+    if (category.isDeleted) {
+      return res.status(400).json({
+        success: false,
+        message: "Category is already deleted",
+      });
+    }
+
     // Check if category has subcategories
     if (category.subCategories && category.subCategories.length > 0 && !force) {
       return res.status(400).json({
@@ -372,19 +444,25 @@ exports.deleteCategory = async (req, res) => {
       });
     }
 
-    // If force delete with subcategories, delete all subcategories first
+    // If force delete with subcategories, soft delete all subcategories first
     if (force && category.subCategories && category.subCategories.length > 0) {
-      await Category.deleteMany({ _id: { $in: category.subCategories } });
+      await Category.updateMany(
+        { _id: { $in: category.subCategories } },
+        {
+          $set: {
+            isDeleted: true,
+            deletedAt: new Date(),
+            deletedBy: req.user?._id || null,
+          },
+        }
+      );
     }
 
-    // Remove from parent's subCategories if it's a subcategory
-    if (category.parentCategoryId) {
-      await Category.findByIdAndUpdate(category.parentCategoryId, {
-        $pull: { subCategories: categoryId },
-      });
-    }
-
-    await Category.findByIdAndDelete(categoryId);
+    // Soft delete the category
+    category.isDeleted = true;
+    category.deletedAt = new Date();
+    category.deletedBy = req.user?._id || null;
+    await category.save();
 
     res.status(200).json({
       success: true,
@@ -392,6 +470,50 @@ exports.deleteCategory = async (req, res) => {
     });
   } catch (error) {
     console.error("Error deleting category:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+/**
+ * @desc    Restore deleted category
+ * @route   PUT /api/categories/:categoryId/restore
+ * @access  Admin
+ */
+exports.restoreCategory = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+
+    const category = await Category.findById(categoryId);
+
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found",
+      });
+    }
+
+    if (!category.isDeleted) {
+      return res.status(400).json({
+        success: false,
+        message: "Category is not deleted",
+      });
+    }
+
+    category.isDeleted = false;
+    category.deletedAt = null;
+    category.deletedBy = null;
+    await category.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Category restored successfully",
+      data: category,
+    });
+  } catch (error) {
+    console.error("Error restoring category:", error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -731,6 +853,143 @@ exports.getFeaturedCategories = async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching featured categories:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+/**
+ * @desc    Delete individual image from category
+ * @route   DELETE /api/categories/:categoryId/images/:imageIndex
+ * @access  Admin
+ */
+exports.deleteCategoryImage = async (req, res) => {
+  try {
+    const { categoryId, imageIndex } = req.params;
+
+    const category = await Category.findById(categoryId);
+
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found",
+      });
+    }
+
+    // Convert imageIndex to number (1-based)
+    const index = parseInt(imageIndex);
+
+    if (isNaN(index) || index < 1) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid image index. Index must be a positive number starting from 1",
+      });
+    }
+
+    // Convert to 0-based index for array
+    const arrayIndex = index - 1;
+
+    if (!category.images || arrayIndex >= category.images.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Image index out of range",
+      });
+    }
+
+    // Get the image to delete
+    const imageToDelete = category.images[arrayIndex];
+
+    // Delete image from S3
+    if (imageToDelete.url) {
+      try {
+        await deleteImageFromS3(imageToDelete.url);
+      } catch (error) {
+        console.error("Error deleting image from S3:", error);
+        // Continue with deletion even if S3 delete fails
+      }
+    }
+
+    // Remove image from array
+    category.images.splice(arrayIndex, 1);
+
+    // Re-index remaining images (1-based)
+    category.images.forEach((img, idx) => {
+      img.order = idx + 1;
+    });
+
+    await category.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Image deleted successfully",
+      data: category,
+    });
+  } catch (error) {
+    console.error("Error deleting category image:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+/**
+ * @desc    Reorder category images
+ * @route   PUT /api/categories/:categoryId/images/reorder
+ * @access  Admin
+ */
+exports.reorderCategoryImages = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+    const { imageOrders } = req.body;
+
+    const category = await Category.findById(categoryId);
+
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found",
+      });
+    }
+
+    if (!imageOrders || !Array.isArray(imageOrders)) {
+      return res.status(400).json({
+        success: false,
+        message: "imageOrders must be an array of {index: number, order: number}",
+      });
+    }
+
+    // Validate all indices are within range
+    for (const item of imageOrders) {
+      const arrayIndex = item.index - 1; // Convert from 1-based to 0-based
+      if (arrayIndex < 0 || arrayIndex >= category.images.length) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid index ${item.index}. Must be between 1 and ${category.images.length}`,
+        });
+      }
+    }
+
+    // Update order for each image
+    imageOrders.forEach(item => {
+      const arrayIndex = item.index - 1;
+      category.images[arrayIndex].order = item.order;
+    });
+
+    // Sort images by order
+    category.images.sort((a, b) => a.order - b.order);
+
+    await category.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Images reordered successfully",
+      data: category,
+    });
+  } catch (error) {
+    console.error("Error reordering category images:", error);
     res.status(500).json({
       success: false,
       message: error.message,

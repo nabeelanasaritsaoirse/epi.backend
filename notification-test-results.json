@@ -1,0 +1,303 @@
+{
+  "created": [
+    {
+      "type": "OFFER",
+      "id": "6928ff268d575774e5274a26",
+      "notificationId": "NOTIF-20251128-9199",
+      "title": "🎉 Mega Weekend Sale - Up to 70% OFF!"
+    },
+    {
+      "type": "OFFER",
+      "id": "6928ff278d575774e5274a29",
+      "notificationId": "NOTIF-20251128-1761",
+      "title": "⚡ Flash Deal: Premium Headphones at 50% OFF"
+    },
+    {
+      "type": "OFFER",
+      "id": "6928ff288d575774e5274a2c",
+      "notificationId": "NOTIF-20251128-8407",
+      "title": "🎁 Buy 1 Get 1 Free - Smart Accessories"
+    },
+    {
+      "type": "OFFER",
+      "id": "6928ff298d575774e5274a2f",
+      "notificationId": "NOTIF-20251128-7296",
+      "title": "🔥 Clearance Sale: Gaming Consoles 40% OFF"
+    },
+    {
+      "type": "OFFER",
+      "id": "6928ff2b8d575774e5274a32",
+      "notificationId": "NOTIF-20251128-4496",
+      "title": "💰 Cashback Bonanza - Earn Up to ₹5000 Back!"
+    },
+    {
+      "type": "POST",
+      "id": "6928ff2c8d575774e5274a35",
+      "notificationId": "NOTIF-20251128-2403",
+      "title": "🚀 Exciting New Features Coming Soon!"
+    },
+    {
+      "type": "POST",
+      "id": "6928ff2d8d575774e5274a38",
+      "notificationId": "NOTIF-20251128-5036",
+      "title": "🌟 Customer Appreciation Week Starts Tomorrow!"
+    },
+    {
+      "type": "POST",
+      "id": "6928ff2e8d575774e5274a3b",
+      "notificationId": "NOTIF-20251128-1217",
+      "title": "📦 New Express Delivery in Your Area!"
+    },
+    {
+      "type": "POST",
+      "id": "6928ff2f8d575774e5274a3e",
+      "notificationId": "NOTIF-20251128-9035",
+      "title": "🏆 You're Invited: Exclusive Product Launch Event"
+    },
+    {
+      "type": "POST",
+      "id": "6928ff308d575774e5274a41",
+      "notificationId": "NOTIF-20251128-4504",
+      "title": "💡 Tips: How to Choose the Perfect Smartphone"
+    },
+    {
+      "type": "POST_WITH_IMAGE",
+      "id": "6928ff318d575774e5274a44",
+      "notificationId": "NOTIF-20251128-7501",
+      "title": "🎧 Unboxing: Premium Headphones Collection",
+      "image": "headphones-956720_1280.jpg"
+    },
+    {
+      "type": "POST_WITH_IMAGE",
+      "id": "6928ff338d575774e5274a4a",
+      "notificationId": "NOTIF-20251128-4640",
+      "title": "📸 Photography Masterclass: Camera Essentials",
+      "image": "camera-510530_1280.jpg"
+    },
+    {
+      "type": "POST_WITH_IMAGE",
+      "id": "6928ff358d575774e5274a50",
+      "notificationId": "NOTIF-20251128-9565",
+      "title": "🍎 Fresh Apple Products Just Arrived!",
+      "image": "apple-190970_1280.jpg"
+    },
+    {
+      "type": "POST_WITH_IMAGE",
+      "id": "6928ff378d575774e5274a56",
+      "notificationId": "NOTIF-20251128-1177",
+      "title": "🔌 Tech Components Sale - Build Your Dream Setup",
+      "image": "electronic-connector-7669295_1280.jpg"
+    },
+    {
+      "type": "POST_WITH_IMAGE",
+      "id": "6928ff3a8d575774e5274a5c",
+      "notificationId": "NOTIF-20251128-4710",
+      "title": "⚫ The Black Collection - Minimalist Tech",
+      "image": "black-and-white-2573314_1280.jpg"
+    },
+    {
+      "type": "PRODUCT_SHARE",
+      "id": "6928ff3c8d575774e5274a68",
+      "notificationId": "NOTIF-20251128-7354",
+      "title": "🎵 JBL PartyBox 310 - Party Like Never Before!",
+      "productId": "6928d9178d575774e5274628"
+    },
+    {
+      "type": "PRODUCT_SHARE",
+      "id": "6928ff3d8d575774e5274a71",
+      "notificationId": "NOTIF-20251128-3694",
+      "title": "🏠 Amazon Echo Hub - Your Smart Home Command Center",
+      "productId": "6928d9168d575774e5274621"
+    },
+    {
+      "type": "PRODUCT_SHARE",
+      "id": "6928ff3e8d575774e5274a7a",
+      "notificationId": "NOTIF-20251128-1437",
+      "title": "🎮 PlayStation 5 Pro - Next-Gen Gaming Awaits",
+      "productId": "6928d9158d575774e527461a"
+    },
+    {
+      "type": "PRODUCT_SHARE",
+      "id": "6928ff3f8d575774e5274a83",
+      "notificationId": "NOTIF-20251128-4284",
+      "title": "📱 iPad Pro 12.9\" - Unleash Your Creativity",
+      "productId": "6928d8f88d575774e5274613"
+    },
+    {
+      "type": "PRODUCT_SHARE",
+      "id": "6928ff408d575774e5274a8c",
+      "notificationId": "NOTIF-20251128-2023",
+      "title": "⌚ Apple Watch Ultra 2 - Adventure Ready",
+      "productId": "6928d8f68d575774e527460c"
+    }
+  ],
+  "published": [
+    {
+      "type": "OFFER",
+      "id": "6928ff268d575774e5274a26",
+      "notificationId": "NOTIF-20251128-9199",
+      "title": "🎉 Mega Weekend Sale - Up to 70% OFF!"
+    },
+    {
+      "type": "OFFER",
+      "id": "6928ff278d575774e5274a29",
+      "notificationId": "NOTIF-20251128-1761",
+      "title": "⚡ Flash Deal: Premium Headphones at 50% OFF"
+    },
+    {
+      "type": "OFFER",
+      "id": "6928ff288d575774e5274a2c",
+      "notificationId": "NOTIF-20251128-8407",
+      "title": "🎁 Buy 1 Get 1 Free - Smart Accessories"
+    },
+    {
+      "type": "OFFER",
+      "id": "6928ff298d575774e5274a2f",
+      "notificationId": "NOTIF-20251128-7296",
+      "title": "🔥 Clearance Sale: Gaming Consoles 40% OFF"
+    },
+    {
+      "type": "OFFER",
+      "id": "6928ff2b8d575774e5274a32",
+      "notificationId": "NOTIF-20251128-4496",
+      "title": "💰 Cashback Bonanza - Earn Up to ₹5000 Back!"
+    },
+    {
+      "type": "POST",
+      "id": "6928ff2c8d575774e5274a35",
+      "notificationId": "NOTIF-20251128-2403",
+      "title": "🚀 Exciting New Features Coming Soon!"
+    },
+    {
+      "type": "POST",
+      "id": "6928ff2d8d575774e5274a38",
+      "notificationId": "NOTIF-20251128-5036",
+      "title": "🌟 Customer Appreciation Week Starts Tomorrow!"
+    },
+    {
+      "type": "POST",
+      "id": "6928ff2e8d575774e5274a3b",
+      "notificationId": "NOTIF-20251128-1217",
+      "title": "📦 New Express Delivery in Your Area!"
+    },
+    {
+      "type": "POST",
+      "id": "6928ff2f8d575774e5274a3e",
+      "notificationId": "NOTIF-20251128-9035",
+      "title": "🏆 You're Invited: Exclusive Product Launch Event"
+    },
+    {
+      "type": "POST",
+      "id": "6928ff308d575774e5274a41",
+      "notificationId": "NOTIF-20251128-4504",
+      "title": "💡 Tips: How to Choose the Perfect Smartphone"
+    },
+    {
+      "type": "POST_WITH_IMAGE",
+      "id": "6928ff318d575774e5274a44",
+      "notificationId": "NOTIF-20251128-7501",
+      "title": "🎧 Unboxing: Premium Headphones Collection",
+      "image": "headphones-956720_1280.jpg"
+    },
+    {
+      "type": "POST_WITH_IMAGE",
+      "id": "6928ff338d575774e5274a4a",
+      "notificationId": "NOTIF-20251128-4640",
+      "title": "📸 Photography Masterclass: Camera Essentials",
+      "image": "camera-510530_1280.jpg"
+    },
+    {
+      "type": "POST_WITH_IMAGE",
+      "id": "6928ff358d575774e5274a50",
+      "notificationId": "NOTIF-20251128-9565",
+      "title": "🍎 Fresh Apple Products Just Arrived!",
+      "image": "apple-190970_1280.jpg"
+    },
+    {
+      "type": "POST_WITH_IMAGE",
+      "id": "6928ff378d575774e5274a56",
+      "notificationId": "NOTIF-20251128-1177",
+      "title": "🔌 Tech Components Sale - Build Your Dream Setup",
+      "image": "electronic-connector-7669295_1280.jpg"
+    },
+    {
+      "type": "POST_WITH_IMAGE",
+      "id": "6928ff3a8d575774e5274a5c",
+      "notificationId": "NOTIF-20251128-4710",
+      "title": "⚫ The Black Collection - Minimalist Tech",
+      "image": "black-and-white-2573314_1280.jpg"
+    }
+  ],
+  "scheduled": [
+    {
+      "type": "PRODUCT_SHARE",
+      "id": "6928ff3c8d575774e5274a68",
+      "notificationId": "NOTIF-20251128-7354",
+      "title": "🎵 JBL PartyBox 310 - Party Like Never Before!",
+      "productId": "6928d9178d575774e5274628"
+    },
+    {
+      "type": "PRODUCT_SHARE",
+      "id": "6928ff3d8d575774e5274a71",
+      "notificationId": "NOTIF-20251128-3694",
+      "title": "🏠 Amazon Echo Hub - Your Smart Home Command Center",
+      "productId": "6928d9168d575774e5274621"
+    },
+    {
+      "type": "PRODUCT_SHARE",
+      "id": "6928ff3e8d575774e5274a7a",
+      "notificationId": "NOTIF-20251128-1437",
+      "title": "🎮 PlayStation 5 Pro - Next-Gen Gaming Awaits",
+      "productId": "6928d9158d575774e527461a"
+    },
+    {
+      "type": "PRODUCT_SHARE",
+      "id": "6928ff3f8d575774e5274a83",
+      "notificationId": "NOTIF-20251128-4284",
+      "title": "📱 iPad Pro 12.9\" - Unleash Your Creativity",
+      "productId": "6928d8f88d575774e5274613"
+    },
+    {
+      "type": "PRODUCT_SHARE",
+      "id": "6928ff408d575774e5274a8c",
+      "notificationId": "NOTIF-20251128-2023",
+      "title": "⌚ Apple Watch Ultra 2 - Adventure Ready",
+      "productId": "6928d8f68d575774e527460c"
+    }
+  ],
+  "failed": [],
+  "userInteractions": [
+    {
+      "notificationId": "NOTIF-20251128-4710",
+      "liked": true,
+      "commented": true
+    },
+    {
+      "notificationId": "NOTIF-20251128-1177",
+      "liked": true,
+      "commented": true
+    },
+    {
+      "notificationId": "NOTIF-20251128-9565",
+      "liked": true,
+      "commented": true
+    },
+    {
+      "notificationId": "NOTIF-20251128-4640",
+      "liked": true,
+      "commented": true
+    },
+    {
+      "notificationId": "NOTIF-20251128-7501",
+      "liked": true,
+      "commented": true
+    }
+  ],
+  "adminActions": [
+    {
+      "updated": true,
+      "settingsChanged": true,
+      "analytics": true
+    }
+  ]
+}
