@@ -577,6 +577,80 @@ async function getDailyPendingPayments(userId) {
 }
 
 /**
+ * ⭐ NEW: Create combined Razorpay order for multiple installments
+ *
+ * @param {string} userId - User ID
+ * @param {Array<string>} selectedOrders - Array of order IDs
+ * @returns {Promise<Object>} Razorpay order details
+ */
+async function createCombinedRazorpayOrder(userId, selectedOrders) {
+  if (!selectedOrders || selectedOrders.length === 0) {
+    throw new Error('At least one order must be selected');
+  }
+
+  // Get all selected orders
+  const orders = await InstallmentOrder.find({
+    $or: selectedOrders.map((id) =>
+      mongoose.Types.ObjectId.isValid(id) ? { _id: id } : { orderId: id }
+    ),
+    user: userId,
+    status: 'ACTIVE',
+  });
+
+  if (orders.length === 0) {
+    throw new Error('No active orders found');
+  }
+
+  if (orders.length !== selectedOrders.length) {
+    throw new Error('Some selected orders are not available for payment');
+  }
+
+  // Validate all orders can pay today
+  for (const order of orders) {
+    if (!order.canPayToday()) {
+      throw new Error(`Order ${order.orderId} has already been paid today`);
+    }
+    if (!order.canAcceptPayment()) {
+      throw new Error(`Order ${order.orderId} cannot accept payment`);
+    }
+  }
+
+  // Calculate total amount
+  const totalAmount = orders.reduce((sum, order) => {
+    const nextInstallment = order.getNextPendingInstallment();
+    return sum + (nextInstallment?.amount || order.dailyPaymentAmount);
+  }, 0);
+
+  // Create Razorpay order
+  const razorpayOrder = await razorpay.orders.create({
+    amount: totalAmount * 100, // Convert to paise
+    currency: 'INR',
+    receipt: `combined_${Date.now()}`,
+    payment_capture: 1,
+    notes: {
+      userId: userId,
+      orderCount: orders.length,
+      orderIds: orders.map((o) => o.orderId).join(','),
+      type: 'combined_daily_payment',
+    },
+  });
+
+  return {
+    razorpayOrderId: razorpayOrder.id,
+    amount: razorpayOrder.amount,
+    currency: razorpayOrder.currency,
+    keyId: process.env.RAZORPAY_KEY_ID,
+    totalAmount,
+    orderCount: orders.length,
+    orders: orders.map((order) => ({
+      orderId: order.orderId,
+      productName: order.productName,
+      dailyAmount: order.dailyPaymentAmount,
+    })),
+  };
+}
+
+/**
  * ⭐ NEW: Process combined daily payment for multiple orders
  *
  * Allows user to pay for multiple orders in a single transaction.
@@ -849,5 +923,6 @@ module.exports = {
   getPaymentStats,
   verifyRazorpaySignature,
   getDailyPendingPayments,
+  createCombinedRazorpayOrder, // ⭐ NEW
   processSelectedDailyPayments, // ⭐ NEW
 };

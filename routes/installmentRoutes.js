@@ -224,6 +224,30 @@ router.get(
 );
 
 /**
+ * @route   POST /api/installment-payments/create-combined-razorpay
+ * @desc    Create Razorpay order for multiple installments
+ * @access  Private
+ */
+router.post(
+  "/payments/create-combined-razorpay",
+  verifyToken,
+  sanitizeInput,
+  paymentController.createCombinedRazorpayOrder
+);
+
+/**
+ * @route   POST /api/installment-payments/pay-daily-selected
+ * @desc    Process daily payments for multiple orders in one transaction
+ * @access  Private
+ */
+router.post(
+  "/payments/pay-daily-selected",
+  verifyToken,
+  sanitizeInput,
+  paymentController.processSelectedDailyPayments
+);
+
+/**
  * @route   POST /api/installment-payments/:paymentId/retry
  * @desc    Retry failed payment
  * @access  Private

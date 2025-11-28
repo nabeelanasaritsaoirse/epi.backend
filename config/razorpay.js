@@ -3,8 +3,8 @@ require('dotenv').config();
 
 // Initialize Razorpay with environment variables
 const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID || 'rzp_live_rqOS9AG74ADgsB',
-  key_secret: process.env.RAZORPAY_KEY_SECRET || 'Sx6CgvreKIoWlxn4NwUyq13x'
+  key_id: process.env.RAZORPAY_KEY_ID ,
+  key_secret: process.env.RAZORPAY_KEY_SECRET 
 });
 
 // Log warning if using fallback credentials
