@@ -51,10 +51,16 @@ router.post('/add-money', verifyToken, async (req, res) => {
     if (!amount || amount < 1)
       return res.status(400).json({ message: 'Invalid amount' });
 
+    // Razorpay receipt must be <= 40 characters
+    // Format: w_<last12chars_of_userId>_<last10digits_of_timestamp>
+    const userId = req.user._id.toString();
+    const timestamp = Date.now().toString();
+    const receipt = `w_${userId.slice(-12)}_${timestamp.slice(-10)}`;
+
     const order = await razorpay.orders.create({
       amount: amount * 100,
       currency: 'INR',
-      receipt: `wallet_${req.user._id}_${Date.now()}`
+      receipt: receipt
     });
 
     const tx = new Transaction({
