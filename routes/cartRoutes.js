@@ -3,15 +3,15 @@ const router = express.Router();
 const Cart = require('../models/Cart');
 const Product = require('../models/Product');
 
-// Using test auth middleware
-const { requireUser } = require('../middlewares/test-auth');
+// Using proper auth middleware
+const { verifyToken } = require('../middlewares/auth');
 
 // POST /add/:productId
-router.post('/add/:productId', requireUser, async (req, res) => {
+router.post('/add/:productId', verifyToken, async (req, res) => {
   try {
     const { productId } = req.params;
     const { quantity = 1 } = req.body;
-    const userId = req.userId;
+    const userId = req.user._id;
 
     const product = await Product.findById(productId);
     if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
@@ -37,9 +37,9 @@ router.post('/add/:productId', requireUser, async (req, res) => {
 });
 
 // GET /
-router.get('/', requireUser, async (req, res) => {
+router.get('/cart/', verifyToken, async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user._id;
     const cart = await Cart.findOne({ userId }).populate('products.productId');
     res.json({ success: true, data: (cart && cart.products) || [] });
   } catch (error) {
@@ -49,10 +49,10 @@ router.get('/', requireUser, async (req, res) => {
 });
 
 // DELETE /remove/:productId
-router.delete('/remove/:productId', requireUser, async (req, res) => {
+router.delete('/remove/:productId', verifyToken, async (req, res) => {
   try {
     const { productId } = req.params;
-    const userId = req.userId;
+    const userId = req.user._id;
 
     const cart = await Cart.findOne({ userId });
     if (!cart) return res.status(404).json({ success: false, message: 'Cart not found' });

@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Order = require('../models/Order');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
@@ -10,11 +11,16 @@ const razorpay = require('../config/razorpay');
 exports.createDailyInstallmentOrder = async (req, res) => {
   try {
     const { orderId, dailyAmount } = req.body;
-    
+
     if (!orderId || !dailyAmount || dailyAmount < 1) {
       return res.status(400).json({ message: 'Order ID and valid daily amount are required' });
     }
-    
+
+    // Validate orderId is a valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({ message: 'Invalid order ID format' });
+    }
+
     // Get the order
     const order = await Order.findOne({
       _id: orderId,
@@ -137,6 +143,10 @@ exports.verifyDailyInstallmentPayment = async (req, res) => {
     // Get the order if transaction exists
     let order = null;
     if (transaction && orderId) {
+      // Validate orderId is a valid ObjectId
+      if (!mongoose.Types.ObjectId.isValid(orderId)) {
+        return res.status(400).json({ message: 'Invalid order ID format' });
+      }
       order = await Order.findById(orderId);
     }
 
@@ -319,7 +329,12 @@ exports.verifyDailyInstallmentPayment = async (req, res) => {
       try {
         const Plan = require('../models/Plan');
         const Product = require('../models/Product');
-        
+
+        // Validate that order.product is a valid ObjectId before querying
+        if (!order.product || !mongoose.Types.ObjectId.isValid(order.product)) {
+          throw new Error('Invalid product ID in order');
+        }
+
         // Get the product details
         const product = await Product.findById(order.product);
         if (!product) {
@@ -441,7 +456,12 @@ exports.verifyDailyInstallmentPayment = async (req, res) => {
 exports.getOrderPaymentStatus = async (req, res) => {
   try {
     const { orderId } = req.params;
-    
+
+    // Validate orderId is a valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({ message: 'Invalid order ID format' });
+    }
+
     const order = await Order.findById(orderId);
     
     if (!order) {
@@ -490,18 +510,23 @@ exports.getOrderPaymentStatus = async (req, res) => {
 exports.getNextPaymentDate = async (req, res) => {
   try {
     const { orderId } = req.params;
-    
+
     if (!orderId) {
       return res.status(400).json({ message: 'Order ID is required' });
     }
-    
+
+    // Validate orderId is a valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({ message: 'Invalid order ID format' });
+    }
+
     // Get the order
     const order = await Order.findById(orderId);
-    
+
     if (!order) {
       return res.status(404).json({ message: 'Order not found' });
     }
-    
+
     // Check if order is completed
     if (order.paymentStatus === 'completed') {
       return res.status(200).json({
@@ -510,14 +535,14 @@ exports.getNextPaymentDate = async (req, res) => {
         nextPaymentDate: null
       });
     }
-    
+
     // Check if a payment has been made today
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
-    
+
     const existingPaymentToday = await Transaction.findOne({
       user: order.user,
       type: 'purchase',
@@ -527,7 +552,7 @@ exports.getNextPaymentDate = async (req, res) => {
         $lt: tomorrow
       }
     });
-    
+
     // Get total payments made so far
     const completedTransactions = await Transaction.find({
       user: order.user,
@@ -535,13 +560,13 @@ exports.getNextPaymentDate = async (req, res) => {
       status: 'completed',
       'paymentDetails.orderReference': orderId
     });
-    
+
     const totalPaid = completedTransactions.reduce((sum, tx) => sum + tx.amount, 0);
     const remainingAmount = Math.max(0, order.orderAmount - totalPaid);
     const paymentsMade = completedTransactions.length;
-    
+
     let response = {};
-    
+
     if (existingPaymentToday) {
       // Payment already made today
       response = {
@@ -574,10 +599,118 @@ exports.getNextPaymentDate = async (req, res) => {
         paymentsMade
       };
     }
-    
+
     res.status(200).json(response);
   } catch (error) {
     console.error('Error getting next payment date:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+/**
+ * Process payment (generic endpoint for both wallet and Razorpay)
+ */
+exports.processPayment = async (req, res) => {
+  try {
+    const {
+      orderId,
+      paymentMethod,
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature
+    } = req.body;
+
+    // Validate required fields
+    if (!orderId || !paymentMethod) {
+      return res.status(400).json({
+        success: false,
+        message: 'Order ID and payment method are required'
+      });
+    }
+
+    // Validate orderId is a valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid order ID format'
+      });
+    }
+
+    // Get the order
+    const order = await Order.findById(orderId).populate('product');
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found'
+      });
+    }
+
+    // Verify Razorpay payment if payment method is RAZORPAY
+    if (paymentMethod === 'RAZORPAY') {
+      if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+        return res.status(400).json({
+          success: false,
+          message: 'Razorpay payment details are required'
+        });
+      }
+
+      // Verify signature
+      const crypto = require('crypto');
+      const hmac = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET);
+      hmac.update(razorpayOrderId + '|' + razorpayPaymentId);
+      const generatedSignature = hmac.digest('hex');
+
+      if (generatedSignature !== razorpaySignature) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid payment signature'
+        });
+      }
+    }
+
+    // Calculate payment progress
+    const completedTransactions = await Transaction.find({
+      user: order.user,
+      product: order.product._id,
+      status: 'completed'
+    });
+
+    const totalPaid = completedTransactions.reduce((sum, tx) => sum + tx.amount, 0);
+    const progress = Math.min(100, Math.round((totalPaid / order.orderAmount) * 100));
+
+    // Update order status based on payment
+    if (totalPaid >= order.orderAmount) {
+      order.paymentStatus = 'completed';
+      order.orderStatus = 'ACTIVE';
+    } else if (totalPaid > 0) {
+      order.paymentStatus = 'partial';
+      order.orderStatus = 'ACTIVE';
+    }
+
+    await order.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Payment processed successfully',
+      data: {
+        order: {
+          orderId: order._id,
+          status: order.orderStatus,
+          progress: progress,
+          paymentStatus: order.paymentStatus,
+          totalPaid: totalPaid,
+          remainingAmount: Math.max(0, order.orderAmount - totalPaid)
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error processing payment:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message
+    });
   }
 }; 

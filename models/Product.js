@@ -3,7 +3,11 @@ const mongoose = require('mongoose');
 const imageSchema = new mongoose.Schema({
   url: String,
   isPrimary: Boolean,
-  altText: String
+  altText: String,
+  order: {
+    type: Number,
+    default: 1
+  }
 });
 
 const installmentSchema = new mongoose.Schema({
@@ -123,13 +127,18 @@ const relatedProductSchema = new mongoose.Schema({
 });
 
 const productSchema = new mongoose.Schema({
-  productId: { 
-    type: String, 
-    required: true, 
+  productId: {
+    type: String,
+    required: true,
     unique: true
   },
-  name: { 
-    type: String, 
+  variantId: {
+    type: String,
+    unique: true,
+    sparse: true
+  },
+  name: {
+    type: String,
     required: true,
     trim: true
   },
@@ -188,10 +197,20 @@ const productSchema = new mongoose.Schema({
   
   relatedProducts: [relatedProductSchema],
   
-  
+
   paymentPlan: installmentSchema,
-  
-  
+
+  // Admin-created investment plans for this product
+  plans: [{
+    name: { type: String, required: true }, // e.g., "Quick Plan", "Standard Plan"
+    days: { type: Number, required: true, min: 1 }, // Total days to complete
+    perDayAmount: { type: Number, required: true, min: 0 }, // Daily payment amount
+    totalAmount: { type: Number }, // Auto-calculated: days * perDayAmount
+    isRecommended: { type: Boolean, default: false }, // Mark one plan as recommended
+    description: { type: String } // Optional description
+  }],
+
+
   origin: {
     country: String,
     manufacturer: String
@@ -240,15 +259,37 @@ const productSchema = new mongoose.Schema({
     default: 'draft' 
   },
   
+  // Simple product categorization
+  isPopular: { type: Boolean, default: false },
+  isBestSeller: { type: Boolean, default: false },
+  isTrending: { type: Boolean, default: false },
+  
   createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
+  updatedAt: { type: Date, default: Date.now },
+
+  // Soft delete fields
+  isDeleted: { type: Boolean, default: false },
+  deletedAt: { type: Date },
+  deletedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }
 });
 
 
 productSchema.pre('save', function(next) {
   this.updatedAt = Date.now();
-  
-  
+
+  // Auto-calculate totalAmount for each plan
+  if (this.plans && this.plans.length > 0) {
+    this.plans.forEach(plan => {
+      if (plan.days && plan.perDayAmount) {
+        plan.totalAmount = plan.days * plan.perDayAmount;
+      }
+    });
+  }
+
+
   if (this.regionalPricing && this.regionalPricing.length > 0) {
     this.regionalPricing.forEach(pricing => {
       if (!pricing.finalPrice) {

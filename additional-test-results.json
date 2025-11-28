@@ -1,0 +1,38 @@
+{
+  "singleNotification": {
+    "success": true,
+    "details": {}
+  },
+  "userCommentDelete": {
+    "success": false,
+    "error": {
+      "success": false,
+      "message": "Validation failed",
+      "errors": [
+        {
+          "type": "field",
+          "value": "undefined",
+          "msg": "Invalid comment ID",
+          "path": "commentId",
+          "location": "params"
+        }
+      ]
+    }
+  },
+  "adminCommentModeration": {
+    "success": true,
+    "notificationId": "NOTIF-20251128-4710",
+    "commentId": "69292e5790c1b78b6966d4c8"
+  },
+  "adminSoftDelete": {
+    "success": true,
+    "notificationId": "NOTIF-20251128-8272"
+  },
+  "getComments": {
+    "success": false,
+    "error": "Cannot read properties of undefined (reading 'name')"
+  },
+  "unlikeTest": {
+    "success": true
+  }
+}

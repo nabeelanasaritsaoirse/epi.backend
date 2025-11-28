@@ -1,144 +1,335 @@
-const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '.env') });
-const express = require('express');
-const cors = require('cors');
-const admin = require('firebase-admin');
-const initializeReferralSystem = require('./scripts/initializeReferralSystem');
-const connectDB = require('./config/database'); // ✅ Use centralized DB connection
+// const path = require("path");
+// require("dotenv").config({ path: path.join(__dirname, ".env") });
 
-// Import routes
-const authRoutes = require('./routes/auth');
-const productRoutes = require('./routes/products');
-const categoryRoutes = require('./routes/categoryRoutes');
-const userRoutes = require('./routes/users');
-const walletRoutes = require('./routes/wallet');
-const paymentRoutes = require('./routes/payments');
-const orderRoutes = require('./routes/orders');
-const adminRoutes = require('./routes/admin');
-const referralRoutes = require('./routes/referralRoutes');
-const planRoutes = require('./routes/plans');
-const cartRoutes = require('./routes/cartRoutes');
-const wishlistRoutes = require('./routes/wishlistRoutes');
-const imageStoreRoutes = require('./routes/imageStore');
+// const express = require("express");
+// const cors = require("cors");
+// const admin = require("firebase-admin");
+// const initializeReferralSystem = require("./scripts/initializeReferralSystem");
+// const connectDB = require("./config/database");
+
+// // ====== ROUTES ======
+// const authRoutes = require("./routes/auth");
+// const productRoutes = require("./routes/products");
+// const categoryRoutes = require("./routes/categoryRoutes");
+// const userRoutes = require("./routes/users");
+// const walletRoutes = require("./routes/wallet");        // USER WALLET
+// const adminWalletRoutes = require("./routes/adminWallet"); // ADMIN WALLET
+
+// const referralCommissionRoutes = require("./routes/referralCommission");
+// const paymentRoutes = require("./routes/payments");
+// const orderRoutes = require("./routes/orders");
+// const adminRoutes = require("./routes/admin");
+
+// const referralRoutes = require("./routes/referralRoutes");
+// const planRoutes = require("./routes/plans");
+// const cartRoutes = require("./routes/cartRoutes");
+// const wishlistRoutes = require("./routes/wishlistRoutes");
+// const imageStoreRoutes = require("./routes/imageStore");
+// const bannerRoutes = require("./routes/bannerRoutes");
+// const successStoryRoutes = require("./routes/successStoryRoutes");
+// const installmentRoutes = require("./routes/installmentRoutes");
+// const healthCheckRoutes = require("./routes/healthCheckRoutes");
+
+// const app = express();
+// const PORT = process.env.PORT || 3000;
+
+// // ======================================================================
+// // CORS
+// // ======================================================================
+// app.use(
+//   cors({
+//     origin: [
+//       "http://127.0.0.1:5500",
+//       "http://localhost:5500",
+
+//       "http://127.0.0.1:3000",
+//       "http://localhost:3000",
+
+//       "https://epielio.com",
+//       "https://api.epielio.com",
+//       "https://admin.epielio.com"
+//     ],
+//     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+//     allowedHeaders: ["Content-Type", "Authorization"],
+//     credentials: true
+//   })
+// );
+
+// // ======================================================================
+// // BODY PARSER
+// // ======================================================================
+// app.use(express.json({ limit: "10mb" }));
+
+// app.use((err, req, res, next) => {
+//   if (err?.type === "entity.parse.failed") {
+//     return res.status(400).json({
+//       success: false,
+//       message: "Invalid JSON payload"
+//     });
+//   }
+//   next(err);
+// });
+
+// // ======================================================================
+// // FIREBASE INIT
+// // ======================================================================
+// try {
+//   const { FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY } =
+//     process.env;
+
+//   let privateKey = FIREBASE_PRIVATE_KEY
+//     ? FIREBASE_PRIVATE_KEY.replace(/^"|"$/g, "").replace(/\\n/g, "\n")
+//     : null;
+
+//   if (FIREBASE_PROJECT_ID && FIREBASE_CLIENT_EMAIL && privateKey) {
+//     admin.initializeApp({
+//       credential: admin.credential.cert({
+//         project_id: FIREBASE_PROJECT_ID,
+//         client_email: FIREBASE_CLIENT_EMAIL,
+//         private_key: privateKey
+//       })
+//     });
+//     console.log("🔥 Firebase initialized");
+//   } else {
+//     console.log("⚠️ Firebase not initialized (missing env vars)");
+//   }
+// } catch (e) {
+//   console.error("Firebase init error:", e.message);
+// }
+
+// // ======================================================================
+// // MONGO CONNECTION
+// // ======================================================================
+// (async () => {
+//   try {
+//     await connectDB();
+//     console.log("✅ MongoDB Connected");
+//     initializeReferralSystem();
+//   } catch (err) {
+//     console.error("❌ MongoDB connection failed:", err.message);
+//     process.exit(1);
+//   }
+// })();
+
+// // ======================================================================
+// // ROUTES
+// // ======================================================================
+// app.use("/api/auth", authRoutes);
+// app.use("/api/categories", categoryRoutes);
+// app.use("/api/products", productRoutes);
+// app.use("/api/users", userRoutes);
+
+// // USER WALLET ROUTES
+// app.use("/api/wallet", walletRoutes);
+
+// // ADMIN WALLET ROUTES (IMPORTANT)
+// app.use("/api/admin/wallet", adminWalletRoutes);
+
+// app.use("/api/referral", referralCommissionRoutes);
+// app.use("/api/referral", referralRoutes);
+
+// app.use("/api/payments", paymentRoutes);
+// app.use("/api/orders", orderRoutes);
+// app.use("/api/admin", adminRoutes);
+
+// app.use("/api/plans", planRoutes);
+// app.use("/api/cart", cartRoutes);
+// app.use("/api/wishlist", wishlistRoutes);
+// app.use("/api/images", imageStoreRoutes);
+// app.use("/api/banners", bannerRoutes);
+// app.use("/api/success-stories", successStoryRoutes);
+// app.use("/api/installment", installmentRoutes);
+
+// // HEALTH CHECK ROUTES (API Testing Dashboard)
+// app.use("/api/health-check", healthCheckRoutes);
+
+// // ======================================================================
+// // ROOT
+// // ======================================================================
+// app.get("/", (req, res) => {
+//   res.send("Epi Backend API is running");
+// });
+
+// // ======================================================================
+// // ERROR HANDLER
+// // ======================================================================
+// app.use((err, req, res, next) => {
+//   console.error("ERROR:", err.message);
+//   res.status(500).json({ success: false, error: err.message });
+// });
+
+// // ======================================================================
+// // START SERVER
+// // ======================================================================
+// const HOST = "0.0.0.0";
+// app.listen(PORT, HOST, () => {
+//   console.log(`🚀 Server running at http://${HOST}:${PORT}`);
+// });
+
+// module.exports = app;
+
+const path = require("path");
+require("dotenv").config({ path: path.join(__dirname, ".env") });
+
+const express = require("express");
+const cors = require("cors");
+require("./config/firebase"); // Initialize Firebase
+const initializeReferralSystem = require("./scripts/initializeReferralSystem");
+const connectDB = require("./config/database");
+
+// ====== ROUTES ======
+const authRoutes = require("./routes/auth");
+const productRoutes = require("./routes/productRoutes");
+const categoryRoutes = require("./routes/categoryRoutes");
+const userRoutes = require("./routes/users");
+const walletRoutes = require("./routes/wallet");        // USER WALLET
+const adminWalletRoutes = require("./routes/adminWallet"); // ADMIN WALLET
+
+const referralCommissionRoutes = require("./routes/referralCommission");
+const paymentRoutes = require("./routes/payments");
+const orderRoutes = require("./routes/orders");
+const adminRoutes = require("./routes/admin");
+// const accountDeletionRoutes = require('./routes/accountDeletion'); // TODO: Create this file
+
+const referralRoutes = require("./routes/referralRoutes");
+const planRoutes = require("./routes/plans");
+const cartRoutes = require("./routes/cart");
+const wishlistRoutes = require("./routes/wishlist");
+const imageStoreRoutes = require("./routes/imageStore");
+const bannerRoutes = require("./routes/bannerRoutes");
+const successStoryRoutes = require("./routes/successStoryRoutes");
+const installmentRoutes = require("./routes/installmentRoutes");
+const healthCheckRoutes = require("./routes/healthCheckRoutes");
+const notificationRoutes = require("./routes/notificationRoutes");
+const adminNotificationRoutes = require("./routes/adminNotificationRoutes");
+const chatRoutes = require("./routes/chatRoutes");
+const adminChatRoutes = require("./routes/adminChatRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ====== Middleware ======
-app.use(express.json({ limit: '10mb' }));
-app.use(cors());
+// ======================================================================
+// CORS
+// ======================================================================
+app.use(
+  cors({
+    origin: [
+      "http://127.0.0.1:5500",
+      "http://localhost:5500",
 
-// JSON parse error handler
+      "http://127.0.0.1:3000",
+      "http://localhost:3000",
+
+      "https://epielio.com",
+      "https://api.epielio.com",
+      "https://admin.epielio.com"
+    ],
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true
+  })
+);
+
+// ======================================================================
+// BODY PARSER
+// ======================================================================
+app.use(express.json({ limit: "10mb" }));
+
 app.use((err, req, res, next) => {
-  if (err && err.type === 'entity.parse.failed') {
-    console.error('Invalid JSON received:', err.message);
-    return res.status(400).json({ success: false, message: 'Invalid JSON payload' });
+  if (err?.type === "entity.parse.failed") {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid JSON payload"
+    });
   }
   next(err);
 });
 
-// ====== Initialize Firebase Admin ======
-try {
-  const firebaseProjectId = process.env.FIREBASE_PROJECT_ID;
-  const firebaseClientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  let firebasePrivateKey = process.env.FIREBASE_PRIVATE_KEY;
+// ======================================================================
+// FIREBASE INIT
+// ======================================================================
+// Firebase is initialized in config/firebase.js
 
-  if (firebasePrivateKey) {
-    firebasePrivateKey = firebasePrivateKey.replace(/^"|"$/g, '').replace(/\\n/g, '\n');
-  }
-
-  if (firebaseProjectId && firebaseClientEmail && firebasePrivateKey) {
-    const serviceAccount = {
-      project_id: firebaseProjectId,
-      client_email: firebaseClientEmail,
-      private_key: firebasePrivateKey,
-    };
-
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-    });
-
-    console.log('✅ Firebase Admin initialized successfully');
-  } else {
-    console.warn(
-      '⚠️ Firebase Admin not initialized: missing FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, or FIREBASE_PRIVATE_KEY'
-    );
-  }
-} catch (error) {
-  console.error('Firebase Admin initialization error:', error);
-}
-
-// ====== Connect to MongoDB ======
+// ======================================================================
+// MONGO CONNECTION
+// ======================================================================
 (async () => {
   try {
     await connectDB();
-    console.log('✅ Connected to epi_backend database');
-
-    // Initialize referral system after DB connection
+    console.log("✅ MongoDB Connected");
     initializeReferralSystem();
   } catch (err) {
-    console.error('❌ MongoDB connection failed:', err.message);
+    console.error("❌ MongoDB connection failed:", err.message);
     process.exit(1);
   }
 })();
 
-// ====== Routes ======
-app.use('/api/auth', authRoutes);
-app.use('/api/categories', categoryRoutes);
-app.use('/api/products', productRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/wallet', walletRoutes);
-app.use('/api/payments', paymentRoutes);
-app.use('/api/orders', orderRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/referrals', referralRoutes);
-app.use('/api/plans', planRoutes);
-app.use('/api/cart', cartRoutes);
-app.use('/api/wishlist', wishlistRoutes);
-app.use('/api/images', imageStoreRoutes);
+// ======================================================================
+// ROUTES (Place specific routes BEFORE generic ones)
+// ======================================================================
+app.use("/api/auth", authRoutes);
+app.use("/api/categories", categoryRoutes);
+app.use("/api/products", productRoutes);
+app.use("/api/users", userRoutes);   // USERS ROUTES ONLY HERE
+app.use("/api/wallet", walletRoutes);
+app.use("/api/admin/wallet", adminWalletRoutes);
+app.use("/api/referral-commission", referralCommissionRoutes);
+app.use("/api/referral", referralRoutes);
+app.use("/api/payments", paymentRoutes);
+app.use("/api/orders", orderRoutes);
+app.use("/api/admin", adminRoutes);
+app.use("/api/plans", planRoutes);
+app.use("/api/image-store", imageStoreRoutes);
+app.use("/api/banners", bannerRoutes);
+app.use("/api/success-stories", successStoryRoutes);
+app.use("/api/installments", installmentRoutes);
+app.use("/api/notifications", notificationRoutes);
+app.use("/api/admin/notifications", adminNotificationRoutes);
+app.use("/api/chat", chatRoutes);
+app.use("/api/admin/chat", adminChatRoutes);
+// app.use('/api/users', accountDeletionRoutes); // TODO: Uncomment when file is created
 
 
+// FIXED wishlist MUST NOT override /users
+app.use("/api/wishlist", wishlistRoutes);
 
-app.get('/', (req, res) => {
-  res.send('Epi Backend API is running ✅');
+// cart also correct
+app.use("/api/cart", cartRoutes);
+
+
+// HEALTH CHECK ROUTES (API Testing Dashboard)
+app.use("/api/health-check", healthCheckRoutes);
+
+// ======================================================================
+// ROOT
+// ======================================================================
+app.get("/", (req, res) => {
+  res.send("Epi Backend API is running");
 });
 
-// ====== Global Error Handler ======
+// ======================================================================
+// ERROR HANDLER
+// ======================================================================
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
+  console.error("ERROR:", err.message);
   res.status(500).json({ success: false, error: err.message });
 });
 
-// ====== Start Server ======
-
-
-// ====== Start Server ======
-const HOST = '0.0.0.0';
-
-const server = app.listen(PORT, HOST, () => {
-  console.log('');
-  console.log('🚀 ════════════════════════════════════════════════');
-  console.log(`   Server running on ${HOST}:${PORT}`);
-  console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log('🚀 ════════════════════════════════════════════════');
-  console.log('');
-  console.log('📋 Status:');
-  console.log('   ✅ MongoDB: Connected');
-  console.log('   ✅ JWT Auth: Enabled');
-  console.log('');
-  console.log('🌐 Access URLs:');
-  console.log(`   Local:    http://localhost:${PORT}`);
-  console.log(`   Network:  http://${HOST}:${PORT}`);
-  console.log('');
-  console.log('📚 API Endpoints:');
-  console.log(`   Health:      GET  http://${HOST}:${PORT}/`);
-  console.log(`   Auth:        POST http://${HOST}:${PORT}/api/auth/login`);
-  console.log('');
+// ======================================================================
+// 404 HANDLER
+// ======================================================================
+app.use((req, res) => {
+  res.status(404).json({ success: false, message: 'Route not found' });
 });
 
-// const server = app.listen(PORT, () => {
-//   console.log(`🚀 Server is running on port ${PORT}`);
-// });
+// ======================================================================
+// START SERVER
+// ======================================================================
+const HOST = "0.0.0.0";
+app.listen(PORT, HOST, () => {
+ // console.log(Server running at http://${HOST}:${PORT});
+  console.log(`🚀 Server running at http://${HOST}:${PORT}`);
+});
 
 module.exports = app;
 

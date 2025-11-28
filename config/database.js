@@ -3,7 +3,9 @@ require('dotenv').config();
 
 const connectDB = async () => {
   // Use environment variable if available, otherwise fallback to epi_backend
-  const mongoUri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/epi_backend';
+//  const mongoUri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/epi_backend';
+    const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/epi_backend';
+
   try {
     await mongoose.connect(mongoUri, {
       useNewUrlParser: true,
@@ -17,3 +19,4 @@ const connectDB = async () => {
 };
 
 module.exports = connectDB;
+

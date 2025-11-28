@@ -4,8 +4,161 @@ const { verifyToken, isAdmin } = require('../middlewares/auth');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const Product = require('../models/Product');
+const { uploadSingle } = require('../middlewares/uploadMiddleware');
+const { uploadSingleFileToS3, deleteImageFromS3 } = require('../services/awsUploadService');
 
-// Admin routes
+
+// CREATE NEW USER (ADMIN ONLY)
+router.post('/admin/create', verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { name, email, password, phoneNumber, role, referralLimit } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: 'Name, email and password are required' });
+    }
+
+    // ⭐ PHONE NUMBER VALIDATION
+    if (phoneNumber && !/^[0-9]{10}$/.test(phoneNumber)) {
+      return res.status(400).json({ message: 'Phone number must be exactly 10 digits' });
+    }
+
+    // Check if email exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: 'Email already exists' });
+    }
+
+    // auto UID
+    const randomFirebaseUid = 'admin-created-' + Math.random().toString(36).substring(2);
+
+    const newUser = new User({
+      name,
+      email,
+      firebaseUid: randomFirebaseUid,
+      phoneNumber: phoneNumber || '',
+      role: role || 'user',
+      referralLimit: referralLimit || 50
+    });
+
+    await newUser.save();
+
+    res.status(201).json({
+      success: true,
+      message: 'User created successfully',
+      user: newUser
+    });
+
+  } catch (error) {
+    console.error('Error creating user:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+
+// UPDATE USER (ADMIN ONLY)
+router.put('/admin/:userId', verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { name, email, phoneNumber, role, isActive, referralLimit } = req.body;
+
+    // ⭐ PHONE NUMBER VALIDATION
+    if (phoneNumber !== undefined && !/^[0-9]{10}$/.test(phoneNumber)) {
+      return res.status(400).json({ message: 'Phone number must be exactly 10 digits' });
+    }
+
+    const updates = {};
+
+    if (name !== undefined) updates.name = name;
+    if (email !== undefined) updates.email = email;
+    if (phoneNumber !== undefined) updates.phoneNumber = phoneNumber;
+    if (role !== undefined) updates.role = role;
+    if (isActive !== undefined) updates.isActive = isActive;
+    if (referralLimit !== undefined) updates.referralLimit = referralLimit;
+
+    updates.updatedAt = Date.now();
+
+    const updatedUser = await User.findByIdAndUpdate(
+      req.params.userId,
+      { $set: updates },
+      { new: true }
+    ).select('-__v');
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'User updated successfully',
+      user: updatedUser
+    });
+
+  } catch (error) {
+    console.error('Error updating user:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+
+// DELETE USER (ADMIN ONLY)
+router.delete('/admin/:userId', verifyToken, isAdmin, async (req, res) => {
+  try {
+    const user = await User.findByIdAndDelete(req.params.userId);
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'User deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+
+/**
+ * @route   GET /api/users/me/profile
+ * @desc    Get authenticated user's complete profile
+ * @access  Private (Token Required)
+ */
+router.get('/me/profile', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    const user = await User.findById(userId)
+      .select('-__v')
+      .populate('wallet.transactions')
+      .populate('savedPlans.product')
+      .populate('referredBy', 'name email')
+      .populate('referredUsers', 'name email')
+      .populate({
+        path: 'wishlist',
+        select: 'name price originalPrice brand images category rating'
+      });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      user: user
+    });
+  } catch (error) {
+    console.error('Error fetching user profile:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+});
 
 // Get all users (admin only)
 router.get('/', verifyToken, isAdmin, async (req, res) => {
@@ -13,11 +166,49 @@ router.get('/', verifyToken, isAdmin, async (req, res) => {
     const users = await User.find()
       .select('-__v')
       .sort({ createdAt: -1 });
-    
+
     res.status(200).json(users);
   } catch (error) {
     console.error('Error fetching users:', error);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+/**
+ * @route   GET /api/users/profile/:userId
+ * @desc    Get specific user's profile by ID
+ * @access  Public
+ */
+router.get('/profile/:userId', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId)
+      .select('-__v')
+      .populate('wallet.transactions')
+      .populate('savedPlans.product')
+      .populate('referredBy', 'name email')
+      .populate('referredUsers', 'name email')
+      .populate({
+        path: 'wishlist',
+        select: 'name price originalPrice brand images category rating'
+      });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      user: user
+    });
+  } catch (error) {
+    console.error('Error fetching user profile:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
   }
 });
 
@@ -30,11 +221,11 @@ router.get('/:userId', verifyToken, isAdmin, async (req, res) => {
       .populate('savedPlans.product')
       .populate('referredBy')
       .populate('referredUsers');
-    
+
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
-    
+
     res.status(200).json(user);
   } catch (error) {
     console.error('Error fetching user:', error);
@@ -1074,24 +1265,24 @@ router.put('/:userId/kyc-details/verify', verifyToken, isAdmin, async (req, res)
   try {
     const { userId } = req.params;
     const { aadharVerified, panVerified } = req.body;
-    
+
     // Find user
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
-    
+
     // Check if user has KYC details
     if (!user.kycDetails) {
-      return res.status(400).json({ 
-        success: false, 
+      return res.status(400).json({
+        success: false,
         message: 'User does not have KYC details to verify'
       });
     }
-    
+
     // Update verification status
     const updates = {};
-    
+
     if (aadharVerified !== undefined) {
       // Only allow verification if aadharCardNumber is present
       if (aadharVerified && !user.kycDetails.aadharCardNumber) {
@@ -1102,7 +1293,7 @@ router.put('/:userId/kyc-details/verify', verifyToken, isAdmin, async (req, res)
       }
       updates['kycDetails.aadharVerified'] = Boolean(aadharVerified);
     }
-    
+
     if (panVerified !== undefined) {
       // Only allow verification if panCardNumber is present
       if (panVerified && !user.kycDetails.panCardNumber) {
@@ -1113,21 +1304,21 @@ router.put('/:userId/kyc-details/verify', verifyToken, isAdmin, async (req, res)
       }
       updates['kycDetails.panVerified'] = Boolean(panVerified);
     }
-    
+
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({
         success: false,
         message: 'Please provide at least one verification status to update'
       });
     }
-    
+
     // Update user
     const updatedUser = await User.findByIdAndUpdate(
       userId,
       { $set: updates },
       { new: true }
     );
-    
+
     res.status(200).json({
       success: true,
       message: 'KYC verification status updated successfully',
@@ -1136,6 +1327,364 @@ router.put('/:userId/kyc-details/verify', verifyToken, isAdmin, async (req, res)
   } catch (error) {
     console.error('Error updating KYC verification status:', error);
     res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+/**
+ * @route   PUT /api/users/:userId/profile-picture
+ * @desc    Update user profile picture with S3 upload
+ * @access  Private
+ */
+router.put('/:userId/profile-picture', verifyToken, (req, res) => {
+  uploadSingle(req, res, async (err) => {
+    try {
+      const { userId } = req.params;
+
+      // Verify user permissions (either the same user or admin)
+      if (req.user._id.toString() !== userId && req.user.role !== 'admin') {
+        return res.status(403).json({ success: false, message: 'Unauthorized' });
+      }
+
+      // Handle multer errors
+      if (err) {
+        console.error('Multer error:', err);
+        return res.status(400).json({
+          success: false,
+          message: err.message || 'Error uploading file'
+        });
+      }
+
+      // Check if file was uploaded
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please upload an image file'
+        });
+      }
+
+      // Find user
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({ success: false, message: 'User not found' });
+      }
+
+      // Delete old profile picture from S3 if it exists
+      if (user.profilePicture && user.profilePicture.includes('s3.amazonaws.com')) {
+        try {
+          await deleteImageFromS3(user.profilePicture);
+        } catch (deleteError) {
+          console.error('Error deleting old profile picture:', deleteError);
+          // Continue with upload even if delete fails
+        }
+      }
+
+      // Upload new profile picture to S3
+      const uploadResult = await uploadSingleFileToS3(
+        req.file,
+        'profile-pictures/',
+        480 // resize width
+      );
+
+      // Update user profile picture URL
+      user.profilePicture = uploadResult.url;
+      user.updatedAt = Date.now();
+      await user.save();
+
+      res.status(200).json({
+        success: true,
+        message: 'Profile picture updated successfully',
+        profilePicture: user.profilePicture,
+        uploadDetails: {
+          size: uploadResult.size,
+          mimeType: uploadResult.mimeType
+        }
+      });
+
+    } catch (error) {
+      console.error('Error updating profile picture:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Server error: ' + error.message
+      });
+    }
+  });
+});
+
+
+/**
+ * @route   POST /api/users/:userId/request-deletion
+ * @desc    Request account deletion (user initiated)
+ * @access  Private
+ */
+router.post('/:userId/request-deletion', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { reason } = req.body;
+
+    // Verify user permissions (only the same user can request deletion)
+    if (req.user._id.toString() !== userId) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'You can only delete your own account' 
+      });
+    }
+
+    // Find user
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
+    }
+
+    // Add deletion request timestamp
+    user.deletionRequest = {
+      requestedAt: new Date(),
+      reason: reason || 'User requested account deletion',
+      status: 'pending'
+    };
+    
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Account deletion request submitted successfully. Your account will be deleted within 30 days.',
+      deletionScheduledAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days from now
+    });
+
+  } catch (error) {
+    console.error('Error requesting account deletion:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error' 
+    });
+  }
+});
+
+/**
+ * @route   POST /api/users/:userId/cancel-deletion
+ * @desc    Cancel account deletion request
+ * @access  Private
+ */
+router.post('/:userId/cancel-deletion', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // Verify user permissions
+    if (req.user._id.toString() !== userId) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Unauthorized' 
+      });
+    }
+
+    // Find user and remove deletion request
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { $unset: { deletionRequest: 1 } },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Account deletion request cancelled successfully'
+    });
+
+  } catch (error) {
+    console.error('Error cancelling account deletion:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error' 
+    });
+  }
+});
+
+/**
+ * @route   DELETE /api/users/:userId/delete-account
+ * @desc    Permanently delete user account and all associated data
+ * @access  Private (User or Admin)
+ */
+router.delete('/:userId/delete-account', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { confirmPassword } = req.body;
+
+    // Verify user permissions (either the same user or admin)
+    if (req.user._id.toString() !== userId && req.user.role !== 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Unauthorized to delete this account' 
+      });
+    }
+
+    // Find user
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
+    }
+
+    // Start deletion process
+    console.log(`Starting account deletion for user: ${user.email}`);
+
+    // 1. Delete profile picture from S3 if exists
+    if (user.profilePicture && user.profilePicture.includes('s3.amazonaws.com')) {
+      try {
+        await deleteImageFromS3(user.profilePicture);
+        console.log('Profile picture deleted from S3');
+      } catch (error) {
+        console.error('Error deleting profile picture:', error);
+      }
+    }
+
+    // 2. Delete KYC documents from S3
+    if (user.kycDocuments && user.kycDocuments.length > 0) {
+      for (const doc of user.kycDocuments) {
+        if (doc.docUrl && doc.docUrl.includes('s3.amazonaws.com')) {
+          try {
+            await deleteImageFromS3(doc.docUrl);
+            console.log(`KYC document deleted: ${doc.docType}`);
+          } catch (error) {
+            console.error('Error deleting KYC document:', error);
+          }
+        }
+      }
+    }
+
+    // 3. Delete user transactions
+    try {
+      const deletedTransactions = await Transaction.deleteMany({ user: userId });
+      console.log(`Deleted ${deletedTransactions.deletedCount} transactions`);
+    } catch (error) {
+      console.error('Error deleting transactions:', error);
+    }
+
+    // 4. Delete user orders (if Order model exists)
+    // try {
+    //   const deletedOrders = await Order.deleteMany({ user: userId });
+    //   console.log(`Deleted ${deletedOrders.deletedCount} orders`);
+    // } catch (error) {
+    //   console.error('Error deleting orders:', error);
+    // }
+
+    // 5. Remove user from referral chains
+    try {
+      // Remove this user from other users' referredUsers arrays
+      await User.updateMany(
+        { referredUsers: userId },
+        { $pull: { referredUsers: userId } }
+      );
+
+      // Remove referredBy reference if this user referred others
+      await User.updateMany(
+        { referredBy: userId },
+        { $unset: { referredBy: 1 } }
+      );
+
+      console.log('Referral chain cleaned up');
+    } catch (error) {
+      console.error('Error cleaning referral chain:', error);
+    }
+
+    // 6. Finally, delete the user account
+    await User.findByIdAndDelete(userId);
+    
+    console.log(`Account deleted successfully: ${user.email}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Account and all associated data deleted successfully',
+      deletedData: {
+        user: true,
+        transactions: true,
+        profilePicture: user.profilePicture ? true : false,
+        kycDocuments: user.kycDocuments?.length || 0,
+        addresses: user.addresses?.length || 0,
+        bankDetails: user.bankDetails?.length || 0
+      }
+    });
+
+  } catch (error) {
+    console.error('Error deleting account:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error while deleting account' 
+    });
+  }
+});
+
+/**
+ * @route   GET /api/users/:userId/deletion-info
+ * @desc    Get information about what data will be deleted
+ * @access  Private
+ */
+router.get('/:userId/deletion-info', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // Verify user permissions
+    if (req.user._id.toString() !== userId && req.user.role !== 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Unauthorized' 
+      });
+    }
+
+    // Find user
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
+    }
+
+    // Count transactions
+    const transactionCount = await Transaction.countDocuments({ user: userId });
+
+    res.status(200).json({
+      success: true,
+      deletionInfo: {
+        dataToBeDeleted: [
+          'Your profile information (name, email, phone)',
+          'Profile picture',
+          'All saved addresses',
+          'Bank account details',
+          'KYC documents and verification status',
+          'Wallet balance and transaction history',
+          'Wishlist items',
+          'Referral code and referral history',
+          'All app preferences and settings'
+        ],
+        dataCounts: {
+          addresses: user.addresses?.length || 0,
+          bankAccounts: user.bankDetails?.length || 0,
+          kycDocuments: user.kycDocuments?.length || 0,
+          transactions: transactionCount,
+          wishlistItems: user.wishlist?.length || 0,
+          walletBalance: user.wallet?.balance || 0
+        },
+        retentionPeriod: '30 days',
+        note: 'After deletion, this action cannot be undone. Some data may be retained for legal and compliance purposes as per our Privacy Policy.'
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching deletion info:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error' 
+    });
   }
 });
 
