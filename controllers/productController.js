@@ -1804,17 +1804,15 @@ exports.reorderProductImages = async (req, res) => {
 exports.getProductsByCategoryId = async (req, res) => {
   try {
     const { categoryId } = req.params;
-    const { page = 1, limit = 10 } = req.query;  // Removed region from query
+    const { page = 1, limit = 10 } = req.query;
 
     const pageNum = parseInt(page, 10) || 1;
     const limitNum = parseInt(limit, 10) || 10;
 
-    // ✅ Filter by mainCategoryId only [attached_file:1]
+    // 🔥 THIS IS THE CRITICAL FIX
     const filter = {
-      'category.mainCategoryId': categoryId,
+      'category.mainCategoryId': categoryId  // ← CHANGED FROM 'category.main'
     };
-
-    // ❌ REMOVED region filtering as requested
 
     const products = await Product.find(filter)
       .sort({ createdAt: -1 })
@@ -1839,6 +1837,7 @@ exports.getProductsByCategoryId = async (req, res) => {
     });
   }
 };
+
 
 
 
@@ -1916,5 +1915,6 @@ exports.reorderVariantImages = async (req, res) => {
     });
   }
 };
+
 
 
