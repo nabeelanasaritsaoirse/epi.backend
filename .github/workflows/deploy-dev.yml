@@ -72,7 +72,7 @@ jobs:
             git fetch origin dev
             git reset --hard origin/dev
           else
-            git clone --branch developer https://github.com/nabeelanasaritsaoirse/epi.backend.git .
+            git clone --branch dev https://github.com/nabeelanasaritsaoirse/epi.backend.git .
           fi
 
           echo "📦 Installing dependencies..."
