@@ -1,0 +1,112 @@
+name: Deploy Backend to DEV EC2
+run-name: "🚀 Dev Deployment by ${{ github.actor }} on ${{ github.ref_name }}"
+
+on:
+  push:
+    branches:
+      - dev
+
+permissions:
+  contents: write
+  issues: read
+  pull-requests: read
+
+jobs:
+  deploy:
+    name: Developer Backend Deployment
+    runs-on: ubuntu-24.04
+
+    concurrency:
+      group: deploy-epi-dev
+      cancel-in-progress: true
+          
+    env:
+      EC2_HOST: ${{ secrets.DEV_EC2_HOST }}
+      EC2_USER: ${{ secrets.DEV_EC2_USER }}
+      PRIVATE_KEY: ${{ secrets.DEV_PRIVATE_KEY }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: |
+          npm ci || npm install
+
+      - name: Syntax validation
+        run: node --check index.js
+
+      - name: Create SSH key
+        run: |
+          echo "${PRIVATE_KEY}" > dev_key.pem
+          chmod 600 dev_key.pem
+
+      - name: Test SSH
+        run: |
+          ssh -o StrictHostKeyChecking=no -i dev_key.pem ${EC2_USER}@${EC2_HOST} "echo connected"
+
+      - name: 🚀 Deploy to DEV EC2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "${PRIVATE_KEY}" > dev_key.pem
+          chmod 600 dev_key.pem
+      
+          ssh -o StrictHostKeyChecking=no -i dev_key.pem ${EC2_USER}@${EC2_HOST} << 'EOF'
+          
+          set -e
+          echo "🚀 Dev Deployment started..."
+      
+          # Ensure dev directory exists
+          sudo mkdir -p /var/www/epi-backend-dev
+          sudo chown ubuntu:ubuntu /var/www/epi-backend-dev
+          cd /var/www/epi-backend-dev
+
+          # Pull latest developer branch
+          if [ -d .git ]; then
+            git fetch origin dev
+            git reset --hard origin/dev
+          else
+            git clone --branch developer https://github.com/nabeelanasaritsaoirse/epi.backend.git .
+          fi
+
+          echo "📦 Installing dependencies..."
+          npm install
+      
+          echo "🧾 Writing DEV environment variables..."
+          cat > .env << ENVEND
+          PORT=5000
+
+          # Required DEV variables
+          MONGODB_URI=${{ secrets.DEV_MONGODB_URI }}
+          JWT_SECRET=${{ secrets.DEV_JWT_SECRET }}
+
+          # Common Secrets (same for prod & dev)
+          FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_CLIENT_EMAIL=${{ secrets.FIREBASE_CLIENT_EMAIL }}
+          FIREBASE_PRIVATE_KEY=${{ secrets.FIREBASE_PRIVATE_KEY }}
+
+          AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+          ENVEND
+      
+          echo "🔁 Restarting PM2 for DEV..."
+          pm2 describe epi-backend-dev >/dev/null 2>&1
+          if [ $? -eq 0 ]; then
+            pm2 restart epi-backend-dev --update-env
+          else
+            pm2 start index.js --name epi-backend-dev
+          fi
+      
+          pm2 save
+
+          echo "-------------------------------------"
+          echo "✅ DEV Deployment completed!"
+          echo "-------------------------------------"
+          EOF
