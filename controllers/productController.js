@@ -1801,6 +1801,50 @@ exports.reorderProductImages = async (req, res) => {
   }
 };
 
+// GET /api/products/category/:categoryId
+exports.getProductsByCategoryId = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+    const { page = 1, limit = 10, region = 'global' } = req.query;
+
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = parseInt(limit, 10) || 10;
+
+    // Category _id reference on Product
+    const filter = {
+      'category.main': categoryId,
+    }; // matches getAllProducts category filter style [attached_file:38][web:32]
+
+    if (region && region !== 'all' && region !== 'global') {
+      filter['regionalAvailability.region'] = region;
+      filter['regionalAvailability.isAvailable'] = true;
+    } // same region semantics as other product endpoints [attached_file:38][web:5]
+
+    const products = await Product.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limitNum)
+      .skip((pageNum - 1) * limitNum);
+
+    const total = await Product.countDocuments(filter);
+
+    res.json({
+      success: true,
+      data: products,
+      pagination: {
+        current: pageNum,
+        pages: Math.ceil(total / limitNum),
+        total,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+
 /**
  * @desc    Reorder variant images
  * @route   PUT /api/products/:productId/variants/:variantId/images/reorder
@@ -1875,3 +1919,4 @@ exports.reorderVariantImages = async (req, res) => {
     });
   }
 };
+
