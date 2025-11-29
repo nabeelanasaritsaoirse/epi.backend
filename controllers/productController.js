@@ -191,7 +191,7 @@ exports.getAllProducts = async (req, res) => {
     // -----------------------------------------
     // BASIC FILTERS
     // -----------------------------------------
-    if (category) filter["category.main"] = category;
+    if (category) filter["category.mainCategoryId"] = category;
     if (brand) filter.brand = brand;
     if (status) filter.status = status;
 
@@ -496,7 +496,7 @@ exports.getProductsByCategory = async (req, res) => {
     const { category } = req.params;
     const { page = 1, limit = 10, region = 'global' } = req.query;
 
-    const filter = { 'category.main': category };
+    const filter = { 'category.mainCategoryId': category };
 
     if (region && region !== 'all' && region !== 'global') {
       filter['regionalAvailability.region'] = region;
@@ -586,7 +586,7 @@ exports.getProductsByRegion = async (req, res) => {
       ];
     }
     
-    if (category) filter['category.main'] = category;
+    if (category) filter['category.mainCategoryId'] = category;
     if (brand) filter.brand = brand;
     if (status) filter.status = status;
     
@@ -1160,7 +1160,7 @@ exports.searchProductsAdvanced = async (req, res) => {
     }
 
 
-    if (category) filter['category.main'] = category;
+    if (category) filter['category.mainCategoryId'] = category;
     if (brand) filter.brand = brand;
     if (projectId) filter['project.projectId'] = projectId;
     if (hasVariants) filter.hasVariants = true;
@@ -1527,7 +1527,7 @@ exports.getAllProductsForAdmin = async (req, res) => {
     }
 
     // Basic filters
-    if (category) filter["category.main"] = category;
+    if (category) filter["category.mainCategoryId"] = category;
     if (brand) filter.brand = brand;
     if (status) filter.status = status;
 
@@ -1811,7 +1811,7 @@ exports.getProductsByCategoryId = async (req, res) => {
 
     // 🔥 THIS IS THE CRITICAL FIX
     const filter = {
-      'category.mainCategoryId': categoryId  // ← CHANGED FROM 'category.main'
+      'category.mainCategoryIdCategoryId': categoryId  // ← CHANGED FROM 'category.mainCategoryId'
     };
 
     const products = await Product.find(filter)
@@ -1915,6 +1915,7 @@ exports.reorderVariantImages = async (req, res) => {
     });
   }
 };
+
 
 
 
