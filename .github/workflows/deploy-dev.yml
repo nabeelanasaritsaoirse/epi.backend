@@ -110,3 +110,20 @@ jobs:
           echo "✅ DEV Deployment completed!"
           echo "-------------------------------------"
           EOF
+
+      - name: 🧾 Add summary with clickable links
+        if: success()
+        run: |
+          echo "## 🚀 DEV Backend Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "**🔹 API Domain (GoDaddy DNS - DEV):**" >> $GITHUB_STEP_SUMMARY
+          echo "[https://dev-api.epielio.com](https://dev-api.epielio.com)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+  
+          echo "**🔹 PM2 Process (DEV):**" >> $GITHUB_STEP_SUMMARY
+          echo "\`pm2 status epi-backend-dev\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+  
+          echo "✅ DEV backend deployment completed successfully!" >> $GITHUB_STEP_SUMMARY
+
