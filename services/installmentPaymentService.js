@@ -37,6 +37,10 @@ const {
   RazorpayVerificationError,
   TransactionFailedError,
 } = require("../utils/customErrors");
+const {
+  checkMilestoneReached,
+  applyMilestoneFreeDaysToSchedule,
+} = require("../utils/installmentHelpers");
 
 /**
  * Verify Razorpay payment signature
@@ -98,13 +102,15 @@ async function processPayment(paymentData) {
     $or: [{ _id: orderId }, { orderId }],
   }).populate("referrer", "name email");
 
-  // ⭐ NEW: Check one-payment-per-day rule
-  if (!order.canPayToday()) {
-    throw new Error('You have already made a payment for this order today. Please try again tomorrow.');
-  }
-
   if (!order) {
     throw new OrderNotFoundError(orderId);
+  }
+
+  // ⭐ ONE-PAYMENT-PER-DAY RULE
+  if (!order.canPayToday()) {
+    throw new Error(
+      "You have already made a payment for this order today. Please try again tomorrow."
+    );
   }
 
   // Verify user owns this order
@@ -125,13 +131,13 @@ async function processPayment(paymentData) {
     throw new InvalidOrderStatusError(order.status, "ACTIVE");
   }
 
-  // Check if already fully paid
+  // Check if already fully paid (money-wise)
   if (isOrderFullyPaid(order.productPrice, order.totalPaidAmount)) {
     throw new OrderAlreadyCompletedError(orderId);
   }
 
   // ========================================
-  // 2. Get Next Pending Installment
+  // 2. Get Next Pending Installment (payable)
   // ========================================
   const nextInstallment = order.getNextPendingInstallment();
 
@@ -177,7 +183,6 @@ async function processPayment(paymentData) {
   // 5. Start MongoDB Transaction
   // ========================================
   // DISABLED FOR LOCAL DEVELOPMENT: MongoDB transactions require replica set
-  // Uncomment for production use with replica set
   // const session = await mongoose.startSession();
   // session.startTransaction();
   const session = null; // Disabled for local development
@@ -227,7 +232,7 @@ async function processPayment(paymentData) {
     await payment.save(); // session disabled for local development
 
     // ========================================
-    // 8. Update Order
+    // 8. Update Order (base payment)
     // ========================================
     order.paidInstallments += 1;
     order.totalPaidAmount += paymentAmount;
@@ -236,7 +241,7 @@ async function processPayment(paymentData) {
       order.productPrice - order.totalPaidAmount
     );
 
-    // Update payment schedule
+    // Update payment schedule item
     const scheduleIndex = order.paymentSchedule.findIndex(
       (item) => item.installmentNumber === installmentNumber
     );
@@ -247,10 +252,66 @@ async function processPayment(paymentData) {
       order.paymentSchedule[scheduleIndex].paymentId = payment._id;
     }
 
-    // Check if order is fully paid
+    // First, check normal "money paid" completion
     if (isOrderFullyPaid(order.productPrice, order.totalPaidAmount)) {
       order.status = "COMPLETED";
       order.completedAt = new Date();
+    }
+
+    // ⭐ MILESTONE LOGIC (FREE DAYS COUNT AS PROGRESS)
+    if (
+      order.couponType === "MILESTONE_REWARD" &&
+      !order.milestoneRewardApplied &&
+      checkMilestoneReached(order)
+    ) {
+      console.log("🎉 Milestone reached! Applying milestone reward...");
+
+      // Count FREE before
+      const beforeFreeCount = order.paymentSchedule.filter(
+        (inst) => inst.status === "FREE"
+      ).length;
+
+      // Apply FREE days to earliest pending installments
+      order.paymentSchedule = applyMilestoneFreeDaysToSchedule(order);
+
+      // Count FREE after
+      const afterFreeCount = order.paymentSchedule.filter(
+        (inst) => inst.status === "FREE"
+      ).length;
+
+      const newlyFree = Math.max(0, afterFreeCount - beforeFreeCount);
+
+      // Treat FREE milestone days as "paid installments" for progress
+      if (newlyFree > 0) {
+        order.paidInstallments += newlyFree;
+      }
+
+      order.milestoneRewardApplied = true;
+      order.milestoneRewardAppliedAt = new Date();
+
+      // Money-wise remaining is still based on actual paid amount
+      order.remainingAmount = Math.max(
+        0,
+        order.productPrice - order.totalPaidAmount
+      );
+
+      console.log(
+        `🎁 ${order.milestoneFreeDays} FREE days applied to order ${order.orderId} (new free days: ${newlyFree})`
+      );
+    }
+
+    // ✅ FINAL COMPLETION CHECK:
+    // If there is NO PENDING installment with amount > 0,
+    // the order is effectively fully completed (all payable days done,
+    // only FREE days left).
+    const hasPendingPayable = order.paymentSchedule.some(
+      (inst) => inst.status === "PENDING" && inst.amount > 0
+    );
+
+    if (!hasPendingPayable) {
+      order.status = "COMPLETED";
+      order.completedAt = order.completedAt || new Date();
+      order.remainingAmount = 0;
     }
 
     await order.save(); // session disabled for local development
@@ -285,17 +346,15 @@ async function processPayment(paymentData) {
 
       // Update order total commission
       order.totalCommissionPaid += commissionAmount;
-
-      // ⭐ NEW: Update lastPaymentDate for one-per-day rule
-      order.lastPaymentDate = new Date();
-
-      await order.save(); // session disabled for local development
     }
+
+    // ⭐ Always update lastPaymentDate AFTER a successful payment
+    order.lastPaymentDate = new Date();
+    await order.save(); // session disabled for local development
 
     // ========================================
     // 10. Commit Transaction
     // ========================================
-    // DISABLED FOR LOCAL DEVELOPMENT: MongoDB transactions require replica set
     // await session.commitTransaction();
 
     return {
@@ -311,12 +370,10 @@ async function processPayment(paymentData) {
         : null,
     };
   } catch (error) {
-    // DISABLED FOR LOCAL DEVELOPMENT: MongoDB transactions require replica set
     // await session.abortTransaction();
     console.error("Payment processing failed:", error);
     throw new TransactionFailedError(error.message);
   } finally {
-    // DISABLED FOR LOCAL DEVELOPMENT: MongoDB transactions require replica set
     // session.endSession();
   }
 }
@@ -470,6 +527,7 @@ async function getPaymentStats(userId = null) {
 
   return stats;
 }
+
 /**
  * Get daily pending installment payments for user
  */
@@ -519,6 +577,80 @@ async function getDailyPendingPayments(userId) {
 }
 
 /**
+ * ⭐ NEW: Create combined Razorpay order for multiple installments
+ *
+ * @param {string} userId - User ID
+ * @param {Array<string>} selectedOrders - Array of order IDs
+ * @returns {Promise<Object>} Razorpay order details
+ */
+async function createCombinedRazorpayOrder(userId, selectedOrders) {
+  if (!selectedOrders || selectedOrders.length === 0) {
+    throw new Error('At least one order must be selected');
+  }
+
+  // Get all selected orders
+  const orders = await InstallmentOrder.find({
+    $or: selectedOrders.map((id) =>
+      mongoose.Types.ObjectId.isValid(id) ? { _id: id } : { orderId: id }
+    ),
+    user: userId,
+    status: 'ACTIVE',
+  });
+
+  if (orders.length === 0) {
+    throw new Error('No active orders found');
+  }
+
+  if (orders.length !== selectedOrders.length) {
+    throw new Error('Some selected orders are not available for payment');
+  }
+
+  // Validate all orders can pay today
+  for (const order of orders) {
+    if (!order.canPayToday()) {
+      throw new Error(`Order ${order.orderId} has already been paid today`);
+    }
+    if (!order.canAcceptPayment()) {
+      throw new Error(`Order ${order.orderId} cannot accept payment`);
+    }
+  }
+
+  // Calculate total amount
+  const totalAmount = orders.reduce((sum, order) => {
+    const nextInstallment = order.getNextPendingInstallment();
+    return sum + (nextInstallment?.amount || order.dailyPaymentAmount);
+  }, 0);
+
+  // Create Razorpay order
+  const razorpayOrder = await razorpay.orders.create({
+    amount: totalAmount * 100, // Convert to paise
+    currency: 'INR',
+    receipt: `combined_${Date.now()}`,
+    payment_capture: 1,
+    notes: {
+      userId: userId,
+      orderCount: orders.length,
+      orderIds: orders.map((o) => o.orderId).join(','),
+      type: 'combined_daily_payment',
+    },
+  });
+
+  return {
+    razorpayOrderId: razorpayOrder.id,
+    amount: razorpayOrder.amount,
+    currency: razorpayOrder.currency,
+    keyId: process.env.RAZORPAY_KEY_ID,
+    totalAmount,
+    orderCount: orders.length,
+    orders: orders.map((order) => ({
+      orderId: order.orderId,
+      productName: order.productName,
+      dailyAmount: order.dailyPaymentAmount,
+    })),
+  };
+}
+
+/**
  * ⭐ NEW: Process combined daily payment for multiple orders
  *
  * Allows user to pay for multiple orders in a single transaction.
@@ -540,30 +672,32 @@ async function processSelectedDailyPayments(data) {
     paymentMethod,
     razorpayOrderId,
     razorpayPaymentId,
-    razorpaySignature
+    razorpaySignature,
   } = data;
 
-  const commissionService = require('./commissionService');
+  const commissionService = require("./commissionService");
 
-  console.log(`🔄 Processing combined payment for ${selectedOrders.length} orders`);
+  console.log(
+    `🔄 Processing combined payment for ${selectedOrders.length} orders`
+  );
 
   // ========================================
   // 1. Get All Selected Orders
   // ========================================
   const orders = await InstallmentOrder.find({
-    $or: selectedOrders.map(id =>
+    $or: selectedOrders.map((id) =>
       mongoose.Types.ObjectId.isValid(id) ? { _id: id } : { orderId: id }
     ),
     user: userId,
-    status: 'ACTIVE'
-  }).populate('referrer', 'name email');
+    status: "ACTIVE",
+  }).populate("referrer", "name email");
 
   if (orders.length === 0) {
-    throw new Error('No active orders found for payment');
+    throw new Error("No active orders found for payment");
   }
 
   if (orders.length !== selectedOrders.length) {
-    throw new Error('Some selected orders are not available for payment');
+    throw new Error("Some selected orders are not available for payment");
   }
 
   // ========================================
@@ -591,19 +725,21 @@ async function processSelectedDailyPayments(data) {
   // ========================================
   // 4. Verify Razorpay Payment (if applicable)
   // ========================================
-  if (paymentMethod === 'RAZORPAY') {
+  if (paymentMethod === "RAZORPAY") {
     if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
-      throw new Error('Razorpay payment details are required');
+      throw new Error("Razorpay payment details are required");
     }
-    verifyRazorpaySignature(razorpayOrderId, razorpayPaymentId, razorpaySignature);
-    console.log('✅ Razorpay signature verified');
+    verifyRazorpaySignature(
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature
+    );
+    console.log("✅ Razorpay signature verified");
   }
 
   // ========================================
   // 5. Start MongoDB Transaction
   // ========================================
-  // DISABLED FOR LOCAL DEVELOPMENT: MongoDB transactions require replica set
-  // Uncomment for production use with replica set
   // const session = await mongoose.startSession();
   // session.startTransaction();
   const session = null; // Disabled for local development
@@ -619,16 +755,18 @@ async function processSelectedDailyPayments(data) {
       const nextInstallment = order.getNextPendingInstallment();
       const paymentAmount = nextInstallment?.amount || order.dailyPaymentAmount;
 
-      // Handle wallet deduction (only for first order, we already verified total)
+      // Handle wallet deduction
       let walletTransactionId = null;
-      if (paymentMethod === 'WALLET') {
-        // Deduct individual amount for this order
+      if (paymentMethod === "WALLET") {
         const walletResult = await deductFromWallet(
           userId,
           paymentAmount,
           `Payment for order ${order.orderId}`,
           null, // session disabled for local development
-          { orderId: order._id, installmentNumber: nextInstallment.installmentNumber }
+          {
+            orderId: order._id,
+            installmentNumber: nextInstallment.installmentNumber,
+          }
         );
         walletTransactionId = walletResult.walletTransaction._id;
       }
@@ -640,45 +778,110 @@ async function processSelectedDailyPayments(data) {
         amount: paymentAmount,
         installmentNumber: nextInstallment.installmentNumber,
         paymentMethod,
-        razorpayOrderId: paymentMethod === 'RAZORPAY' ? razorpayOrderId : null,
-        razorpayPaymentId: paymentMethod === 'RAZORPAY' ? razorpayPaymentId : null,
-        razorpaySignature: paymentMethod === 'RAZORPAY' ? razorpaySignature : null,
-        razorpayVerified: paymentMethod === 'RAZORPAY',
+        razorpayOrderId: paymentMethod === "RAZORPAY" ? razorpayOrderId : null,
+        razorpayPaymentId:
+          paymentMethod === "RAZORPAY" ? razorpayPaymentId : null,
+        razorpaySignature:
+          paymentMethod === "RAZORPAY" ? razorpaySignature : null,
+        razorpayVerified: paymentMethod === "RAZORPAY",
         walletTransactionId,
-        status: 'COMPLETED',
-        idempotencyKey: generateIdempotencyKey(order._id.toString(), userId, nextInstallment.installmentNumber),
+        status: "COMPLETED",
+        idempotencyKey: generateIdempotencyKey(
+          order._id.toString(),
+          userId,
+          nextInstallment.installmentNumber
+        ),
         processedAt: new Date(),
-        completedAt: new Date()
+        completedAt: new Date(),
       });
 
       await payment.save(); // session disabled for local development
 
-      // Update order
+      // Update order base fields
       order.paidInstallments += 1;
       order.totalPaidAmount += paymentAmount;
-      order.lastPaymentDate = new Date();  // ⭐ NEW
+      order.remainingAmount = Math.max(
+        0,
+        order.productPrice - order.totalPaidAmount
+      );
+      order.lastPaymentDate = new Date();
 
       // Update payment schedule
-      const scheduleItem = order.paymentSchedule[nextInstallment.installmentNumber - 1];
-      scheduleItem.status = 'PAID';
-      scheduleItem.paidDate = new Date();
-      scheduleItem.paymentId = payment._id;
+      const scheduleItem =
+        order.paymentSchedule[nextInstallment.installmentNumber - 1];
+      if (scheduleItem) {
+        scheduleItem.status = "PAID";
+        scheduleItem.paidDate = new Date();
+        scheduleItem.paymentId = payment._id;
+      }
 
-      // Check if order is fully paid
+      // Normal money-based completion
       if (isOrderFullyPaid(order.productPrice, order.totalPaidAmount)) {
-        order.status = 'COMPLETED';
+        order.status = "COMPLETED";
         order.completedAt = new Date();
-        console.log(`✅ Order ${order.orderId} completed!`);
+        console.log(`✅ Order ${order.orderId} completed by payments!`);
+      }
+
+      // ⭐ MILESTONE LOGIC also for combined payments
+      if (
+        order.couponType === "MILESTONE_REWARD" &&
+        !order.milestoneRewardApplied &&
+        checkMilestoneReached(order)
+      ) {
+        console.log(
+          `🎉 Milestone reached (combined) for order ${order.orderId}, applying reward...`
+        );
+
+        const beforeFreeCount = order.paymentSchedule.filter(
+          (inst) => inst.status === "FREE"
+        ).length;
+
+        order.paymentSchedule = applyMilestoneFreeDaysToSchedule(order);
+
+        const afterFreeCount = order.paymentSchedule.filter(
+          (inst) => inst.status === "FREE"
+        ).length;
+
+        const newlyFree = Math.max(0, afterFreeCount - beforeFreeCount);
+
+        if (newlyFree > 0) {
+          order.paidInstallments += newlyFree;
+        }
+
+        order.milestoneRewardApplied = true;
+        order.milestoneRewardAppliedAt = new Date();
+
+        order.remainingAmount = Math.max(
+          0,
+          order.productPrice - order.totalPaidAmount
+        );
+
+        const hasPendingPayable = order.paymentSchedule.some(
+          (inst) => inst.status === "PENDING" && inst.amount > 0
+        );
+
+        if (!hasPendingPayable) {
+          order.status = "COMPLETED";
+          order.completedAt = new Date();
+          console.log(
+            `✅ Order ${order.orderId} completed via milestone reward (combined flow)`
+          );
+        }
+
+        console.log(
+          `🎁 ${order.milestoneFreeDays} FREE days applied (combined) to order ${order.orderId}, new free days: ${newlyFree}`
+        );
       }
 
       await order.save(); // session disabled for local development
 
       // Calculate commission
-      const commissionResult = await commissionService.calculateAndCreditCommission({
-        order,
-        payment,
-        session: null // session disabled for local development
-      });
+      const commissionResult =
+        await commissionService.calculateAndCreditCommission({
+          order,
+          payment,
+          session: null, // session disabled for local development
+        });
 
       commissionResults.push(commissionResult);
 
@@ -687,14 +890,10 @@ async function processSelectedDailyPayments(data) {
         paymentId: payment.paymentId,
         amount: paymentAmount,
         installmentNumber: nextInstallment.installmentNumber,
-        orderStatus: order.status
+        orderStatus: order.status,
       });
     }
 
-    // ========================================
-    // 7. Commit Transaction
-    // ========================================
-    // DISABLED FOR LOCAL DEVELOPMENT: MongoDB transactions require replica set
     // await session.commitTransaction();
 
     console.log(`✅ Combined payment successful for ${results.length} orders`);
@@ -704,16 +903,13 @@ async function processSelectedDailyPayments(data) {
       totalAmount,
       ordersProcessed: results.length,
       payments: results,
-      commissions: commissionResults.filter(c => c.commissionCalculated)
+      commissions: commissionResults.filter((c) => c.commissionCalculated),
     };
-
   } catch (error) {
-    // DISABLED FOR LOCAL DEVELOPMENT: MongoDB transactions require replica set
     // await session.abortTransaction();
-    console.error('❌ Combined payment failed:', error);
+    console.error("❌ Combined payment failed:", error);
     throw new TransactionFailedError(error.message);
   } finally {
-    // DISABLED FOR LOCAL DEVELOPMENT: MongoDB transactions require replica set
     // session.endSession();
   }
 }
@@ -727,5 +923,6 @@ module.exports = {
   getPaymentStats,
   verifyRazorpaySignature,
   getDailyPendingPayments,
-  processSelectedDailyPayments,  // ⭐ NEW
+  createCombinedRazorpayOrder, // ⭐ NEW
+  processSelectedDailyPayments, // ⭐ NEW
 };

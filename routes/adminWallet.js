@@ -277,4 +277,229 @@ router.post("/unlock", verifyToken, isAdmin, async (req, res) => {
   }
 });
 
+/* ---------------------------------------------------
+   GET ALL WITHDRAWAL REQUESTS
+   Query params:
+     - status: pending/completed/failed/all (default: all)
+     - limit: number of records (default: 50)
+     - page: page number (default: 1)
+----------------------------------------------------*/
+router.get("/withdrawals", verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { status = 'all', limit = 50, page = 1 } = req.query;
+
+    // Build query filter
+    const filter = { type: 'withdrawal' };
+    if (status !== 'all') {
+      filter.status = status;
+    }
+
+    // Calculate pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Get total count
+    const totalCount = await Transaction.countDocuments(filter);
+
+    // Fetch withdrawal transactions with user details
+    const withdrawals = await Transaction.find(filter)
+      .populate('user', 'name email phoneNumber')
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip(skip);
+
+    // Calculate summary statistics
+    const summary = {
+      total: totalCount,
+      pending: await Transaction.countDocuments({ type: 'withdrawal', status: 'pending' }),
+      completed: await Transaction.countDocuments({ type: 'withdrawal', status: 'completed' }),
+      failed: await Transaction.countDocuments({ type: 'withdrawal', status: 'failed' }),
+      cancelled: await Transaction.countDocuments({ type: 'withdrawal', status: 'cancelled' }),
+
+      totalPendingAmount: (await Transaction.aggregate([
+        { $match: { type: 'withdrawal', status: 'pending' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]))[0]?.total || 0,
+
+      totalCompletedAmount: (await Transaction.aggregate([
+        { $match: { type: 'withdrawal', status: 'completed' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]))[0]?.total || 0
+    };
+
+    return res.json({
+      success: true,
+      withdrawals,
+      summary,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalCount / parseInt(limit)),
+        totalRecords: totalCount,
+        limit: parseInt(limit)
+      }
+    });
+
+  } catch (err) {
+    console.error("Admin get withdrawals error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+});
+
+/* ---------------------------------------------------
+   APPROVE/COMPLETE WITHDRAWAL REQUEST
+   Body:
+     - transactionId: ID of withdrawal transaction
+     - adminNotes: Optional admin notes
+----------------------------------------------------*/
+router.post("/withdrawals/approve", verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { transactionId, adminNotes } = req.body;
+
+    if (!transactionId) {
+      return res.status(400).json({
+        success: false,
+        message: "Transaction ID is required"
+      });
+    }
+
+    // Find the withdrawal transaction
+    const tx = await Transaction.findById(transactionId).populate('user', 'name email phoneNumber');
+
+    if (!tx) {
+      return res.status(404).json({
+        success: false,
+        message: "Transaction not found"
+      });
+    }
+
+    if (tx.type !== 'withdrawal') {
+      return res.status(400).json({
+        success: false,
+        message: "This is not a withdrawal transaction"
+      });
+    }
+
+    if (tx.status === 'completed') {
+      return res.status(400).json({
+        success: false,
+        message: "Withdrawal already completed"
+      });
+    }
+
+    if (tx.status === 'cancelled') {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot approve cancelled withdrawal"
+      });
+    }
+
+    // Update transaction status to completed
+    tx.status = 'completed';
+    if (adminNotes) {
+      tx.description = `${tx.description} | Admin Notes: ${adminNotes}`;
+    }
+    tx.paymentDetails.approvedBy = req.user._id;
+    tx.paymentDetails.approvedAt = new Date();
+    await tx.save();
+
+    // Recalculate user wallet (this will deduct the amount)
+    await recalcWallet(tx.user._id);
+
+    return res.json({
+      success: true,
+      message: "Withdrawal approved and completed successfully",
+      transaction: tx
+    });
+
+  } catch (err) {
+    console.error("Admin approve withdrawal error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+});
+
+/* ---------------------------------------------------
+   REJECT/CANCEL WITHDRAWAL REQUEST
+   Body:
+     - transactionId: ID of withdrawal transaction
+     - reason: Reason for rejection
+----------------------------------------------------*/
+router.post("/withdrawals/reject", verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { transactionId, reason } = req.body;
+
+    if (!transactionId) {
+      return res.status(400).json({
+        success: false,
+        message: "Transaction ID is required"
+      });
+    }
+
+    if (!reason) {
+      return res.status(400).json({
+        success: false,
+        message: "Rejection reason is required"
+      });
+    }
+
+    // Find the withdrawal transaction
+    const tx = await Transaction.findById(transactionId).populate('user', 'name email phoneNumber');
+
+    if (!tx) {
+      return res.status(404).json({
+        success: false,
+        message: "Transaction not found"
+      });
+    }
+
+    if (tx.type !== 'withdrawal') {
+      return res.status(400).json({
+        success: false,
+        message: "This is not a withdrawal transaction"
+      });
+    }
+
+    if (tx.status === 'completed') {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot reject completed withdrawal"
+      });
+    }
+
+    if (tx.status === 'cancelled') {
+      return res.status(400).json({
+        success: false,
+        message: "Withdrawal already cancelled"
+      });
+    }
+
+    // Update transaction status to cancelled
+    tx.status = 'cancelled';
+    tx.description = `${tx.description} | Rejected - Reason: ${reason}`;
+    tx.paymentDetails.rejectedBy = req.user._id;
+    tx.paymentDetails.rejectedAt = new Date();
+    tx.paymentDetails.rejectionReason = reason;
+    await tx.save();
+
+    // Note: We don't recalculate wallet as the amount was never deducted (transaction was pending)
+
+    return res.json({
+      success: true,
+      message: "Withdrawal request rejected successfully",
+      transaction: tx
+    });
+
+  } catch (err) {
+    console.error("Admin reject withdrawal error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+});
+
 module.exports = router;

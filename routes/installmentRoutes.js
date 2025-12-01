@@ -129,6 +129,17 @@ router.post(
   orderController.cancelOrder
 );
 
+/**
+ * @route   GET /api/installments/dashboard/overview
+ * @desc    Get comprehensive dashboard overview
+ * @access  Private
+ */
+router.get(
+  "/dashboard/overview",
+  verifyToken,
+  orderController.getDashboardOverview
+);
+
 // ============================================
 // USER ROUTES - Payment Processing
 // ============================================
@@ -210,6 +221,30 @@ router.get(
   "/payments/daily-pending",
   verifyToken,
   paymentController.getDailyPendingPayments
+);
+
+/**
+ * @route   POST /api/installment-payments/create-combined-razorpay
+ * @desc    Create Razorpay order for multiple installments
+ * @access  Private
+ */
+router.post(
+  "/payments/create-combined-razorpay",
+  verifyToken,
+  sanitizeInput,
+  paymentController.createCombinedRazorpayOrder
+);
+
+/**
+ * @route   POST /api/installment-payments/pay-daily-selected
+ * @desc    Process daily payments for multiple orders in one transaction
+ * @access  Private
+ */
+router.post(
+  "/payments/pay-daily-selected",
+  verifyToken,
+  sanitizeInput,
+  paymentController.processSelectedDailyPayments
 );
 
 /**

@@ -3,7 +3,11 @@ const mongoose = require('mongoose');
 const imageSchema = new mongoose.Schema({
   url: String,
   isPrimary: Boolean,
-  altText: String
+  altText: String,
+  order: {
+    type: Number,
+    default: 1
+  }
 });
 
 const installmentSchema = new mongoose.Schema({
@@ -261,7 +265,15 @@ const productSchema = new mongoose.Schema({
   isTrending: { type: Boolean, default: false },
   
   createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
+  updatedAt: { type: Date, default: Date.now },
+
+  // Soft delete fields
+  isDeleted: { type: Boolean, default: false },
+  deletedAt: { type: Date },
+  deletedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }
 });
 
 

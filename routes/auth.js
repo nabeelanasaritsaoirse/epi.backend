@@ -265,6 +265,32 @@ router.post("/signup", async (req, res) => {
       referrer = await User.findOne({ referralCode: codeToUse });
 
       if (referrer) {
+        // Check if referrer has reached their referral limit
+        const currentReferralCount = referrer.referredUsers?.length || 0;
+        const referralLimit = referrer.referralLimit || 50;
+
+        if (currentReferralCount >= referralLimit) {
+          await user.save();
+
+          const tokens = generateTokens(user._id.toString(), user.role);
+
+          return res.status(400).json({
+            success: false,
+            message: "Referral limit exceeded. The referrer has reached their maximum referral capacity.",
+            code: "REFERRAL_LIMIT_EXCEEDED",
+            data: {
+              userId: user._id,
+              name: user.name,
+              email: user.email,
+              phoneNumber: user.phoneNumber,
+              role: user.role,
+              referralCode: user.referralCode,
+              accessToken: tokens.accessToken,
+              refreshToken: tokens.refreshToken
+            }
+          });
+        }
+
         user.referredBy = referrer._id;
         await user.save();
 
@@ -787,7 +813,7 @@ router.post("/applyReferralCode", verifyToken, async (req, res) => {
 
     const referrer = await User.findOne({ referralCode: referralCode });
     if (!referrer) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
         message: "Invalid referral code",
         code: "INVALID_REFERRAL_CODE"
@@ -795,10 +821,22 @@ router.post("/applyReferralCode", verifyToken, async (req, res) => {
     }
 
     if (referrer._id.toString() === user._id.toString()) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
         message: "You cannot use your own referral code",
         code: "SELF_REFERRAL"
+      });
+    }
+
+    // Check if referrer has reached their referral limit
+    const currentReferralCount = referrer.referredUsers?.length || 0;
+    const referralLimit = referrer.referralLimit || 50;
+
+    if (currentReferralCount >= referralLimit) {
+      return res.status(400).json({
+        success: false,
+        message: "Referral limit exceeded. The referrer has reached their maximum referral capacity.",
+        code: "REFERRAL_LIMIT_EXCEEDED"
       });
     }
 
@@ -1053,6 +1091,82 @@ router.put("/:userId/agree-terms", verifyToken, async (req, res) => {
   }
 });
 
+/**
+ * @route   GET /api/auth/referral-stats/:userId
+ * @desc    Get user's referral statistics with limit info
+ * @access  Public (or can add verifyToken if needed)
+ */
+router.get("/referral-stats/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // Validate userId
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "User ID is required",
+        code: "NO_USER_ID"
+      });
+    }
+
+    // Find user with populated referredUsers
+    const user = await User.findById(userId)
+      .select('name email referralCode referredUsers referralLimit')
+      .populate('referredUsers', 'name email profilePicture createdAt');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+        code: "USER_NOT_FOUND"
+      });
+    }
+
+    // Calculate referral statistics
+    const totalReferrals = user.referredUsers?.length || 0;
+    const referralLimit = user.referralLimit || 50;
+    const remainingReferrals = Math.max(0, referralLimit - totalReferrals);
+    const limitReached = totalReferrals >= referralLimit;
+
+    // Format referred users list
+    const referredUsersList = (user.referredUsers || []).map(refUser => ({
+      userId: refUser._id,
+      name: refUser.name,
+      email: refUser.email,
+      profilePicture: refUser.profilePicture || '',
+      joinedAt: refUser.createdAt
+    }));
+
+    return res.status(200).json({
+      success: true,
+      message: "Referral statistics fetched successfully",
+      data: {
+        userInfo: {
+          userId: user._id,
+          name: user.name,
+          email: user.email,
+          referralCode: user.referralCode
+        },
+        referralStats: {
+          totalReferrals,
+          referralLimit,
+          remainingReferrals,
+          limitReached,
+          usagePercentage: referralLimit > 0 ? Math.round((totalReferrals / referralLimit) * 100) : 0
+        },
+        referredUsers: referredUsersList
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching referral stats:', error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message
+    });
+  }
+});
 
 
 module.exports = router;

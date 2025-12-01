@@ -1,7 +1,7 @@
 const Product = require('../models/Product');
 const mongoose = require('mongoose');
 const { calculateEquivalentValues, generateInstallmentOptions } = require('../utils/productUtils');
-const { uploadSingleFileToS3, uploadMultipleFilesToS3 } = require('../services/awsUploadService');
+const { uploadSingleFileToS3, uploadMultipleFilesToS3, deleteImageFromS3 } = require('../services/awsUploadService');
 
 // Create product and a number of product CRUD helpers with enhanced regional features
 exports.createProduct = async (req, res) => {
@@ -156,6 +156,15 @@ exports.getAllProducts = async (req, res) => {
     const filter = {};
 
     // -----------------------------------------
+    // SOFT DELETE FILTER
+    // -----------------------------------------
+    // Filter out soft deleted products for non-admin users
+    const isAdmin = req.user && req.user.role === 'admin';
+    if (!isAdmin) {
+      filter.isDeleted = false;
+    }
+
+    // -----------------------------------------
     // VARIANT FILTERING (CLEAN + NO CONFLICTS)
     // -----------------------------------------
 
@@ -182,7 +191,7 @@ exports.getAllProducts = async (req, res) => {
     // -----------------------------------------
     // BASIC FILTERS
     // -----------------------------------------
-    if (category) filter["category.main"] = category;
+    if (category) filter["category.mainCategoryId"] = category;
     if (brand) filter.brand = brand;
     if (status) filter.status = status;
 
@@ -403,25 +412,80 @@ exports.deleteProduct = async (req, res) => {
   try {
     const id = req.params.productId;
 
-    let deleted = await Product.findOneAndDelete({ productId: id });
-    if (!deleted && mongoose.isValidObjectId(id)) {
-      deleted = await Product.findByIdAndDelete(id);
+    let product = await Product.findOne({ productId: id });
+    if (!product && mongoose.isValidObjectId(id)) {
+      product = await Product.findById(id);
     }
 
-    if (!deleted) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Product not found" 
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found"
       });
     }
 
-    res.json({ 
-      success: true, 
-      message: "Product deleted successfully" 
+    // Check if already deleted
+    if (product.isDeleted) {
+      return res.status(400).json({
+        success: false,
+        message: "Product is already deleted",
+      });
+    }
+
+    // Soft delete the product
+    product.isDeleted = true;
+    product.deletedAt = new Date();
+    product.deletedBy = req.user?._id || null;
+    await product.save();
+
+    res.json({
+      success: true,
+      message: "Product deleted successfully"
     });
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+exports.restoreProduct = async (req, res) => {
+  try {
+    const id = req.params.productId;
+
+    let product = await Product.findOne({ productId: id });
+    if (!product && mongoose.isValidObjectId(id)) {
+      product = await Product.findById(id);
+    }
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found"
+      });
+    }
+
+    if (!product.isDeleted) {
+      return res.status(400).json({
+        success: false,
+        message: "Product is not deleted"
+      });
+    }
+
+    product.isDeleted = false;
+    product.deletedAt = null;
+    product.deletedBy = null;
+    await product.save();
+
+    res.json({
+      success: true,
+      message: "Product restored successfully",
+      data: product
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
       message: error.message
     });
   }
@@ -432,7 +496,7 @@ exports.getProductsByCategory = async (req, res) => {
     const { category } = req.params;
     const { page = 1, limit = 10, region = 'global' } = req.query;
 
-    const filter = { 'category.main': category };
+    const filter = { 'category.mainCategoryId': category };
 
     if (region && region !== 'all' && region !== 'global') {
       filter['regionalAvailability.region'] = region;
@@ -522,7 +586,7 @@ exports.getProductsByRegion = async (req, res) => {
       ];
     }
     
-    if (category) filter['category.main'] = category;
+    if (category) filter['category.mainCategoryId'] = category;
     if (brand) filter.brand = brand;
     if (status) filter.status = status;
     
@@ -1096,7 +1160,7 @@ exports.searchProductsAdvanced = async (req, res) => {
     }
 
 
-    if (category) filter['category.main'] = category;
+    if (category) filter['category.mainCategoryId'] = category;
     if (brand) filter.brand = brand;
     if (projectId) filter['project.projectId'] = projectId;
     if (hasVariants) filter.hasVariants = true;
@@ -1414,3 +1478,444 @@ exports.getProductPlans = async (req, res) => {
     });
   }
 };
+
+/**
+ * @desc    Get all products for admin (includes deleted with indicator)
+ * @route   GET /api/products/admin/all
+ * @access  Admin
+ */
+exports.getAllProductsForAdmin = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      search,
+      category,
+      brand,
+      minPrice,
+      maxPrice,
+      status,
+      region = "global",
+      hasVariants,
+      simpleOnly,
+      showDeleted
+    } = req.query;
+
+    const filter = {};
+
+    // Show deleted products only if explicitly requested
+    if (showDeleted !== 'true') {
+      filter.isDeleted = false;
+    }
+
+    // Variant filtering
+    if (simpleOnly === "true") {
+      filter.hasVariants = false;
+    } else if (hasVariants === "true") {
+      filter.hasVariants = true;
+    } else if (hasVariants === "false") {
+      filter.hasVariants = false;
+    }
+
+    // Search
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { description: { $regex: search, $options: "i" } },
+        { "regionalSeo.metaTitle": { $regex: search, $options: "i" } },
+      ];
+    }
+
+    // Basic filters
+    if (category) filter["category.mainCategoryId"] = category;
+    if (brand) filter.brand = brand;
+    if (status) filter.status = status;
+
+    // Region filter
+    if (region && region !== "all" && region !== "global") {
+      filter["regionalAvailability.region"] = region;
+      filter["regionalAvailability.isAvailable"] = true;
+    }
+
+    // Price filter
+    if (minPrice || maxPrice) {
+      filter["pricing.finalPrice"] = {};
+      if (minPrice) filter["pricing.finalPrice"].$gte = parseFloat(minPrice);
+      if (maxPrice) filter["pricing.finalPrice"].$lte = parseFloat(maxPrice);
+    }
+
+    const products = await Product.find(filter)
+      .populate("deletedBy", "name email")
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
+
+    const total = await Product.countDocuments(filter);
+
+    res.json({
+      success: true,
+      data: products,
+      pagination: {
+        current: parseInt(page),
+        pages: Math.ceil(total / parseInt(limit)),
+        total,
+      },
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+/**
+ * @desc    Delete individual image from product
+ * @route   DELETE /api/products/:productId/images/:imageIndex
+ * @access  Admin
+ */
+exports.deleteProductImage = async (req, res) => {
+  try {
+    const { productId, imageIndex } = req.params;
+
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    // Convert imageIndex to number (1-based)
+    const index = parseInt(imageIndex);
+
+    if (isNaN(index) || index < 1) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid image index. Index must be a positive number starting from 1",
+      });
+    }
+
+    // Convert to 0-based index for array
+    const arrayIndex = index - 1;
+
+    if (!product.images || arrayIndex >= product.images.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Image index out of range",
+      });
+    }
+
+    // Get the image to delete
+    const imageToDelete = product.images[arrayIndex];
+
+    // Delete image from S3
+    if (imageToDelete.url) {
+      try {
+        await deleteImageFromS3(imageToDelete.url);
+      } catch (error) {
+        console.error("Error deleting image from S3:", error);
+        // Continue with deletion even if S3 delete fails
+      }
+    }
+
+    // Remove image from array
+    product.images.splice(arrayIndex, 1);
+
+    // Re-index remaining images (1-based)
+    product.images.forEach((img, idx) => {
+      img.order = idx + 1;
+    });
+
+    await product.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Image deleted successfully",
+      data: product,
+    });
+  } catch (error) {
+    console.error("Error deleting product image:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+/**
+ * @desc    Delete individual image from variant
+ * @route   DELETE /api/products/:productId/variants/:variantId/images/:imageIndex
+ * @access  Admin
+ */
+exports.deleteVariantImage = async (req, res) => {
+  try {
+    const { productId, variantId, imageIndex } = req.params;
+
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    // Find the variant
+    const variant = product.variants.find(v => v.variantId === variantId);
+
+    if (!variant) {
+      return res.status(404).json({
+        success: false,
+        message: "Variant not found",
+      });
+    }
+
+    // Convert imageIndex to number (1-based)
+    const index = parseInt(imageIndex);
+
+    if (isNaN(index) || index < 1) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid image index. Index must be a positive number starting from 1",
+      });
+    }
+
+    // Convert to 0-based index for array
+    const arrayIndex = index - 1;
+
+    if (!variant.images || arrayIndex >= variant.images.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Image index out of range",
+      });
+    }
+
+    // Get the image to delete
+    const imageToDelete = variant.images[arrayIndex];
+
+    // Delete image from S3
+    if (imageToDelete.url) {
+      try {
+        await deleteImageFromS3(imageToDelete.url);
+      } catch (error) {
+        console.error("Error deleting image from S3:", error);
+        // Continue with deletion even if S3 delete fails
+      }
+    }
+
+    // Remove image from array
+    variant.images.splice(arrayIndex, 1);
+
+    // Re-index remaining images (1-based)
+    variant.images.forEach((img, idx) => {
+      img.order = idx + 1;
+    });
+
+    await product.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Variant image deleted successfully",
+      data: product,
+    });
+  } catch (error) {
+    console.error("Error deleting variant image:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+/**
+ * @desc    Reorder product images
+ * @route   PUT /api/products/:productId/images/reorder
+ * @access  Admin
+ */
+exports.reorderProductImages = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const { imageOrders } = req.body;
+
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    if (!imageOrders || !Array.isArray(imageOrders)) {
+      return res.status(400).json({
+        success: false,
+        message: "imageOrders must be an array of {index: number, order: number}",
+      });
+    }
+
+    // Validate all indices are within range
+    for (const item of imageOrders) {
+      const arrayIndex = item.index - 1; // Convert from 1-based to 0-based
+      if (arrayIndex < 0 || arrayIndex >= product.images.length) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid index ${item.index}. Must be between 1 and ${product.images.length}`,
+        });
+      }
+    }
+
+    // Update order for each image
+    imageOrders.forEach(item => {
+      const arrayIndex = item.index - 1;
+      product.images[arrayIndex].order = item.order;
+    });
+
+    // Sort images by order
+    product.images.sort((a, b) => a.order - b.order);
+
+    await product.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Images reordered successfully",
+      data: product,
+    });
+  } catch (error) {
+    console.error("Error reordering product images:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+exports.getProductsByCategoryId = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+    const { page = 1, limit = 10 } = req.query;
+
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = parseInt(limit, 10) || 10;
+
+    // 🔥 THIS IS THE CRITICAL FIX
+    const filter = {
+      'category.mainCategoryIdCategoryId': categoryId  // ← CHANGED FROM 'category.mainCategoryId'
+    };
+
+    const products = await Product.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limitNum)
+      .skip((pageNum - 1) * limitNum);
+
+    const total = await Product.countDocuments(filter);
+
+    res.json({
+      success: true,
+      data: products,
+      pagination: {
+        current: pageNum,
+        pages: Math.ceil(total / limitNum),
+        total,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+
+
+
+/**
+ * @desc    Reorder variant images
+ * @route   PUT /api/products/:productId/variants/:variantId/images/reorder
+ * @access  Admin
+ */
+exports.reorderVariantImages = async (req, res) => {
+  try {
+    const { productId, variantId } = req.params;
+    const { imageOrders } = req.body;
+
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    // Find the variant
+    const variant = product.variants.find(v => v.variantId === variantId);
+
+    if (!variant) {
+      return res.status(404).json({
+        success: false,
+        message: "Variant not found",
+      });
+    }
+
+    if (!imageOrders || !Array.isArray(imageOrders)) {
+      return res.status(400).json({
+        success: false,
+        message: "imageOrders must be an array of {index: number, order: number}",
+      });
+    }
+
+    // Validate all indices are within range
+    for (const item of imageOrders) {
+      const arrayIndex = item.index - 1; // Convert from 1-based to 0-based
+      if (arrayIndex < 0 || arrayIndex >= variant.images.length) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid index ${item.index}. Must be between 1 and ${variant.images.length}`,
+        });
+      }
+    }
+
+    // Update order for each image
+    imageOrders.forEach(item => {
+      const arrayIndex = item.index - 1;
+      variant.images[arrayIndex].order = item.order;
+    });
+
+    // Sort images by order
+    variant.images.sort((a, b) => a.order - b.order);
+
+    await product.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Variant images reordered successfully",
+      data: product,
+    });
+  } catch (error) {
+    console.error("Error reordering variant images:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+
+
+

@@ -265,15 +265,22 @@ app.use((err, req, res, next) => {
 })();
 
 // ======================================================================
+// KYC AUTO APPROVE SERVICE
+// ======================================================================
+require("./services/kycAutoApproveService");
+
+// ======================================================================
 // ROUTES (Place specific routes BEFORE generic ones)
 // ======================================================================
 app.use("/api/auth", authRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/products", productRoutes);
-app.use("/api/users", userRoutes);   // USERS ROUTES ONLY HERE
+app.use("/api/users", userRoutes);
+app.use("/api/kyc", require("./routes/kycRoutes")); 
 app.use("/api/wallet", walletRoutes);
 app.use("/api/admin/wallet", adminWalletRoutes);
 app.use("/api/referral-commission", referralCommissionRoutes);
+app.use("/api/referral", referralRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/admin", adminRoutes);

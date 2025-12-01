@@ -212,6 +212,82 @@ const getDailyPendingPayments = asyncHandler(async (req, res) => {
   );
 });
 
+/*
+|--------------------------------------------------------------------------
+|  ✅ NEW API: CREATE COMBINED RAZORPAY ORDER
+|--------------------------------------------------------------------------
+|  @route POST /api/installment-payments/create-combined-razorpay
+|  @desc  Create Razorpay order for multiple installments
+|  @access Private
+|--------------------------------------------------------------------------
+*/
+const createCombinedRazorpayOrder = asyncHandler(async (req, res) => {
+  const { selectedOrders } = req.body;
+  const userId = req.user._id;
+
+  const razorpayOrder = await paymentService.createCombinedRazorpayOrder(
+    userId,
+    selectedOrders
+  );
+
+  successResponse(
+    res,
+    razorpayOrder,
+    'Combined Razorpay order created successfully. Proceed with payment.',
+    200
+  );
+});
+
+/*
+|--------------------------------------------------------------------------
+|  ✅ NEW API: PROCESS MULTIPLE DAILY PAYMENTS
+|--------------------------------------------------------------------------
+|  @route POST /api/installment-payments/pay-daily-selected
+|  @desc  Process daily payments for multiple orders in one transaction
+|  @access Private
+|--------------------------------------------------------------------------
+*/
+const processSelectedDailyPayments = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const {
+    selectedOrders,
+    paymentMethod,
+    razorpayOrderId,
+    razorpayPaymentId,
+    razorpaySignature,
+  } = req.body;
+
+  // Validation
+  if (!selectedOrders || !Array.isArray(selectedOrders) || selectedOrders.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'selectedOrders array is required and must not be empty',
+    });
+  }
+
+  if (!paymentMethod || !['RAZORPAY', 'WALLET'].includes(paymentMethod)) {
+    return res.status(400).json({
+      success: false,
+      message: 'paymentMethod must be either RAZORPAY or WALLET',
+    });
+  }
+
+  const paymentData = {
+    userId,
+    selectedOrders,
+    paymentMethod,
+    razorpayOrderId,
+    razorpayPaymentId,
+    razorpaySignature,
+  };
+
+  const result = await paymentService.processSelectedDailyPayments(paymentData);
+
+  const message = `Successfully processed ${result.ordersProcessed} order payment(s). Total amount: ₹${result.totalAmount}`;
+
+  successResponse(res, result, message, 200);
+});
+
 module.exports = {
   createRazorpayOrder,
   processPayment,
@@ -220,5 +296,7 @@ module.exports = {
   getPaymentStats,
   retryPayment,
   getNextDuePayment,
-  getDailyPendingPayments // <-- NEW EXPORT
+  getDailyPendingPayments,
+  createCombinedRazorpayOrder, // ⭐ NEW
+  processSelectedDailyPayments, // ⭐ NEW
 };
