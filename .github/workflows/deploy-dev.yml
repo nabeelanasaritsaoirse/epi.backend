@@ -80,7 +80,7 @@ jobs:
       
           echo "🧾 Writing DEV environment variables..."
           cat > .env << ENVEND
-          PORT=5000
+          PORT=8080
 
           # Required DEV variables
           MONGODB_URI=${{ secrets.DEV_MONGODB_URI }}
