@@ -6,30 +6,30 @@ const { verifyToken, isAdmin } = require("../middlewares/auth");
 const {
   submitKyc,
   getKycStatus,
+  getAllKyc,
   adminApprove,
-  adminReject,
-  getAllKyc // ⭐ NEW
+  adminReject
 } = require("../controllers/kycController");
 
 
-// ===============================
-// USER ROUTES
-// ===============================
+/* ============================================================
+   USER ROUTES
+============================================================ */
 router.post("/submit", verifyToken, submitKyc);
 router.get("/status", verifyToken, getKycStatus);
 
 
-// ===============================
-// ADMIN ROUTES
-// ===============================
+/* ============================================================
+   ADMIN ROUTES
+============================================================ */
 
-// ⭐ NEW — get full KYC list for admin panel
+// Get full KYC list for admin dashboard
 router.get("/admin/all", verifyToken, isAdmin, getAllKyc);
 
-// manual approve
+// Approve KYC
 router.patch("/admin/approve/:id", verifyToken, isAdmin, adminApprove);
 
-// manual reject
+// Reject KYC with note
 router.patch("/admin/reject/:id", verifyToken, isAdmin, adminReject);
 
 

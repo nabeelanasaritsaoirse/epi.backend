@@ -14,7 +14,7 @@ exports.submitKyc = async (req, res) => {
 
     let existing = await Kyc.findOne({ userId });
 
-    // Already approved → cannot submit again
+    // Already approved
     if (existing) {
       if (["approved", "auto_approved"].includes(existing.status)) {
         return res.status(400).json({
@@ -29,7 +29,7 @@ exports.submitKyc = async (req, res) => {
         });
       }
 
-      // If rejected → allow resubmission (remove old)
+      // Rejected → allow resubmission
       if (existing.status === "rejected") {
         await Kyc.deleteOne({ userId });
       }
@@ -46,6 +46,7 @@ exports.submitKyc = async (req, res) => {
     await newKyc.save();
 
     return res.json({
+      success: true,
       message: "KYC submitted successfully",
       status: "pending"
     });
@@ -63,7 +64,6 @@ exports.submitKyc = async (req, res) => {
 exports.getKycStatus = async (req, res) => {
   try {
     const userId = req.user.id;
-
     const kyc = await Kyc.findOne({ userId });
 
     if (!kyc) {
@@ -89,7 +89,7 @@ exports.getKycStatus = async (req, res) => {
 
 
 /* ============================================================
-   ADMIN — GET ALL KYC (NEW)
+   ADMIN — GET ALL KYC (with populated user details)
 ============================================================ */
 exports.getAllKyc = async (req, res) => {
   try {
@@ -124,7 +124,11 @@ exports.adminApprove = async (req, res) => {
     kyc.updatedAt = new Date();
     await kyc.save();
 
-    return res.json({ success: true, message: "KYC approved manually by admin" });
+    return res.json({
+      success: true,
+      message: "KYC approved manually by admin",
+      kyc
+    });
 
   } catch (err) {
     console.log("Admin approve error:", err);
@@ -134,20 +138,26 @@ exports.adminApprove = async (req, res) => {
 
 
 /* ============================================================
-   ADMIN — REJECT KYC
+   ADMIN — REJECT KYC (with rejection reason)
 ============================================================ */
 exports.adminReject = async (req, res) => {
   try {
     const kycId = req.params.id;
+    const { note } = req.body;
 
     const kyc = await Kyc.findById(kycId);
     if (!kyc) return res.status(404).json({ message: "KYC not found" });
 
     kyc.status = "rejected";
+    kyc.rejectionNote = note || "No reason provided";
     kyc.updatedAt = new Date();
     await kyc.save();
 
-    return res.json({ success: true, message: "KYC rejected" });
+    return res.json({
+      success: true,
+      message: "KYC rejected",
+      kyc
+    });
 
   } catch (err) {
     console.log("Admin reject error:", err);
