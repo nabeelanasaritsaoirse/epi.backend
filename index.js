@@ -225,6 +225,7 @@ app.use(
       "https://epielio.com",
       "https://api.epielio.com",
       "https://admin.epielio.com",
+      "http://admin-dashboard-site-dev.s3-website-ap-south-1.amazonaws.com"
     ],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     allowedHeaders: ["Content-Type", "Authorization"],
