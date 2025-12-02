@@ -32,6 +32,9 @@ router.get('/featured/trending', productFeaturedController.getTrendingProducts);
 // ============================================
 router.get('/category/:category', productController.getProductsByCategory);
 router.get('/project/:projectId', productController.getProductsByProject);
+// products routes
+router.get('/category/:categoryId', productController.getProductsByCategoryId);
+
 
 // ============================================
 // REGION ROUTES — MUST BE ABOVE ANY :productId ROUTE
@@ -103,3 +106,4 @@ router.post('/bulk/mark-products', verifyToken, isAdmin, productFeaturedControll
 router.post('/bulk/regional-pricing', verifyToken, isAdmin, productController.bulkUpdateRegionalPricing);
 
 module.exports = router;
+
