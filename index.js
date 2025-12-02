@@ -182,14 +182,13 @@ const authRoutes = require("./routes/auth");
 const productRoutes = require("./routes/productRoutes");
 const categoryRoutes = require("./routes/categoryRoutes");
 const userRoutes = require("./routes/users");
-const walletRoutes = require("./routes/wallet");        // USER WALLET
-const adminWalletRoutes = require("./routes/adminWallet"); // ADMIN WALLET
+const walletRoutes = require("./routes/wallet");
+const adminWalletRoutes = require("./routes/adminWallet");
 
 const referralCommissionRoutes = require("./routes/referralCommission");
 const paymentRoutes = require("./routes/payments");
 const orderRoutes = require("./routes/orders");
 const adminRoutes = require("./routes/admin");
-// const accountDeletionRoutes = require('./routes/accountDeletion'); // TODO: Create this file
 
 const referralRoutes = require("./routes/referralRoutes");
 const planRoutes = require("./routes/plans");
@@ -204,6 +203,9 @@ const notificationRoutes = require("./routes/notificationRoutes");
 const adminNotificationRoutes = require("./routes/adminNotificationRoutes");
 const chatRoutes = require("./routes/chatRoutes");
 const adminChatRoutes = require("./routes/adminChatRoutes");
+
+// ⭐ ADDED: COUPON ROUTES ⭐
+const couponRoutes = require("./routes/couponRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -222,11 +224,11 @@ app.use(
 
       "https://epielio.com",
       "https://api.epielio.com",
-      "https://admin.epielio.com"
+      "https://admin.epielio.com",
     ],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true
+    credentials: true,
   })
 );
 
@@ -239,16 +241,11 @@ app.use((err, req, res, next) => {
   if (err?.type === "entity.parse.failed") {
     return res.status(400).json({
       success: false,
-      message: "Invalid JSON payload"
+      message: "Invalid JSON payload",
     });
   }
   next(err);
 });
-
-// ======================================================================
-// FIREBASE INIT
-// ======================================================================
-// Firebase is initialized in config/firebase.js
 
 // ======================================================================
 // MONGO CONNECTION
@@ -265,45 +262,48 @@ app.use((err, req, res, next) => {
 })();
 
 // ======================================================================
-// KYC AUTO APPROVE SERVICE
+// SERVICES
 // ======================================================================
 require("./services/kycAutoApproveService");
 
 // ======================================================================
-// ROUTES (Place specific routes BEFORE generic ones)
+// ROUTES
 // ======================================================================
 app.use("/api/auth", authRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/users", userRoutes);
-app.use("/api/kyc", require("./routes/kycRoutes")); 
+app.use("/api/kyc", require("./routes/kycRoutes"));
+
 app.use("/api/wallet", walletRoutes);
 app.use("/api/admin/wallet", adminWalletRoutes);
+
 app.use("/api/referral-commission", referralCommissionRoutes);
 app.use("/api/referral", referralRoutes);
+
 app.use("/api/payments", paymentRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/admin", adminRoutes);
+
 app.use("/api/plans", planRoutes);
 app.use("/api/image-store", imageStoreRoutes);
 app.use("/api/banners", bannerRoutes);
 app.use("/api/success-stories", successStoryRoutes);
 app.use("/api/installments", installmentRoutes);
+
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/admin/notifications", adminNotificationRoutes);
+
 app.use("/api/chat", chatRoutes);
 app.use("/api/admin/chat", adminChatRoutes);
-// app.use('/api/users', accountDeletionRoutes); // TODO: Uncomment when file is created
 
-
-// FIXED wishlist MUST NOT override /users
 app.use("/api/wishlist", wishlistRoutes);
-
-// cart also correct
 app.use("/api/cart", cartRoutes);
 
+// ⭐ MOUNTED COUPON ROUTES ⭐
+app.use("/api/coupons", couponRoutes);
 
-// HEALTH CHECK ROUTES (API Testing Dashboard)
+// HEALTH CHECK
 app.use("/api/health-check", healthCheckRoutes);
 
 // ======================================================================
@@ -325,7 +325,7 @@ app.use((err, req, res, next) => {
 // 404 HANDLER
 // ======================================================================
 app.use((req, res) => {
-  res.status(404).json({ success: false, message: 'Route not found' });
+  res.status(404).json({ success: false, message: "Route not found" });
 });
 
 // ======================================================================
@@ -333,9 +333,7 @@ app.use((req, res) => {
 // ======================================================================
 const HOST = "0.0.0.0";
 app.listen(PORT, HOST, () => {
- // console.log(Server running at http://${HOST}:${PORT});
   console.log(`🚀 Server running at http://${HOST}:${PORT}`);
 });
 
 module.exports = app;
-
