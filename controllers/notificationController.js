@@ -710,6 +710,59 @@ async function updatePreferences(req, res) {
   }
 }
 
+/**
+ * @route   POST /api/notifications/trigger
+ * @desc    Trigger custom notification (push and/or in-app)
+ * @access  Private (user can send to themselves)
+ */
+async function triggerCustomNotification(req, res) {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const userId = req.user._id;
+    const { title, message, sendPush = false, sendInApp = true } = req.body;
+
+    // Use the notification service to trigger notification
+    const result = await notificationService.triggerNotification({
+      type: 'GENERAL',
+      userId: userId,
+      title: title,
+      body: message,
+      sendPush: sendPush,
+      sendInApp: sendInApp,
+      metadata: {
+        source: 'frontend_trigger',
+        triggeredAt: new Date()
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Notification triggered successfully',
+      data: {
+        sentPush: sendPush,
+        sentInApp: sendInApp,
+        pushResult: result.pushResult || null
+      }
+    });
+
+  } catch (error) {
+    console.error('Error in triggerCustomNotification:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to trigger notification',
+      error: error.message
+    });
+  }
+}
+
 module.exports = {
   getNotificationFeed,
   getNotificationById,
@@ -721,5 +774,6 @@ module.exports = {
   getUnreadCount,
   registerToken,
   removeToken,
-  updatePreferences
+  updatePreferences,
+  triggerCustomNotification
 };

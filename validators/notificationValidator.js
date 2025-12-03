@@ -293,6 +293,35 @@ const validateUpdatePreferences = [
     .withMessage('systemNotifications must be boolean')
 ];
 
+/**
+ * Validate trigger custom notification request
+ */
+const validateTriggerNotification = [
+  body('title')
+    .trim()
+    .notEmpty()
+    .withMessage('Title is required')
+    .isLength({ min: 1, max: 200 })
+    .withMessage('Title must be between 1 and 200 characters'),
+
+  body('message')
+    .trim()
+    .notEmpty()
+    .withMessage('Message is required')
+    .isLength({ min: 1, max: 1000 })
+    .withMessage('Message must be between 1 and 1000 characters'),
+
+  body('sendPush')
+    .optional()
+    .isBoolean()
+    .withMessage('sendPush must be a boolean (true/false)'),
+
+  body('sendInApp')
+    .optional()
+    .isBoolean()
+    .withMessage('sendInApp must be a boolean (true/false)')
+];
+
 module.exports = {
   validateCreateNotification,
   validateScheduleNotification,
@@ -306,5 +335,6 @@ module.exports = {
   validateNotificationId,
   validateFCMToken,
   validateUpdateSettings,
-  validateUpdatePreferences
+  validateUpdatePreferences,
+  validateTriggerNotification
 };
