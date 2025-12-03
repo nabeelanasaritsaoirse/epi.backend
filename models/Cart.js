@@ -44,13 +44,15 @@ const cartProductSchema = new mongoose.Schema({
   installmentPlan: {
     totalDays: {
       type: Number,
-      required: true,
-      min: 5
+      required: false,
+      min: 5,
+      default: null
     },
     dailyAmount: {
       type: Number,
-      required: true,
-      min: 50
+      required: false,
+      min: 50,
+      default: null
     }
   },
 
