@@ -14,13 +14,18 @@ const {
 } = require("../controllers/kycController");
 
 /* ============================================================
-   📌 USER — Upload KYC Document Image (NEW)
-   Route: POST /api/kyc/upload
+   📌 USER — Upload KYC Image (SELFIE / AADHAAR / PAN etc.)
+   Method: PUT
+   Route:  /api/kyc/upload
+   Body (form-data):
+     - image (file)
+     - type: selfie | aadhaar | pan | voter_id | driving_license
+     - side: front | back
 ============================================================ */
-router.post(
+router.put(
   "/upload",
   verifyToken,
-  uploadSingle, // multer single-file middleware (expects: image)
+  uploadSingle, // multer middleware (req.file)
   async (req, res) => {
     try {
       const userId = req.user.id;
@@ -34,35 +39,45 @@ router.post(
         });
       }
 
-      // Validate required fields
-      if (!type || !side) {
+      // Validate doc type
+      const allowedTypes = [
+        "selfie",
+        "aadhaar",
+        "pan",
+        "voter_id",
+        "driving_license"
+      ];
+
+      if (!type || !allowedTypes.includes(type)) {
         return res.status(400).json({
           success: false,
-          message: "Document type and side are required"
+          message: "Invalid or missing document type"
         });
       }
 
-      const validTypes = ["aadhaar", "pan", "voter_id", "driving_license"];
-      const validSides = ["front", "back"];
-
-      if (!validTypes.includes(type)) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid document type"
-        });
+      // Validate side
+      if (type === "selfie") {
+        // Selfie has no back image
+        if (side !== "front") {
+          return res.status(400).json({
+            success: false,
+            message: "Selfie can only have side = 'front'"
+          });
+        }
+      } else {
+        const validSides = ["front", "back"];
+        if (!validSides.includes(side)) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid document side"
+          });
+        }
       }
 
-      if (!validSides.includes(side)) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid document side"
-        });
-      }
-
-      // Folder structure: kyc/<USER_ID>/
+      // Upload folder
       const folder = `kyc/${userId}/`;
 
-      // Upload image → S3
+      // Upload to S3
       const uploaded = await uploadSingleFileToS3(req.file, folder, 800);
 
       return res.json({
@@ -75,7 +90,10 @@ router.post(
 
     } catch (err) {
       console.error("KYC Upload Error:", err);
-      res.status(500).json({ success: false, message: "Server error" });
+      res.status(500).json({
+        success: false,
+        message: "Server error"
+      });
     }
   }
 );
@@ -91,15 +109,8 @@ router.get("/status", verifyToken, getKycStatus);
 /* ============================================================
    📌 ADMIN ROUTES
 ============================================================ */
-
-// Get all KYC (admin panel)
 router.get("/admin/all", verifyToken, isAdmin, getAllKyc);
-
-// Approve
 router.patch("/admin/approve/:id", verifyToken, isAdmin, adminApprove);
-
-// Reject
 router.patch("/admin/reject/:id", verifyToken, isAdmin, adminReject);
-
 
 module.exports = router;
