@@ -331,11 +331,6 @@ app.use((req, res) => {
 });
 
 // ======================================================================
-// START SERVER
+// EXPORT APP (Server is started in server.js)
 // ======================================================================
-const HOST = "0.0.0.0";
-app.listen(PORT, HOST, () => {
-  console.log(`🚀 Server running at http://${HOST}:${PORT}`);
-});
-
 module.exports = app;
