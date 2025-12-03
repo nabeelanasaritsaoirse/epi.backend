@@ -6,7 +6,7 @@ const storage = multer.memoryStorage();
 // File filter - only allow images
 const fileFilter = (req, file, cb) => {
   const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-  
+
   if (allowedMimeTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {
@@ -14,21 +14,30 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-// Single file upload
+/**
+ * ⭐ UPDATED:
+ * Accept both:
+ * - "image"
+ * - "file"
+ * WITHOUT BREAKING ANY OLD LOGIC
+ */
 const uploadSingle = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB max file size
+    fileSize: 10 * 1024 * 1024 // 10MB max
   }
-}).single('image');
+}).fields([
+  { name: 'image', maxCount: 1 },
+  { name: 'file', maxCount: 1 }
+]);
 
-// Multiple files upload (up to 10 images)
+// Multiple files upload (unchanged)
 const uploadMultiple = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB max per file
+    fileSize: 10 * 1024 * 1024 // 10MB each
   }
 }).array('images', 10);
 
