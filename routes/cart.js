@@ -162,10 +162,15 @@ router.post('/add/:productId', verifyToken, async (req, res) => {
     const {
       quantity = 1,
       variantId = null,
-      totalDays,
-      dailyAmount
+      installmentPlan,
+      totalDays: topLevelTotalDays,
+      dailyAmount: topLevelDailyAmount
     } = req.body;
     const userId = req.user._id;
+
+    // Support both nested and flat structure for installment plan
+    const totalDays = installmentPlan?.totalDays || topLevelTotalDays;
+    const dailyAmount = installmentPlan?.dailyAmount || topLevelDailyAmount;
 
     // Validate inputs
     if (quantity < 1 || quantity > 10) {
