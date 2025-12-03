@@ -23,15 +23,21 @@ router.post('/add/:productId', verifyToken, async (req, res) => {
     if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
 
     // Support both nested and flat installment plan structure
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
+    console.log('installmentPlan:', installmentPlan);
+    console.log('totalDays:', totalDays, 'dailyAmount:', dailyAmount);
+
     let finalInstallmentPlan;
     if (installmentPlan && installmentPlan.totalDays && installmentPlan.dailyAmount) {
       // Nested structure
+      console.log('Using nested structure');
       finalInstallmentPlan = {
         totalDays: Number(installmentPlan.totalDays),
         dailyAmount: Number(installmentPlan.dailyAmount)
       };
     } else if (totalDays && dailyAmount) {
       // Flat structure
+      console.log('Using flat structure');
       finalInstallmentPlan = {
         totalDays: Number(totalDays),
         dailyAmount: Number(dailyAmount)
@@ -42,6 +48,8 @@ router.post('/add/:productId', verifyToken, async (req, res) => {
         message: 'Installment plan is required (totalDays and dailyAmount)'
       });
     }
+
+    console.log('Final installment plan:', finalInstallmentPlan);
 
     // Validate installment plan
     if (finalInstallmentPlan.totalDays < 5) {
