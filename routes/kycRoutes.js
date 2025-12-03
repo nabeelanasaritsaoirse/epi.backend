@@ -13,29 +13,36 @@ const {
   adminReject
 } = require("../controllers/kycController");
 
+
 /* ============================================================
    📌 USER — Upload KYC Image (SELFIE / AADHAAR / PAN etc.)
    Method: PUT
    Route:  /api/kyc/upload
+
    Body (form-data):
-     - image (file)
+     - image OR file (file)
      - type: selfie | aadhaar | pan | voter_id | driving_license
      - side: front | back
 ============================================================ */
 router.put(
   "/upload",
   verifyToken,
-  uploadSingle, // multer middleware (req.file)
+  uploadSingle, // multer middleware (req.files)
   async (req, res) => {
     try {
       const userId = req.user.id;
       const { type, side } = req.body;
 
-      // Validate file
-      if (!req.file) {
+      // Extract file from either "image" or "file"
+      const uploadedFile =
+        (req.files?.image && req.files.image[0]) ||
+        (req.files?.file && req.files.file[0]) ||
+        null;
+
+      if (!uploadedFile) {
         return res.status(400).json({
           success: false,
-          message: "Image file is required"
+          message: "Image file is required (image or file)"
         });
       }
 
@@ -57,7 +64,6 @@ router.put(
 
       // Validate side
       if (type === "selfie") {
-        // Selfie has no back image
         if (side !== "front") {
           return res.status(400).json({
             success: false,
@@ -74,11 +80,11 @@ router.put(
         }
       }
 
-      // Upload folder
+      // Upload folder path
       const folder = `kyc/${userId}/`;
 
       // Upload to S3
-      const uploaded = await uploadSingleFileToS3(req.file, folder, 800);
+      const uploaded = await uploadSingleFileToS3(uploadedFile, folder, 800);
 
       return res.json({
         success: true,
@@ -112,5 +118,6 @@ router.get("/status", verifyToken, getKycStatus);
 router.get("/admin/all", verifyToken, isAdmin, getAllKyc);
 router.patch("/admin/approve/:id", verifyToken, isAdmin, adminApprove);
 router.patch("/admin/reject/:id", verifyToken, isAdmin, adminReject);
+
 
 module.exports = router;
