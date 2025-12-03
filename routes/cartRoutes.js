@@ -106,6 +106,9 @@ router.post('/add/:productId', verifyToken, async (req, res) => {
       cart.products.push(newProduct);
     }
 
+    console.log('Cart before save:', JSON.stringify(cart.toObject(), null, 2));
+    console.log('Products array:', JSON.stringify(cart.products, null, 2));
+
     await cart.save();
     res.json({ success: true, message: 'Product added to cart', data: cart });
   } catch (error) {
