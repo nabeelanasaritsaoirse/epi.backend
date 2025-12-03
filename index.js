@@ -208,6 +208,12 @@ const adminChatRoutes = require("./routes/adminChatRoutes");
 const couponRoutes = require("./routes/couponRoutes");
 
 const app = express();
+
+// ======================================================================
+// TRUST PROXY (Required for rate limiting behind nginx reverse proxy)
+// ======================================================================
+app.set("trust proxy", true);
+
 const PORT = process.env.PORT || 3000;
 
 // ======================================================================
