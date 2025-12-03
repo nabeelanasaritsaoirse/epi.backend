@@ -1,0 +1,23 @@
+name: 🚫 Block PRs to Main
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  block:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 💬 Comment on PR
+        uses: peter-evans/create-or-update-comment@v3
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ❌ **PRs to \`main\` are blocked.**
+            Please open this pull request against **dev** or **developer** branch.
+
+      - name: ❌ Prevent PR to main
+        run: |
+          echo "PRs to 'main' are not allowed. Create PR to 'dev' instead."
+          exit 1

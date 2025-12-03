@@ -1,0 +1,1062 @@
+[
+  {
+    "categoryId": "6929425953ea97f38c96b806",
+    "categoryName": "2-in-1 Laptops",
+    "categorySlug": "2-in-1-laptops",
+    "products": [],
+    "pagination": {
+      "current": 1,
+      "pages": 0,
+      "total": 0
+    }
+  },
+  {
+    "categoryId": "6929421d53ea97f38c96b7cd",
+    "categoryName": "Audio Devices",
+    "categorySlug": "audio-devices",
+    "products": [
+      {
+        "description": {
+          "short": "hi",
+          "long": "hi",
+          "features": []
+        },
+        "category": {
+          "mainCategoryId": "6929421d53ea97f38c96b7cd",
+          "mainCategoryName": "Audio Devices",
+          "subCategoryId": null,
+          "subCategoryName": null
+        },
+        "availability": {
+          "isAvailable": true,
+          "stockQuantity": 1,
+          "lowStockLevel": 5,
+          "stockStatus": "in_stock"
+        },
+        "pricing": {
+          "regularPrice": 1000,
+          "salePrice": 900,
+          "finalPrice": 900,
+          "currency": "INR"
+        },
+        "seo": {
+          "keywords": []
+        },
+        "_id": "6929a7960ee310a5012d6f37",
+        "productId": "PROD558377103",
+        "variantId": "VAR55837706700",
+        "name": "aaaaa",
+        "brand": "samsung",
+        "sku": "SKU165u5686776",
+        "regionalPricing": [],
+        "regionalSeo": [],
+        "regionalAvailability": [
+          {
+            "region": "global",
+            "stockQuantity": 1,
+            "lowStockLevel": 5,
+            "isAvailable": true,
+            "stockStatus": "in_stock",
+            "_id": "6929a7960ee310a5012d6f38"
+          }
+        ],
+        "relatedProducts": [],
+        "plans": [],
+        "hasVariants": false,
+        "status": "draft",
+        "isPopular": false,
+        "isBestSeller": false,
+        "isTrending": false,
+        "createdAt": "2025-11-28T13:45:58.377Z",
+        "updatedAt": "2025-11-28T13:46:00.493Z",
+        "isDeleted": false,
+        "variants": [],
+        "images": [
+          {
+            "url": "https://company-video-storage-prod.s3.ap-south-1.amazonaws.com/products/1764337560366-7kq31.jpg",
+            "isPrimary": true,
+            "altText": "Product image",
+            "order": 1,
+            "_id": "6929a7980ee310a5012d6f3d"
+          }
+        ],
+        "__v": 1
+      },
+      {
+        "description": {
+          "features": [],
+          "short": "Testing",
+          "long": "Testing"
+        },
+        "category": {
+          "mainCategoryId": "6929421d53ea97f38c96b7cd",
+          "mainCategoryName": "Audio Devices",
+          "subCategoryId": null,
+          "subCategoryName": null
+        },
+        "availability": {
+          "isAvailable": true,
+          "stockQuantity": 1,
+          "lowStockLevel": 5,
+          "stockStatus": "in_stock"
+        },
+        "pricing": {
+          "regularPrice": 1000,
+          "salePrice": 900,
+          "currency": "INR",
+          "finalPrice": 900
+        },
+        "dimensions": {
+          "weight": 1,
+          "length": 15.5,
+          "width": 10.5,
+          "height": 5.2
+        },
+        "warranty": {
+          "period": 60,
+          "returnPolicy": 7
+        },
+        "seo": {
+          "metaTitle": "Headphone",
+          "metaDescription": "Headphone",
+          "keywords": [
+            "Wireless",
+            "Headphone",
+            "JBL"
+          ]
+        },
+        "_id": "6929549f53ea97f38c96bec1",
+        "productId": "PROD319942357",
+        "variantId": "VAR31994299100",
+        "name": "JBL Headphone",
+        "brand": "JBL",
+        "sku": "SKU134567",
+        "regionalPricing": [],
+        "regionalSeo": [],
+        "regionalAvailability": [
+          {
+            "region": "global",
+            "stockQuantity": 1,
+            "lowStockLevel": 5,
+            "isAvailable": true,
+            "stockStatus": "in_stock",
+            "_id": "6929549f53ea97f38c96bec2"
+          }
+        ],
+        "relatedProducts": [],
+        "paymentPlan": {
+          "enabled": true,
+          "minDownPayment": 100,
+          "maxDownPayment": 500,
+          "interestRate": 9,
+          "_id": "692954d953ea97f38c96bff7"
+        },
+        "plans": [
+          {
+            "name": "Quick plan",
+            "days": 10,
+            "perDayAmount": 100,
+            "totalAmount": 1000,
+            "isRecommended": false,
+            "description": "10 days",
+            "_id": "6929549f53ea97f38c96bec4"
+          }
+        ],
+        "referralBonus": {
+          "enabled": true,
+          "type": "percentage",
+          "value": 10,
+          "minPurchaseAmount": 0,
+          "_id": "692954d953ea97f38c96bff8"
+        },
+        "variants": [
+          {
+            "attributes": {
+              "color": "blue"
+            },
+            "variantId": "VAR37725842300",
+            "sku": "SKU134567-V1-2300",
+            "price": 1000,
+            "salePrice": 900,
+            "paymentPlan": {
+              "enabled": false,
+              "interestRate": 0,
+              "_id": "692954d953ea97f38c96bff4"
+            },
+            "stock": 1,
+            "images": [],
+            "isActive": true,
+            "_id": "692954d953ea97f38c96bff3"
+          },
+          {
+            "attributes": {
+              "color": "Black"
+            },
+            "variantId": "VAR37725816401",
+            "sku": "SKU134567-V2-6401",
+            "price": 1000,
+            "salePrice": 900,
+            "paymentPlan": {
+              "enabled": false,
+              "interestRate": 0,
+              "_id": "692954d953ea97f38c96bff6"
+            },
+            "stock": 1,
+            "images": [],
+            "isActive": true,
+            "_id": "692954d953ea97f38c96bff5"
+          }
+        ],
+        "hasVariants": true,
+        "status": "published",
+        "isPopular": false,
+        "isBestSeller": true,
+        "isTrending": false,
+        "createdAt": "2025-11-28T07:51:59.942Z",
+        "updatedAt": "2025-11-28T07:52:57.268Z",
+        "isDeleted": false,
+        "images": [
+          {
+            "url": "https://company-video-storage-prod.s3.ap-south-1.amazonaws.com/products/1764316320374-e2o91.jpg",
+            "isPrimary": true,
+            "altText": "Product image",
+            "order": 1,
+            "_id": "692954a053ea97f38c96bed1"
+          }
+        ],
+        "__v": 2
+      }
+    ],
+    "pagination": {
+      "current": 1,
+      "pages": 1,
+      "total": 2
+    }
+  },
+  {
+    "categoryId": "6929425453ea97f38c96b7f1",
+    "categoryName": "Business Laptops",
+    "categorySlug": "business-laptops",
+    "products": [],
+    "pagination": {
+      "current": 1,
+      "pages": 0,
+      "total": 0
+    }
+  },
+  {
+    "categoryId": "6929422153ea97f38c96b7d5",
+    "categoryName": "Cameras & Photography",
+    "categorySlug": "cameras-photography",
+    "products": [],
+    "pagination": {
+      "current": 1,
+      "pages": 0,
+      "total": 0
+    }
+  },
+  {
+    "categoryId": "6929425853ea97f38c96b7ff",
+    "categoryName": "Desktops",
+    "categorySlug": "desktops",
+    "products": [],
+    "pagination": {
+      "current": 1,
+      "pages": 0,
+      "total": 0
+    }
+  },
+  {
+    "categoryId": "6929421f53ea97f38c96b7d1",
+    "categoryName": "Gaming",
+    "categorySlug": "gaming",
+    "products": [],
+    "pagination": {
+      "current": 1,
+      "pages": 0,
+      "total": 0
+    }
+  },
+  {
+    "categoryId": "6929425353ea97f38c96b7ea",
+    "categoryName": "Gaming Laptops",
+    "categorySlug": "gaming-laptops",
+    "products": [],
+    "pagination": {
+      "current": 1,
+      "pages": 0,
+      "total": 0
+    }
+  },
+  {
+    "categoryId": "69297f862f78f04765ee7660",
+    "categoryName": "Headphone boat",
+    "categorySlug": "headphone-boat",
+    "products": [],
+    "pagination": {
+      "current": 1,
+      "pages": 0,
+      "total": 0
+    }
+  },
+  {
+    "categoryId": "6929421a53ea97f38c96b7c9",
+    "categoryName": "Laptops & Computers",
+    "categorySlug": "laptops-computers",
+    "products": [
+      {
+        "description": {
+          "features": [],
+          "short": "Testing",
+          "long": "Testing"
+        },
+        "category": {
+          "mainCategoryId": "6929421a53ea97f38c96b7c9",
+          "mainCategoryName": "Laptops & Computers",
+          "subCategoryId": null,
+          "subCategoryName": null
+        },
+        "availability": {
+          "isAvailable": true,
+          "stockQuantity": 1,
+          "lowStockLevel": 5,
+          "stockStatus": "in_stock"
+        },
+        "pricing": {
+          "regularPrice": 1000,
+          "salePrice": 900,
+          "currency": "INR",
+          "finalPrice": 900
+        },
+        "seo": {
+          "keywords": []
+        },
+        "_id": "6929a68a0ee310a5012d6c64",
+        "productId": "PROD290470239",
+        "variantId": "VAR29047028800",
+        "name": "laptop",
+        "brand": "samsung",
+        "sku": "SKU10909",
+        "regionalPricing": [],
+        "regionalSeo": [],
+        "regionalAvailability": [
+          {
+            "region": "global",
+            "stockQuantity": 1,
+            "lowStockLevel": 5,
+            "isAvailable": true,
+            "stockStatus": "in_stock",
+            "_id": "6929a68a0ee310a5012d6c65"
+          }
+        ],
+        "relatedProducts": [],
+        "plans": [
+          {
+            "name": "Quick plan",
+            "days": 10,
+            "perDayAmount": 100,
+            "totalAmount": 1000,
+            "isRecommended": false,
+            "description": "10",
+            "_id": "6929a68a0ee310a5012d6c66"
+          }
+        ],
+        "variants": [
+          {
+            "attributes": {
+              "color": "Blue"
+            },
+            "variantId": "VAR39550966900",
+            "sku": "SKU10909-V1-6900",
+            "price": 1000,
+            "salePrice": 900,
+            "paymentPlan": {
+              "enabled": false,
+              "interestRate": 0,
+              "_id": "6929a6f30ee310a5012d6d81"
+            },
+            "stock": 1,
+            "images": [],
+            "isActive": true,
+            "_id": "6929a6f30ee310a5012d6d80"
+          }
+        ],
+        "hasVariants": true,
+        "status": "published",
+        "isPopular": false,
+        "isBestSeller": false,
+        "isTrending": false,
+        "createdAt": "2025-11-28T13:41:30.470Z",
+        "updatedAt": "2025-11-28T13:43:15.513Z",
+        "isDeleted": false,
+        "images": [],
+        "__v": 1,
+        "paymentPlan": {
+          "enabled": false,
+          "minDownPayment": 0,
+          "maxDownPayment": 0,
+          "interestRate": 0,
+          "_id": "6929a6f30ee310a5012d6d82"
+        },
+        "referralBonus": {
+          "enabled": false,
+          "type": "percentage",
+          "value": 0,
+          "minPurchaseAmount": 0,
+          "_id": "6929a6f30ee310a5012d6d83"
+        }
+      },
+      {
+        "description": {
+          "short": "laptop",
+          "long": "laptop",
+          "features": []
+        },
+        "category": {
+          "mainCategoryId": "6929421a53ea97f38c96b7c9",
+          "mainCategoryName": "Laptops & Computers",
+          "subCategoryId": null,
+          "subCategoryName": null
+        },
+        "availability": {
+          "isAvailable": true,
+          "stockQuantity": 1,
+          "lowStockLevel": 5,
+          "stockStatus": "in_stock"
+        },
+        "pricing": {
+          "regularPrice": 15000,
+          "salePrice": 14000,
+          "finalPrice": 14000,
+          "currency": "INR"
+        },
+        "dimensions": {
+          "weight": 1,
+          "length": 15,
+          "width": 10,
+          "height": 5
+        },
+        "warranty": {
+          "period": 365,
+          "returnPolicy": 10
+        },
+        "seo": {
+          "metaTitle": "hi",
+          "metaDescription": "hello",
+          "keywords": [
+            "hi",
+            "hello"
+          ]
+        },
+        "_id": "69296d0853ea97f38c96cdde",
+        "productId": "PROD568345735",
+        "variantId": "VAR56834550600",
+        "name": "Lenova laptop",
+        "brand": "lenova",
+        "sku": "SKU178654",
+        "regionalPricing": [],
+        "regionalSeo": [],
+        "regionalAvailability": [
+          {
+            "region": "global",
+            "stockQuantity": 1,
+            "lowStockLevel": 5,
+            "isAvailable": true,
+            "stockStatus": "in_stock",
+            "_id": "69296d0853ea97f38c96cddf"
+          }
+        ],
+        "relatedProducts": [],
+        "paymentPlan": {
+          "enabled": true,
+          "minDownPayment": 1000,
+          "maxDownPayment": 5000,
+          "interestRate": 10,
+          "_id": "69296d0853ea97f38c96cde0"
+        },
+        "plans": [
+          {
+            "name": "quick plan",
+            "days": 15,
+            "perDayAmount": 1000,
+            "totalAmount": 15000,
+            "isRecommended": false,
+            "description": "15",
+            "_id": "69296d0853ea97f38c96cde1"
+          }
+        ],
+        "referralBonus": {
+          "enabled": true,
+          "type": "percentage",
+          "value": 10,
+          "minPurchaseAmount": 0,
+          "_id": "69296d0853ea97f38c96cde2"
+        },
+        "variants": [
+          {
+            "attributes": {
+              "color": "black"
+            },
+            "variantId": "VAR56834509400",
+            "sku": "SKU178654-V1-9400",
+            "price": 15000,
+            "salePrice": 14000,
+            "paymentPlan": {
+              "enabled": false,
+              "interestRate": 0,
+              "_id": "69296d0853ea97f38c96cde4"
+            },
+            "stock": 1,
+            "images": [],
+            "isActive": true,
+            "_id": "69296d0853ea97f38c96cde3"
+          }
+        ],
+        "hasVariants": true,
+        "status": "published",
+        "isPopular": false,
+        "isBestSeller": true,
+        "isTrending": false,
+        "createdAt": "2025-11-28T09:36:08.345Z",
+        "updatedAt": "2025-11-28T09:36:08.351Z",
+        "isDeleted": false,
+        "images": [],
+        "__v": 0
+      },
+      {
+        "description": {
+          "short": "High-performance gaming laptop",
+          "long": "ASUS ROG gaming laptop with RTX 4070",
+          "features": [
+            "RTX 4070",
+            "Intel i9",
+            "165Hz display"
+          ]
+        },
+        "category": {
+          "mainCategoryId": "6929421a53ea97f38c96b7c9",
+          "mainCategoryName": "Laptops & Computers",
+          "subCategoryId": "6929425353ea97f38c96b7ea",
+          "subCategoryName": "Gaming Laptops"
+        },
+        "availability": {
+          "isAvailable": true,
+          "stockQuantity": 0,
+          "lowStockLevel": 10,
+          "stockStatus": "in_stock"
+        },
+        "pricing": {
+          "regularPrice": 1799,
+          "salePrice": 1599,
+          "finalPrice": 1599,
+          "currency": "USD"
+        },
+        "seo": {
+          "keywords": []
+        },
+        "_id": "6929427b53ea97f38c96b817",
+        "productId": "PROD675116924",
+        "variantId": "VAR67511616500",
+        "name": "ASUS ROG Strix G16",
+        "brand": "ASUS",
+        "regionalPricing": [],
+        "regionalSeo": [],
+        "regionalAvailability": [
+          {
+            "region": "global",
+            "stockQuantity": 0,
+            "lowStockLevel": 10,
+            "isAvailable": true,
+            "stockStatus": "in_stock",
+            "_id": "6929427b53ea97f38c96b818"
+          }
+        ],
+        "relatedProducts": [],
+        "plans": [
+          {
+            "name": "Quick Plan - 15 Days",
+            "days": 15,
+            "perDayAmount": 110,
+            "totalAmount": 1650,
+            "isRecommended": true,
+            "description": "Pay 10 daily for 15 days",
+            "_id": "6929427b53ea97f38c96b819"
+          },
+          {
+            "name": "Flexible Plan - 45 Days",
+            "days": 45,
+            "perDayAmount": 37,
+            "totalAmount": 1665,
+            "isRecommended": false,
+            "description": "Pay 7 daily for 45 days",
+            "_id": "6929427b53ea97f38c96b81a"
+          }
+        ],
+        "variants": [
+          {
+            "variantId": "VAR67511671500",
+            "sku": "PROD675116924-V1-1500",
+            "price": 1799,
+            "paymentPlan": {
+              "enabled": false,
+              "interestRate": 0,
+              "_id": "6929427b53ea97f38c96b81c"
+            },
+            "stock": 0,
+            "images": [
+              {
+                "url": "https://company-video-storage-prod.s3.ap-south-1.amazonaws.com/products/variants/VAR67511671500/1764312837801-61ja5.jpg",
+                "isPrimary": true,
+                "altText": "ASUS ROG Strix G16 - VAR67511671500",
+                "order": 1,
+                "_id": "6929470553ea97f38c96b97c"
+              }
+            ],
+            "isActive": true,
+            "_id": "6929427b53ea97f38c96b81b"
+          },
+          {
+            "variantId": "VAR67511673701",
+            "sku": "PROD675116924-V2-3701",
+            "price": 2299,
+            "paymentPlan": {
+              "enabled": false,
+              "interestRate": 0,
+              "_id": "6929427b53ea97f38c96b81e"
+            },
+            "stock": 0,
+            "images": [
+              {
+                "url": "https://company-video-storage-prod.s3.ap-south-1.amazonaws.com/products/variants/VAR67511673701/1764312840252-841gd5.jpg",
+                "isPrimary": true,
+                "altText": "ASUS ROG Strix G16 - VAR67511673701",
+                "order": 1,
+                "_id": "6929470853ea97f38c96b988"
+              }
+            ],
+            "isActive": true,
+            "_id": "6929427b53ea97f38c96b81d"
+          }
+        ],
+        "hasVariants": true,
+        "status": "active",
+        "isPopular": false,
+        "isBestSeller": true,
+        "isTrending": false,
+        "createdAt": "2025-11-28T06:34:35.116Z",
+        "updatedAt": "2025-11-28T06:54:00.282Z",
+        "isDeleted": false,
+        "images": [
+          {
+            "url": "https://company-video-storage-prod.s3.ap-south-1.amazonaws.com/products/1764312814325-q11w53.jpg",
+            "isPrimary": true,
+            "altText": "ASUS ROG Strix G16",
+            "order": 1,
+            "_id": "692946ee53ea97f38c96b959"
+          },
+          {
+            "url": "https://company-video-storage-prod.s3.ap-south-1.amazonaws.com/products/1764312814338-ids64.jpg",
+            "isPrimary": false,
+            "altText": "ASUS ROG Strix G16",
+            "order": 1,
+            "_id": "692946ee53ea97f38c96b95a"
+          }
+        ],
+        "__v": 3
+      },
+      {
+        "description": {
+          "short": "Powerful laptop for professionals",
+          "long": "MacBook Pro with M3 chip and stunning display",
+          "features": [
+            "M3 Pro chip",
+            "16-inch display",
+            "22 hours battery"
+          ]
+        },
+        "category": {
+          "mainCategoryId": "6929421a53ea97f38c96b7c9",
+          "mainCategoryName": "Laptops & Computers"
+        },
+        "availability": {
+          "isAvailable": true,
+          "stockQuantity": 0,
+          "lowStockLevel": 10,
+          "stockStatus": "in_stock"
+        },
+        "pricing": {
+          "regularPrice": 2499,
+          "salePrice": 2199,
+          "finalPrice": 2199,
+          "currency": "USD"
+        },
+        "seo": {
+          "keywords": []
+        },
+        "_id": "6929426e53ea97f38c96b80d",
+        "productId": "PROD662113292",
+        "variantId": "VAR66211324400",
+        "name": "MacBook Pro 16-inch M3",
+        "brand": "Apple",
+        "regionalPricing": [],
+        "regionalSeo": [],
+        "regionalAvailability": [
+          {
+            "region": "global",
+            "stockQuantity": 0,
+            "lowStockLevel": 10,
+            "isAvailable": true,
+            "stockStatus": "in_stock",
+            "_id": "6929426e53ea97f38c96b80e"
+          }
+        ],
+        "relatedProducts": [],
+        "plans": [
+          {
+            "name": "Quick Plan - 10 Days",
+            "days": 10,
+            "perDayAmount": 220,
+            "totalAmount": 2200,
+            "isRecommended": true,
+            "description": "Pay 20 daily for 10 days",
+            "_id": "6929426e53ea97f38c96b80f"
+          },
+          {
+            "name": "Standard Plan - 30 Days",
+            "days": 30,
+            "perDayAmount": 75,
+            "totalAmount": 2250,
+            "isRecommended": false,
+            "description": "Pay 5 daily for 30 days",
+            "_id": "6929426e53ea97f38c96b810"
+          }
+        ],
+        "variants": [
+          {
+            "attributes": {
+              "color": "Space Gray"
+            },
+            "variantId": "VAR66211340100",
+            "sku": "PROD662113292-V1-0100",
+            "price": 2499,
+            "paymentPlan": {
+              "enabled": false,
+              "interestRate": 0,
+              "_id": "6929426e53ea97f38c96b812"
+            },
+            "stock": 0,
+            "images": [
+              {
+                "url": "https://company-video-storage-prod.s3.ap-south-1.amazonaws.com/products/variants/VAR66211340100/1764312833454-il5va.jpg",
+                "isPrimary": true,
+                "altText": "MacBook Pro 16-inch M3 - VAR66211340100",
+                "order": 1,
+                "_id": "6929470153ea97f38c96b965"
+              }
+            ],
+            "isActive": true,
+            "_id": "6929426e53ea97f38c96b811"
+          },
+          {
+            "attributes": {
+              "color": "Silver"
+            },
+            "variantId": "VAR66211330401",
+            "sku": "PROD662113292-V2-0401",
+            "price": 2999,
+            "paymentPlan": {
+              "enabled": false,
+              "interestRate": 0,
+              "_id": "6929426e53ea97f38c96b814"
+            },
+            "stock": 0,
+            "images": [
+              {
+                "url": "https://company-video-storage-prod.s3.ap-south-1.amazonaws.com/products/variants/VAR66211330401/1764312835477-yvywf.jpg",
+                "isPrimary": true,
+                "altText": "MacBook Pro 16-inch M3 - VAR66211330401",
+                "order": 1,
+                "_id": "6929470353ea97f38c96b971"
+              }
+            ],
+            "isActive": true,
+            "_id": "6929426e53ea97f38c96b813"
+          }
+        ],
+        "hasVariants": true,
+        "status": "active",
+        "isPopular": true,
+        "isBestSeller": false,
+        "isTrending": false,
+        "createdAt": "2025-11-28T06:34:22.113Z",
+        "updatedAt": "2025-11-28T06:53:55.509Z",
+        "isDeleted": false,
+        "images": [
+          {
+            "url": "https://company-video-storage-prod.s3.ap-south-1.amazonaws.com/products/1764312811938-nvngcv.jpg",
+            "isPrimary": true,
+            "altText": "MacBook Pro 16-inch M3",
+            "order": 1,
+            "_id": "692946eb53ea97f38c96b94f"
+          },
+          {
+            "url": "https://company-video-storage-prod.s3.ap-south-1.amazonaws.com/products/1764312811930-ioxzdf.jpg",
+            "isPrimary": false,
+            "altText": "MacBook Pro 16-inch M3",
+            "order": 1,
+            "_id": "692946eb53ea97f38c96b950"
+          }
+        ],
+        "__v": 3
+      }
+    ],
+    "pagination": {
+      "current": 1,
+      "pages": 1,
+      "total": 4
+    }
+  },
+  {
+    "categoryId": "692940f353ea97f38c96b725",
+    "categoryName": "Premium Electronics",
+    "categorySlug": "premium-electronics",
+    "products": [],
+    "pagination": {
+      "current": 1,
+      "pages": 0,
+      "total": 0
+    }
+  },
+  {
+    "categoryId": "6929423653ea97f38c96b7dd",
+    "categoryName": "Smart Home",
+    "categorySlug": "smart-home",
+    "products": [],
+    "pagination": {
+      "current": 1,
+      "pages": 0,
+      "total": 0
+    }
+  },
+  {
+    "categoryId": "6929423853ea97f38c96b7e1",
+    "categoryName": "Tablets & E-readers",
+    "categorySlug": "tablets-e-readers",
+    "products": [],
+    "pagination": {
+      "current": 1,
+      "pages": 0,
+      "total": 0
+    }
+  },
+  {
+    "categoryId": "6929425653ea97f38c96b7f8",
+    "categoryName": "Ultrabooks",
+    "categorySlug": "ultrabooks",
+    "products": [],
+    "pagination": {
+      "current": 1,
+      "pages": 0,
+      "total": 0
+    }
+  },
+  {
+    "categoryId": "6929422253ea97f38c96b7d9",
+    "categoryName": "Wearables",
+    "categorySlug": "wearables",
+    "products": [],
+    "pagination": {
+      "current": 1,
+      "pages": 0,
+      "total": 0
+    }
+  },
+  {
+    "categoryId": "6929a5ff0ee310a5012d6c27",
+    "categoryName": "art",
+    "categorySlug": "art",
+    "products": [],
+    "pagination": {
+      "current": 1,
+      "pages": 0,
+      "total": 0
+    }
+  },
+  {
+    "categoryId": "692991b80ee310a5012d5bce",
+    "categoryName": "xyz",
+    "categorySlug": "xyz",
+    "products": [],
+    "pagination": {
+      "current": 1,
+      "pages": 0,
+      "total": 0
+    }
+  },
+  {
+    "categoryId": "692950b353ea97f38c96bd51",
+    "categoryName": "Headphone JBL",
+    "categorySlug": "headphone-jbl",
+    "products": [],
+    "pagination": {
+      "current": 1,
+      "pages": 0,
+      "total": 0
+    }
+  },
+  {
+    "categoryId": "692a807bb37286d3b11c48ed",
+    "categoryName": "Microphone",
+    "categorySlug": "microphone",
+    "products": [],
+    "pagination": {
+      "current": 1,
+      "pages": 0,
+      "total": 0
+    }
+  },
+  {
+    "categoryId": "6929b3030ee310a5012d79ea",
+    "categoryName": "Video devices",
+    "categorySlug": "video-devices",
+    "products": [
+      {
+        "description": {
+          "features": [],
+          "short": "Testing",
+          "long": "Testing"
+        },
+        "category": {
+          "mainCategoryId": "6929b3030ee310a5012d79ea",
+          "mainCategoryName": "Video devices",
+          "subCategoryId": null,
+          "subCategoryName": null
+        },
+        "availability": {
+          "isAvailable": true,
+          "stockQuantity": 1,
+          "lowStockLevel": 5,
+          "stockStatus": "in_stock"
+        },
+        "pricing": {
+          "regularPrice": 1000,
+          "salePrice": 900,
+          "currency": "INR",
+          "finalPrice": 900
+        },
+        "seo": {
+          "keywords": []
+        },
+        "_id": "6929b3af0ee310a5012d7b15",
+        "productId": "PROD655368752",
+        "variantId": "VAR65536864500",
+        "name": "Video game product",
+        "brand": "samsung",
+        "sku": "SKU1879877",
+        "regionalPricing": [],
+        "regionalSeo": [],
+        "regionalAvailability": [
+          {
+            "region": "global",
+            "stockQuantity": 1,
+            "lowStockLevel": 5,
+            "isAvailable": true,
+            "stockStatus": "in_stock",
+            "_id": "6929b3af0ee310a5012d7b16"
+          }
+        ],
+        "relatedProducts": [],
+        "plans": [
+          {
+            "name": "Quick plan",
+            "days": 10,
+            "perDayAmount": 100,
+            "totalAmount": 1000,
+            "isRecommended": false,
+            "description": "10",
+            "_id": "6929b3af0ee310a5012d7b17"
+          }
+        ],
+        "variants": [
+          {
+            "attributes": {
+              "color": "Blue"
+            },
+            "variantId": "VAR67284378500",
+            "sku": "SKU1879877-V1-8500",
+            "price": 1000,
+            "salePrice": 900,
+            "paymentPlan": {
+              "enabled": false,
+              "interestRate": 0,
+              "_id": "6929b3c00ee310a5012d7bbe"
+            },
+            "stock": 1,
+            "images": [],
+            "isActive": true,
+            "_id": "6929b3c00ee310a5012d7bbd"
+          }
+        ],
+        "hasVariants": true,
+        "status": "published",
+        "isPopular": false,
+        "isBestSeller": false,
+        "isTrending": false,
+        "createdAt": "2025-11-28T14:37:35.368Z",
+        "updatedAt": "2025-11-28T14:37:52.848Z",
+        "isDeleted": false,
+        "images": [
+          {
+            "url": "https://company-video-storage-prod.s3.ap-south-1.amazonaws.com/products/1764340655811-dh3do.jpg",
+            "isPrimary": true,
+            "altText": "Product image",
+            "order": 1,
+            "_id": "6929b3af0ee310a5012d7b20"
+          }
+        ],
+        "__v": 2,
+        "paymentPlan": {
+          "enabled": false,
+          "minDownPayment": 0,
+          "maxDownPayment": 0,
+          "interestRate": 0,
+          "_id": "6929b3c00ee310a5012d7bbf"
+        },
+        "referralBonus": {
+          "enabled": false,
+          "type": "percentage",
+          "value": 0,
+          "minPurchaseAmount": 0,
+          "_id": "6929b3c00ee310a5012d7bc0"
+        }
+      }
+    ],
+    "pagination": {
+      "current": 1,
+      "pages": 1,
+      "total": 1
+    }
+  },
+  {
+    "categoryId": "692a817dbab9113a43e108ae",
+    "categoryName": "Advanced Microphone",
+    "categorySlug": "advanced-microphone",
+    "products": [],
+    "pagination": {
+      "current": 1,
+      "pages": 0,
+      "total": 0
+    }
+  },
+  {
+    "categoryId": "692a8115bab9113a43e10690",
+    "categoryName": "Mini Microphone",
+    "categorySlug": "mini-microphone",
+    "products": [],
+    "pagination": {
+      "current": 1,
+      "pages": 0,
+      "total": 0
+    }
+  }
+]

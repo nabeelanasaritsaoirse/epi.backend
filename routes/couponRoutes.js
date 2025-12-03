@@ -4,6 +4,12 @@ const couponController = require('../controllers/couponController');
 const auth = require('../middlewares/auth');
 
 /**
+ * PUBLIC ROUTE
+ * GET all coupons
+ */
+router.get('/', couponController.getCoupons);
+
+/**
  * ADMIN ROUTES
  */
 router.post('/admin/create', auth.verifyToken, auth.isAdmin, couponController.createCoupon);
