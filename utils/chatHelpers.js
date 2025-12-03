@@ -118,6 +118,7 @@ function sanitizeMessageText(text) {
  * @returns {Promise<Object|null>} Referral object if relationship exists, null otherwise
  */
 async function checkReferralRelationship(userId1, userId2) {
+  // First, check the Referral collection
   // Check if userId1 referred userId2
   let referral = await Referral.findOne({
     referrer: userId1,
@@ -136,6 +137,32 @@ async function checkReferralRelationship(userId1, userId2) {
 
   if (referral) {
     return { referral, direction: 'user2_to_user1' };
+  }
+
+  // If no Referral document exists, check the User model's referredBy field
+  const user1 = await User.findById(userId1).populate('referredBy');
+  const user2 = await User.findById(userId2).populate('referredBy');
+
+  if (!user1 || !user2) {
+    return null;
+  }
+
+  // Check if user1 referred user2
+  if (user2.referredBy && user2.referredBy._id.toString() === userId1.toString()) {
+    return {
+      referral: { referrer: userId1, referredUser: userId2 },
+      direction: 'user1_to_user2',
+      fromUserModel: true
+    };
+  }
+
+  // Check if user2 referred user1
+  if (user1.referredBy && user1.referredBy._id.toString() === userId2.toString()) {
+    return {
+      referral: { referrer: userId2, referredUser: userId1 },
+      direction: 'user2_to_user1',
+      fromUserModel: true
+    };
   }
 
   return null;
