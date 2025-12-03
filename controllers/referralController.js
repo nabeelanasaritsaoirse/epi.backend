@@ -1,4 +1,5 @@
 // controllers/referralController.js
+const mongoose = require("mongoose");
 const User = require("../models/User");
 const Referral = require("../models/Referral");
 const DailyCommission = require("../models/DailyCommission");
@@ -86,7 +87,13 @@ exports.processReferral = async (referrerId, referredUserId, installmentDetails)
       const productSnapshot = {};
       if (productId) {
         try {
-          const product = await Product.findById(productId).select("productId name");
+          let product;
+          if (mongoose.Types.ObjectId.isValid(productId) && productId.length === 24) {
+            product = await Product.findById(productId).select("productId name");
+          }
+          if (!product) {
+            product = await Product.findOne({ productId }).select("productId name");
+          }
           if (product) {
             productSnapshot.productId = product.productId;
             productSnapshot.productName = product.name;
@@ -102,7 +109,13 @@ exports.processReferral = async (referrerId, referredUserId, installmentDetails)
         const productSnapshot = {};
         if (installmentDetails.productId) {
           try {
-            const product = await Product.findById(installmentDetails.productId).select("productId name");
+            let product;
+            if (mongoose.Types.ObjectId.isValid(installmentDetails.productId) && installmentDetails.productId.length === 24) {
+              product = await Product.findById(installmentDetails.productId).select("productId name");
+            }
+            if (!product) {
+              product = await Product.findOne({ productId: installmentDetails.productId }).select("productId name");
+            }
             if (product) {
               productSnapshot.productId = product.productId;
               productSnapshot.productName = product.name;
@@ -377,34 +390,48 @@ exports.getMissedPaymentDays = async (referralId) => {
 /* ---------- getReferralList (Screen 1) ---------- */
 exports.getReferralList = async (referrerId) => {
   try {
-    const referrals = await Referral.find({ referrer: referrerId })
-      .populate('referredUser', 'name email profilePicture')
-      .populate('purchases.product', 'productId name');
+    // Get ALL users who were referred by this referrer (using User.referredBy)
+    const referredUsers = await User.find({ referredBy: referrerId })
+      .select('name email profilePicture createdAt')
+      .sort({ createdAt: -1 });
 
-    const referralList = referrals.map((ref) => {
-      const totalProducts = ref.purchases.length;
-      const totalCommission = ref.purchases.reduce((sum, p) => sum + ((p.commissionPerDay || 0) * (p.paidDays || 0)), 0);
+    // For each referred user, get their referral data (if exists)
+    const referralList = await Promise.all(referredUsers.map(async (user) => {
+      const referral = await Referral.findOne({
+        referrer: referrerId,
+        referredUser: user._id
+      }).populate('purchases.product', 'productId name');
 
-      const productList = ref.purchases.map((p) => ({
-        productName: p.productSnapshot?.productName || (p.product ? p.product.name : null),
-        productId: p.productSnapshot?.productId || (p.product ? p.product.productId : null),
-        pendingStatus: (p.pendingDays || 0) > 0 ? "PENDING" : p.status,
-        totalAmount: p.amount,
-        dateOfPurchase: p.date,
-      }));
+      let totalProducts = 0;
+      let totalCommission = 0;
+      let productList = [];
+
+      if (referral && referral.purchases && referral.purchases.length > 0) {
+        totalProducts = referral.purchases.length;
+        totalCommission = referral.purchases.reduce((sum, p) => sum + ((p.commissionPerDay || 0) * (p.paidDays || 0)), 0);
+
+        productList = referral.purchases.map((p) => ({
+          productName: p.productSnapshot?.productName || (p.product ? p.product.name : null),
+          productId: p.productSnapshot?.productId || (p.product ? p.product.productId : null),
+          pendingStatus: (p.pendingDays || 0) > 0 ? "PENDING" : p.status,
+          totalAmount: p.amount,
+          dateOfPurchase: p.date,
+        }));
+      }
 
       return {
-        _id: ref._id,
+        _id: referral?._id || user._id,
         referredUser: {
-          _id: ref.referredUser._id,
-          name: ref.referredUser.name,
-          profilePicture: ref.referredUser.profilePicture,
+          _id: user._id,
+          name: user.name,
+          profilePicture: user.profilePicture || '',
         },
         totalProducts,
         totalCommission,
         productList,
+        joinedAt: user.createdAt,
       };
-    });
+    }));
 
     return { success: true, referrals: referralList };
   } catch (error) {

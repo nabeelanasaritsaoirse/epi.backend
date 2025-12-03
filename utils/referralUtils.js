@@ -1,15 +1,17 @@
 const crypto = require('crypto');
-const User = require('../models/User');
 
 // Generate a unique referral code
 exports.generateReferralCode = async () => {
+  // Lazy require to avoid circular dependency
+  const User = require('../models/User');
+
   let referralCode;
   let isUnique = false;
 
   while (!isUnique) {
     // Generate a random 8-character code
     referralCode = crypto.randomBytes(4).toString('hex').toUpperCase();
-    
+
     try {
       // Check if code already exists
       const existingUser = await User.findOne({ referralCode });

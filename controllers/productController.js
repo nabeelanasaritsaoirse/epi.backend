@@ -1,5 +1,7 @@
 const Product = require('../models/Product');
+const mongoose = require('mongoose');
 const { calculateEquivalentValues, generateInstallmentOptions } = require('../utils/productUtils');
+const { uploadSingleFileToS3, uploadMultipleFilesToS3, deleteImageFromS3 } = require('../services/awsUploadService');
 
 // Create product and a number of product CRUD helpers with enhanced regional features
 exports.createProduct = async (req, res) => {
@@ -9,6 +11,13 @@ exports.createProduct = async (req, res) => {
       const timestamp = Date.now().toString().slice(-6);
       const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
       req.body.productId = `PROD${timestamp}${random}`;
+    }
+
+    // Generate variant ID for the main product if not provided
+    if (!req.body.variantId) {
+      const timestamp = Date.now().toString().slice(-6);
+      const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+      req.body.variantId = `VAR${timestamp}${random}00`;
     }
 
     // Auto-calculate final prices if not provided
@@ -46,8 +55,17 @@ exports.createProduct = async (req, res) => {
       },
       regionalPricing: req.body.regionalPricing || [],
       regionalSeo: req.body.regionalSeo || [],
-      regionalAvailability: req.body.regionalAvailability || [],
+      regionalAvailability: req.body.regionalAvailability || [
+        {
+          region: 'global',
+          stockQuantity: req.body.availability?.stockQuantity || 0,
+          lowStockLevel: req.body.availability?.lowStockLevel || 10,
+          isAvailable: req.body.availability?.isAvailable !== undefined ? req.body.availability.isAvailable : true,
+          stockStatus: req.body.availability?.stockStatus || 'in_stock'
+        }
+      ],
       relatedProducts: req.body.relatedProducts || [],
+      plans: req.body.plans || [], // Admin-created investment plans
       status: req.body.status || 'draft',
       createdAt: new Date(),
       updatedAt: new Date()
@@ -63,10 +81,11 @@ exports.createProduct = async (req, res) => {
       const normalizedVariants = req.body.variants.map((v, idx) => {
         const timestamp = Date.now().toString().slice(-6);
         const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-        const variantId = v.variantId || `VAR${timestamp}${random}`;
+        // Add index to ensure uniqueness even if timestamp and random collide
+        const variantId = v.variantId || `VAR${timestamp}${random}${idx.toString().padStart(2, '0')}`;
 
         const skuBase = req.body.sku || req.body.productId || `PROD${timestamp}`;
-        const sku = v.sku || `${skuBase}-${idx + 1}-${variantId.slice(-4)}`;
+        const sku = v.sku || `${skuBase}-V${idx + 1}-${variantId.slice(-4)}`;
 
         if (v.price === undefined || v.price === null) {
           throw new Error(`Each variant must include a price. Missing for variant at index ${idx}`);
@@ -97,6 +116,7 @@ exports.createProduct = async (req, res) => {
       message: "Product created successfully",
       data: {
         productId: product.productId,
+        variantId: product.variantId,
         name: product.name,
         sku: product.sku
       }
@@ -106,7 +126,7 @@ exports.createProduct = async (req, res) => {
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
-        message: "Product ID or SKU already exists"
+        message: "Product ID, Variant ID, or SKU already exists"
       });
     }
     
@@ -128,49 +148,78 @@ exports.getAllProducts = async (req, res) => {
       minPrice,
       maxPrice,
       status,
-      region = 'global'
+      region = "global",
+      hasVariants,
+      simpleOnly
     } = req.query;
 
-    // Build filter object
     const filter = {};
-    
+
+    // -----------------------------------------
+    // SOFT DELETE FILTER
+    // -----------------------------------------
+    // Filter out soft deleted products for non-admin users
+    const isAdmin = req.user && req.user.role === 'admin';
+    if (!isAdmin) {
+      filter.isDeleted = false;
+    }
+
+    // -----------------------------------------
+    // VARIANT FILTERING (CLEAN + NO CONFLICTS)
+    // -----------------------------------------
+
+    if (simpleOnly === "true") {
+      // Highest priority → force simple products
+      filter.hasVariants = false;
+    } else if (hasVariants === "true") {
+      filter.hasVariants = true;
+    } else if (hasVariants === "false") {
+      filter.hasVariants = false;
+    }
+
+    // -----------------------------------------
+    // SEARCH
+    // -----------------------------------------
     if (search) {
       filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } },
-        { 'regionalSeo.metaTitle': { $regex: search, $options: 'i' } }
+        { name: { $regex: search, $options: "i" } },
+        { description: { $regex: search, $options: "i" } },
+        { "regionalSeo.metaTitle": { $regex: search, $options: "i" } },
       ];
     }
-    
-    if (category) filter['category.main'] = category;
+
+    // -----------------------------------------
+    // BASIC FILTERS
+    // -----------------------------------------
+    if (category) filter["category.mainCategoryId"] = category;
     if (brand) filter.brand = brand;
     if (status) filter.status = status;
-    
-    // Regional availability filter
-    if (region && region !== 'all') {
-      filter['regionalAvailability.region'] = region;
-      filter['regionalAvailability.isAvailable'] = true;
-    }
-    
-    // Price range filter for specific region
-    if ((minPrice || maxPrice) && region && region !== 'all') {
-      filter['regionalPricing'] = {
-        $elemMatch: {
-          region: region,
-          finalPrice: {}
-        }
-      };
-      if (minPrice) filter['regionalPricing'].$elemMatch.finalPrice.$gte = parseFloat(minPrice);
-      if (maxPrice) filter['regionalPricing'].$elemMatch.finalPrice.$lte = parseFloat(maxPrice);
+
+    // -----------------------------------------
+    // REGION FILTER
+    // -----------------------------------------
+    if (region && region !== "all" && region !== "global") {
+      filter["regionalAvailability.region"] = region;
+      filter["regionalAvailability.isAvailable"] = true;
     }
 
-    // Execute query with pagination
+    // -----------------------------------------
+    // PRICE FILTER
+    // -----------------------------------------
+    if (minPrice || maxPrice) {
+      filter["pricing.finalPrice"] = {};
+      if (minPrice) filter["pricing.finalPrice"].$gte = parseFloat(minPrice);
+      if (maxPrice) filter["pricing.finalPrice"].$lte = parseFloat(maxPrice);
+    }
+
+    // -----------------------------------------
+    // EXECUTE QUERY
+    // -----------------------------------------
     const products = await Product.find(filter)
       .sort({ createdAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit);
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
 
-    // Get total count for pagination info
     const total = await Product.countDocuments(filter);
 
     res.json({
@@ -178,27 +227,27 @@ exports.getAllProducts = async (req, res) => {
       data: products,
       pagination: {
         current: parseInt(page),
-        pages: Math.ceil(total / limit),
+        pages: Math.ceil(total / parseInt(limit)),
         total,
-        hasNext: page * limit < total,
-        hasPrev: page > 1
-      }
+      },
     });
+
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      message: error.message
+    res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 };
+
 
 // Add this new endpoint for stats
 exports.getProductStats = async (req, res) => {
   try {
     const { region = 'global' } = req.query;
-    
+
     const filter = {};
-    if (region && region !== 'global') {
+    if (region && region !== 'global' && region !== 'all') {
       filter['regionalAvailability.region'] = region;
       filter['regionalAvailability.isAvailable'] = true;
     }
@@ -255,7 +304,13 @@ exports.getProductStats = async (req, res) => {
 
 exports.getProductById = async (req, res) => {
   try {
-    const product = await Product.findOne({ productId: req.params.productId });
+    const id = req.params.productId;
+    let product = await Product.findOne({ productId: id });
+
+    // Fallback to Mongo _id if not found by productId
+    if (!product && mongoose.isValidObjectId(id)) {
+      product = await Product.findById(id);
+    }
 
     if (!product) {
       return res.status(404).json({ 
@@ -278,7 +333,13 @@ exports.getProductById = async (req, res) => {
 
 exports.updateProduct = async (req, res) => {
   try {
-    const product = await Product.findOne({ productId: req.params.productId });
+    const id = req.params.productId;
+
+    let product = await Product.findOne({ productId: id });
+    if (!product && mongoose.isValidObjectId(id)) {
+      product = await Product.findById(id);
+    }
+
     if (!product) {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
@@ -296,9 +357,10 @@ exports.updateProduct = async (req, res) => {
       const normalizedVariants = req.body.variants.map((v, idx) => {
         const timestamp = Date.now().toString().slice(-6);
         const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-        const variantId = v.variantId || `VAR${timestamp}${random}`;
+        // Add index to ensure uniqueness even if timestamp and random collide
+        const variantId = v.variantId || `VAR${timestamp}${random}${idx.toString().padStart(2, '0')}`;
         const skuBase = req.body.sku || product.sku || product.productId || `PROD${timestamp}`;
-        const sku = v.sku || `${skuBase}-${idx + 1}-${variantId.slice(-4)}`;
+        const sku = v.sku || `${skuBase}-V${idx + 1}-${variantId.slice(-4)}`;
 
         if (v.price === undefined || v.price === null) {
           throw new Error(`Each variant must include a price. Missing for variant at index ${idx}`);
@@ -322,7 +384,7 @@ exports.updateProduct = async (req, res) => {
     }
 
     // Merge other top-level fields (safe shallow merge)
-    const updatableFields = ['name','description','brand','pricing','availability','regionalPricing','regionalSeo','regionalAvailability','relatedProducts','paymentPlan','origin','referralBonus','images','project','dimensions','warranty','seo','status'];
+    const updatableFields = ['name','description','brand','pricing','availability','regionalPricing','regionalSeo','regionalAvailability','relatedProducts','paymentPlan','plans','origin','referralBonus','images','project','dimensions','warranty','seo','status'];
     updatableFields.forEach(field => {
       if (req.body[field] !== undefined) product[field] = req.body[field];
     });
@@ -335,7 +397,7 @@ exports.updateProduct = async (req, res) => {
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
-        message: "Product ID or SKU already exists"
+        message: "Product ID, Variant ID, or SKU already exists"
       });
     }
     
@@ -348,24 +410,82 @@ exports.updateProduct = async (req, res) => {
 
 exports.deleteProduct = async (req, res) => {
   try {
-    const deleted = await Product.findOneAndDelete({ 
-      productId: req.params.productId 
-    });
+    const id = req.params.productId;
 
-    if (!deleted) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Product not found" 
+    let product = await Product.findOne({ productId: id });
+    if (!product && mongoose.isValidObjectId(id)) {
+      product = await Product.findById(id);
+    }
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found"
       });
     }
 
-    res.json({ 
-      success: true, 
-      message: "Product deleted successfully" 
+    // Check if already deleted
+    if (product.isDeleted) {
+      return res.status(400).json({
+        success: false,
+        message: "Product is already deleted",
+      });
+    }
+
+    // Soft delete the product
+    product.isDeleted = true;
+    product.deletedAt = new Date();
+    product.deletedBy = req.user?._id || null;
+    await product.save();
+
+    res.json({
+      success: true,
+      message: "Product deleted successfully"
     });
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+exports.restoreProduct = async (req, res) => {
+  try {
+    const id = req.params.productId;
+
+    let product = await Product.findOne({ productId: id });
+    if (!product && mongoose.isValidObjectId(id)) {
+      product = await Product.findById(id);
+    }
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found"
+      });
+    }
+
+    if (!product.isDeleted) {
+      return res.status(400).json({
+        success: false,
+        message: "Product is not deleted"
+      });
+    }
+
+    product.isDeleted = false;
+    product.deletedAt = null;
+    product.deletedBy = null;
+    await product.save();
+
+    res.json({
+      success: true,
+      message: "Product restored successfully",
+      data: product
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
       message: error.message
     });
   }
@@ -376,9 +496,9 @@ exports.getProductsByCategory = async (req, res) => {
     const { category } = req.params;
     const { page = 1, limit = 10, region = 'global' } = req.query;
 
-    const filter = { 'category.main': category };
-    
-    if (region && region !== 'all') {
+    const filter = { 'category.mainCategoryId': category };
+
+    if (region && region !== 'all' && region !== 'global') {
       filter['regionalAvailability.region'] = region;
       filter['regionalAvailability.isAvailable'] = true;
     }
@@ -410,13 +530,13 @@ exports.getProductsByCategory = async (req, res) => {
 exports.getLowStockProducts = async (req, res) => {
   try {
     const { region = 'global' } = req.query;
-    
+
     const filter = {
       'availability.stockStatus': 'low_stock',
       'availability.isAvailable': true
     };
-    
-    if (region && region !== 'all') {
+
+    if (region && region !== 'all' && region !== 'global') {
       filter['regionalAvailability.region'] = region;
       filter['regionalAvailability.isAvailable'] = true;
       filter['regionalAvailability.stockStatus'] = 'low_stock';
@@ -466,7 +586,7 @@ exports.getProductsByRegion = async (req, res) => {
       ];
     }
     
-    if (category) filter['category.main'] = category;
+    if (category) filter['category.mainCategoryId'] = category;
     if (brand) filter.brand = brand;
     if (status) filter.status = status;
     
@@ -513,7 +633,11 @@ exports.addRegionalPricing = async (req, res) => {
     const { productId } = req.params;
     const { region, currency, regularPrice, salePrice, costPrice } = req.body;
 
-    const product = await Product.findOne({ productId });
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
     if (!product) {
       return res.status(404).json({ 
         success: false, 
@@ -556,7 +680,11 @@ exports.addRegionalAvailability = async (req, res) => {
     const { productId } = req.params;
     const { region, stockQuantity, lowStockLevel, isAvailable = true } = req.body;
 
-    const product = await Product.findOne({ productId });
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
     if (!product) {
       return res.status(404).json({ 
         success: false, 
@@ -606,7 +734,11 @@ exports.addRegionalSeo = async (req, res) => {
     const { productId } = req.params;
     const { region, metaTitle, metaDescription, keywords, slug } = req.body;
 
-    const product = await Product.findOne({ productId });
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
     if (!product) {
       return res.status(404).json({ 
         success: false, 
@@ -646,7 +778,11 @@ exports.addRelatedProducts = async (req, res) => {
     const { productId } = req.params;
     const { relatedProducts } = req.body;
 
-    const product = await Product.findOne({ productId });
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
     if (!product) {
       return res.status(404).json({ 
         success: false, 
@@ -685,11 +821,19 @@ exports.getProductByRegion = async (req, res) => {
   try {
     const { productId, region } = req.params;
 
-    const product = await Product.findOne({ 
+    let product = await Product.findOne({ 
       productId,
       'regionalAvailability.region': region,
       'regionalAvailability.isAvailable': true
     });
+
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findOne({
+        _id: productId,
+        'regionalAvailability.region': region,
+        'regionalAvailability.isAvailable': true
+      });
+    }
 
     if (!product) {
       return res.status(404).json({ 
@@ -745,7 +889,11 @@ exports.bulkUpdateRegionalPricing = async (req, res) => {
       try {
         const { productId, region, currency, regularPrice, salePrice, costPrice } = update;
         
-        const product = await Product.findOne({ productId });
+        let product = await Product.findOne({ productId });
+        if (!product && mongoose.isValidObjectId(productId)) {
+          product = await Product.findById(productId);
+        }
+
         if (!product) {
           errors.push(`Product ${productId} not found`);
           continue;
@@ -859,7 +1007,11 @@ exports.syncRegionalData = async (req, res) => {
     const { productId } = req.params;
     const { sourceRegion, targetRegions } = req.body;
 
-    const product = await Product.findOne({ productId });
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
     if (!product) {
       return res.status(404).json({ 
         success: false, 
@@ -884,7 +1036,7 @@ exports.syncRegionalData = async (req, res) => {
       // Sync pricing
       product.regionalPricing = product.regionalPricing.filter(p => p.region !== targetRegion);
       product.regionalPricing.push({
-        ...sourcePricing.toObject ? sourcePricing.toObject() : sourcePricing,
+        ... (sourcePricing.toObject ? sourcePricing.toObject() : sourcePricing),
         region: targetRegion
       });
 
@@ -892,7 +1044,7 @@ exports.syncRegionalData = async (req, res) => {
       if (sourceSeo) {
         product.regionalSeo = product.regionalSeo.filter(s => s.region !== targetRegion);
         product.regionalSeo.push({
-          ...sourceSeo.toObject ? sourceSeo.toObject() : sourceSeo,
+          ... (sourceSeo.toObject ? sourceSeo.toObject() : sourceSeo),
           region: targetRegion
         });
       }
@@ -901,7 +1053,7 @@ exports.syncRegionalData = async (req, res) => {
       if (sourceAvailability) {
         product.regionalAvailability = product.regionalAvailability.filter(a => a.region !== targetRegion);
         product.regionalAvailability.push({
-          ...sourceAvailability.toObject ? sourceAvailability.toObject() : sourceAvailability,
+          ... (sourceAvailability.toObject ? sourceAvailability.toObject() : sourceAvailability),
           region: targetRegion
         });
       }
@@ -932,8 +1084,8 @@ exports.getProductsByProject = async (req, res) => {
     const { page = 1, limit = 10, region = 'global' } = req.query;
 
     const filter = { 'project.projectId': projectId };
-    
-    if (region && region !== 'all') {
+
+    if (region && region !== 'all' && region !== 'global') {
       filter['regionalAvailability.region'] = region;
       filter['regionalAvailability.isAvailable'] = true;
     }
@@ -1001,24 +1153,24 @@ exports.searchProductsAdvanced = async (req, res) => {
       ];
     }
 
-    
-    if (region && region !== 'all') {
+
+    if (region && region !== 'all' && region !== 'global') {
       filter['regionalAvailability.region'] = region;
       filter['regionalAvailability.isAvailable'] = true;
     }
 
-    
-    if (category) filter['category.main'] = category;
+
+    if (category) filter['category.mainCategoryId'] = category;
     if (brand) filter.brand = brand;
     if (projectId) filter['project.projectId'] = projectId;
     if (hasVariants) filter.hasVariants = true;
-    
+
     if (inStock) {
       filter['regionalAvailability.stockQuantity'] = { $gt: 0 };
     }
 
-    
-    if ((minPrice || maxPrice) && region && region !== 'all') {
+
+    if ((minPrice || maxPrice) && region && region !== 'all' && region !== 'global') {
       filter['regionalPricing'] = {
         $elemMatch: {
           region: region,
@@ -1054,3 +1206,716 @@ exports.searchProductsAdvanced = async (req, res) => {
     });
   }
 };
+/**
+ * @desc    Update product images (after S3 upload)
+ * @route   PUT /api/products/:productId/images
+ * @access  Admin
+ */
+exports.updateProductImages = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const files = req.files;
+
+    if (!files || files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one image file is required"
+      });
+    }
+
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found"
+      });
+    }
+
+    // Upload all files to S3
+    const uploadResults = await uploadMultipleFilesToS3(files, 'products/', 800);
+
+    // Format images with S3 URLs
+    const formattedImages = uploadResults.map((result, index) => ({
+      url: result.url,
+      isPrimary: index === 0, // First image is primary
+      altText: req.body.altText || product.name
+    }));
+
+    product.images = formattedImages;
+    await product.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Product images uploaded and updated successfully",
+      data: {
+        productId: product.productId,
+        images: product.images,
+        uploadedCount: uploadResults.length
+      }
+    });
+  } catch (error) {
+    console.error('Error updating product images:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Update product variant images (after S3 upload)
+ * @route   PUT /api/products/:productId/variants/:variantId/images
+ * @access  Admin
+ */
+exports.updateVariantImages = async (req, res) => {
+  try {
+    const { productId, variantId } = req.params;
+    const files = req.files;
+
+    if (!files || files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one image file is required"
+      });
+    }
+
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found"
+      });
+    }
+
+    // Find variant
+    const variant = product.variants.find(v => v.variantId === variantId);
+
+    if (!variant) {
+      return res.status(404).json({
+        success: false,
+        message: "Variant not found"
+      });
+    }
+
+    // Upload all files to S3
+    const uploadResults = await uploadMultipleFilesToS3(files, `products/variants/${variantId}/`, 800);
+
+    // Format images
+    const formattedImages = uploadResults.map((result, index) => ({
+      url: result.url,
+      isPrimary: index === 0,
+      altText: req.body.altText || `${product.name} - ${variant.variantId}`
+    }));
+
+    variant.images = formattedImages;
+    await product.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Variant images uploaded and updated successfully",
+      data: {
+        productId: product.productId,
+        variantId: variant.variantId,
+        images: variant.images,
+        uploadedCount: uploadResults.length
+      }
+    });
+  } catch (error) {
+    console.error('Error updating variant images:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Update product SEO meta (after creation)
+ * @route   PUT /api/products/:productId/seo
+ * @access  Admin
+ */
+exports.updateProductSEO = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const { metaTitle, metaDescription, keywords } = req.body;
+
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found"
+      });
+    }
+
+    product.seo = {
+      metaTitle: metaTitle || product.seo?.metaTitle || product.name,
+      metaDescription: metaDescription || product.seo?.metaDescription || product.description?.short || '',
+      keywords: keywords || product.seo?.keywords || []
+    };
+
+    await product.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Product SEO updated successfully",
+      data: {
+        productId: product.productId,
+        seo: product.seo
+      }
+    });
+  } catch (error) {
+    console.error('Error updating product SEO:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Update product plans (after creation)
+ * @route   PUT /api/products/:productId/plans
+ * @access  Admin
+ */
+exports.updateProductPlans = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const { plans } = req.body;
+
+    if (!Array.isArray(plans)) {
+      return res.status(400).json({
+        success: false,
+        message: "Plans must be an array"
+      });
+    }
+
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found"
+      });
+    }
+
+    // Validate plans structure
+    for (const plan of plans) {
+      if (!plan.name || !plan.days || !plan.perDayAmount) {
+        return res.status(400).json({
+          success: false,
+          message: "Each plan must have name, days, and perDayAmount"
+        });
+      }
+    }
+
+    product.plans = plans;
+    await product.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Product plans updated successfully",
+      data: {
+        productId: product.productId,
+        plans: product.plans
+      }
+    });
+  } catch (error) {
+    console.error('Error updating product plans:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+/**
+ * @desc    Get product investment plans
+ * @route   GET /api/products/:productId/plans
+ * @access  Public
+ */
+exports.getProductPlans = async (req, res) => {
+  try {
+    const { productId } = req.params;
+
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found"
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        productId: product.productId,
+        plans: product.plans || []
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching product plans:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Get all products for admin (includes deleted with indicator)
+ * @route   GET /api/products/admin/all
+ * @access  Admin
+ */
+exports.getAllProductsForAdmin = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      search,
+      category,
+      brand,
+      minPrice,
+      maxPrice,
+      status,
+      region = "global",
+      hasVariants,
+      simpleOnly,
+      showDeleted
+    } = req.query;
+
+    const filter = {};
+
+    // Show deleted products only if explicitly requested
+    if (showDeleted !== 'true') {
+      filter.isDeleted = false;
+    }
+
+    // Variant filtering
+    if (simpleOnly === "true") {
+      filter.hasVariants = false;
+    } else if (hasVariants === "true") {
+      filter.hasVariants = true;
+    } else if (hasVariants === "false") {
+      filter.hasVariants = false;
+    }
+
+    // Search
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { description: { $regex: search, $options: "i" } },
+        { "regionalSeo.metaTitle": { $regex: search, $options: "i" } },
+      ];
+    }
+
+    // Basic filters
+    if (category) filter["category.mainCategoryId"] = category;
+    if (brand) filter.brand = brand;
+    if (status) filter.status = status;
+
+    // Region filter
+    if (region && region !== "all" && region !== "global") {
+      filter["regionalAvailability.region"] = region;
+      filter["regionalAvailability.isAvailable"] = true;
+    }
+
+    // Price filter
+    if (minPrice || maxPrice) {
+      filter["pricing.finalPrice"] = {};
+      if (minPrice) filter["pricing.finalPrice"].$gte = parseFloat(minPrice);
+      if (maxPrice) filter["pricing.finalPrice"].$lte = parseFloat(maxPrice);
+    }
+
+    const products = await Product.find(filter)
+      .populate("deletedBy", "name email")
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
+
+    const total = await Product.countDocuments(filter);
+
+    res.json({
+      success: true,
+      data: products,
+      pagination: {
+        current: parseInt(page),
+        pages: Math.ceil(total / parseInt(limit)),
+        total,
+      },
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+/**
+ * @desc    Delete individual image from product
+ * @route   DELETE /api/products/:productId/images/:imageIndex
+ * @access  Admin
+ */
+exports.deleteProductImage = async (req, res) => {
+  try {
+    const { productId, imageIndex } = req.params;
+
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    // Convert imageIndex to number (1-based)
+    const index = parseInt(imageIndex);
+
+    if (isNaN(index) || index < 1) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid image index. Index must be a positive number starting from 1",
+      });
+    }
+
+    // Convert to 0-based index for array
+    const arrayIndex = index - 1;
+
+    if (!product.images || arrayIndex >= product.images.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Image index out of range",
+      });
+    }
+
+    // Get the image to delete
+    const imageToDelete = product.images[arrayIndex];
+
+    // Delete image from S3
+    if (imageToDelete.url) {
+      try {
+        await deleteImageFromS3(imageToDelete.url);
+      } catch (error) {
+        console.error("Error deleting image from S3:", error);
+        // Continue with deletion even if S3 delete fails
+      }
+    }
+
+    // Remove image from array
+    product.images.splice(arrayIndex, 1);
+
+    // Re-index remaining images (1-based)
+    product.images.forEach((img, idx) => {
+      img.order = idx + 1;
+    });
+
+    await product.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Image deleted successfully",
+      data: product,
+    });
+  } catch (error) {
+    console.error("Error deleting product image:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+/**
+ * @desc    Delete individual image from variant
+ * @route   DELETE /api/products/:productId/variants/:variantId/images/:imageIndex
+ * @access  Admin
+ */
+exports.deleteVariantImage = async (req, res) => {
+  try {
+    const { productId, variantId, imageIndex } = req.params;
+
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    // Find the variant
+    const variant = product.variants.find(v => v.variantId === variantId);
+
+    if (!variant) {
+      return res.status(404).json({
+        success: false,
+        message: "Variant not found",
+      });
+    }
+
+    // Convert imageIndex to number (1-based)
+    const index = parseInt(imageIndex);
+
+    if (isNaN(index) || index < 1) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid image index. Index must be a positive number starting from 1",
+      });
+    }
+
+    // Convert to 0-based index for array
+    const arrayIndex = index - 1;
+
+    if (!variant.images || arrayIndex >= variant.images.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Image index out of range",
+      });
+    }
+
+    // Get the image to delete
+    const imageToDelete = variant.images[arrayIndex];
+
+    // Delete image from S3
+    if (imageToDelete.url) {
+      try {
+        await deleteImageFromS3(imageToDelete.url);
+      } catch (error) {
+        console.error("Error deleting image from S3:", error);
+        // Continue with deletion even if S3 delete fails
+      }
+    }
+
+    // Remove image from array
+    variant.images.splice(arrayIndex, 1);
+
+    // Re-index remaining images (1-based)
+    variant.images.forEach((img, idx) => {
+      img.order = idx + 1;
+    });
+
+    await product.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Variant image deleted successfully",
+      data: product,
+    });
+  } catch (error) {
+    console.error("Error deleting variant image:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+/**
+ * @desc    Reorder product images
+ * @route   PUT /api/products/:productId/images/reorder
+ * @access  Admin
+ */
+exports.reorderProductImages = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const { imageOrders } = req.body;
+
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    if (!imageOrders || !Array.isArray(imageOrders)) {
+      return res.status(400).json({
+        success: false,
+        message: "imageOrders must be an array of {index: number, order: number}",
+      });
+    }
+
+    // Validate all indices are within range
+    for (const item of imageOrders) {
+      const arrayIndex = item.index - 1; // Convert from 1-based to 0-based
+      if (arrayIndex < 0 || arrayIndex >= product.images.length) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid index ${item.index}. Must be between 1 and ${product.images.length}`,
+        });
+      }
+    }
+
+    // Update order for each image
+    imageOrders.forEach(item => {
+      const arrayIndex = item.index - 1;
+      product.images[arrayIndex].order = item.order;
+    });
+
+    // Sort images by order
+    product.images.sort((a, b) => a.order - b.order);
+
+    await product.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Images reordered successfully",
+      data: product,
+    });
+  } catch (error) {
+    console.error("Error reordering product images:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+exports.getProductsByCategoryId = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+    const { page = 1, limit = 10 } = req.query;
+
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = parseInt(limit, 10) || 10;
+
+    // 🔥 THIS IS THE CRITICAL FIX
+    const filter = {
+      'category.mainCategoryIdCategoryId': categoryId  // ← CHANGED FROM 'category.mainCategoryId'
+    };
+
+    const products = await Product.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limitNum)
+      .skip((pageNum - 1) * limitNum);
+
+    const total = await Product.countDocuments(filter);
+
+    res.json({
+      success: true,
+      data: products,
+      pagination: {
+        current: pageNum,
+        pages: Math.ceil(total / limitNum),
+        total,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+
+
+
+/**
+ * @desc    Reorder variant images
+ * @route   PUT /api/products/:productId/variants/:variantId/images/reorder
+ * @access  Admin
+ */
+exports.reorderVariantImages = async (req, res) => {
+  try {
+    const { productId, variantId } = req.params;
+    const { imageOrders } = req.body;
+
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    // Find the variant
+    const variant = product.variants.find(v => v.variantId === variantId);
+
+    if (!variant) {
+      return res.status(404).json({
+        success: false,
+        message: "Variant not found",
+      });
+    }
+
+    if (!imageOrders || !Array.isArray(imageOrders)) {
+      return res.status(400).json({
+        success: false,
+        message: "imageOrders must be an array of {index: number, order: number}",
+      });
+    }
+
+    // Validate all indices are within range
+    for (const item of imageOrders) {
+      const arrayIndex = item.index - 1; // Convert from 1-based to 0-based
+      if (arrayIndex < 0 || arrayIndex >= variant.images.length) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid index ${item.index}. Must be between 1 and ${variant.images.length}`,
+        });
+      }
+    }
+
+    // Update order for each image
+    imageOrders.forEach(item => {
+      const arrayIndex = item.index - 1;
+      variant.images[arrayIndex].order = item.order;
+    });
+
+    // Sort images by order
+    variant.images.sort((a, b) => a.order - b.order);
+
+    await product.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Variant images reordered successfully",
+      data: product,
+    });
+  } catch (error) {
+    console.error("Error reordering variant images:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+
+
+

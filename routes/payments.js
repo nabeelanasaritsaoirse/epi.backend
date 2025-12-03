@@ -124,4 +124,7 @@ router.get('/orderStatus/:orderId', paymentController.getOrderPaymentStatus);
 // Add this new route after your existing routes
 router.get('/next-payment/:orderId', paymentController.getNextPaymentDate);
 
+// Process payment (verify Razorpay or wallet payment)
+router.post('/process', verifyToken, paymentController.processPayment);
+
 module.exports = router; 

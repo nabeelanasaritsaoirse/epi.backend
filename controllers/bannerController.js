@@ -1,26 +1,39 @@
-const Banner = require('../models/Banner');
-const { deleteImageFromS3 } = require('../services/awsUploadService');
+const Banner = require("../models/Banner");
+const { deleteImageFromS3 } = require("../services/awsUploadService");
 
 /**
  * Create a new banner with image upload
  */
 exports.createBanner = async (req, res) => {
   try {
-    const { title, description, altText, linkUrl, targetBlank, displayOrder, platform, startDate, endDate } = req.body;
+    const {
+      title,
+      description,
+      altText,
+      linkUrl,
+      targetBlank,
+      displayOrder,
+      platform,
+      startDate,
+      endDate,
+      redirectType,
+      redirectValue,
+    } = req.body;
+
     const userId = req.user._id;
 
     // Validate required fields
     if (!title) {
       return res.status(400).json({
         success: false,
-        message: 'Banner title is required'
+        message: "Banner title is required",
       });
     }
 
     if (!req.file) {
       return res.status(400).json({
         success: false,
-        message: 'Banner image is required'
+        message: "Banner image is required",
       });
     }
 
@@ -30,35 +43,40 @@ exports.createBanner = async (req, res) => {
     // Create banner document
     const banner = new Banner({
       title,
-      description: description || '',
+      description: description || "",
       imageUrl: s3Url,
       imageKey: s3Key,
       altText: altText || title,
       imageWidth: width,
       imageHeight: height,
       imageSize: req.file.size,
+
+      // NEW FIELDS
+      redirectType: redirectType || "none",
+      redirectValue: redirectValue || null,
+
       linkUrl: linkUrl || null,
-      targetBlank: targetBlank === 'true' || targetBlank === true,
+      targetBlank: targetBlank === "true" || targetBlank === true,
       displayOrder: displayOrder ? parseInt(displayOrder) : 0,
-      platform: platform || 'both',
+      platform: platform || "both",
       startDate: startDate ? new Date(startDate) : null,
       endDate: endDate ? new Date(endDate) : null,
-      createdBy: userId
+      createdBy: userId,
     });
 
     await banner.save();
 
     res.status(201).json({
       success: true,
-      message: 'Banner created successfully',
-      data: banner
+      message: "Banner created successfully",
+      data: banner,
     });
   } catch (error) {
-    console.error('Error creating banner:', error);
+    console.error("Error creating banner:", error);
     res.status(500).json({
       success: false,
-      message: 'Error creating banner',
-      error: error.message
+      message: "Error creating banner",
+      error: error.message,
     });
   }
 };
@@ -68,67 +86,61 @@ exports.createBanner = async (req, res) => {
  */
 exports.getActiveBanners = async (req, res) => {
   try {
-    const { platform = 'web', page = 1, limit = 10 } = req.query;
+    const { platform = "all", page = 1, limit = 10 } = req.query;
+
+    const now = new Date();
 
     const query = {
       isActive: true,
-      isDeleted: false
+      isDeleted: false,
+      $or: [
+        // No date fields or explicitly null
+        { startDate: null, endDate: null },
+
+        // Valid range (both dates exist)
+        { startDate: { $lte: now }, endDate: { $gte: now } },
+
+        // Only startDate exists & is before now
+        { startDate: { $lte: now }, endDate: null },
+
+        // Only endDate exists & is after now
+        { startDate: null, endDate: { $gte: now } },
+      ],
     };
 
-    // Filter by platform
-    if (platform && platform !== 'all') {
-      query.platform = { $in: [platform, 'both'] };
+    // Platform filter
+    if (platform !== "all") {
+      query.platform = { $in: [platform, "both"] };
     }
 
-    // Check if banner is currently within date range (if dates are set)
-    const now = new Date();
-    query.$or = [
-      {
-        startDate: { $exists: false },
-        endDate: { $exists: false }
-      },
-      {
-        startDate: { $lte: now },
-        endDate: { $gte: now }
-      },
-      {
-        startDate: { $lte: now },
-        endDate: { $exists: false }
-      },
-      {
-        startDate: { $exists: false },
-        endDate: { $gte: now }
-      }
-    ];
-
-    const pageNum = parseInt(page) || 1;
-    const limitNum = parseInt(limit) || 10;
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
 
     const banners = await Banner.find(query)
       .sort({ displayOrder: 1, createdAt: -1 })
       .skip(skip)
       .limit(limitNum)
-      .select('-__v');
+      .select("-__v");
 
     const total = await Banner.countDocuments(query);
 
-    res.json({
+    return res.json({
       success: true,
       data: banners,
       pagination: {
         total,
         page: pageNum,
         limit: limitNum,
-        pages: Math.ceil(total / limitNum)
-      }
+        pages: Math.ceil(total / limitNum),
+      },
     });
   } catch (error) {
-    console.error('Error fetching active banners:', error);
-    res.status(500).json({
+    console.error("Error fetching active banners:", error);
+    return res.status(500).json({
       success: false,
-      message: 'Error fetching banners',
-      error: error.message
+      message: "Error fetching banners",
+      error: error.message,
     });
   }
 };
@@ -138,22 +150,30 @@ exports.getActiveBanners = async (req, res) => {
  */
 exports.getAllBanners = async (req, res) => {
   try {
-    const { isActive, platform, search, page = 1, limit = 20, sortBy = 'displayOrder', sortOrder = 'asc' } = req.query;
+    const {
+      isActive,
+      platform,
+      search,
+      page = 1,
+      limit = 20,
+      sortBy = "displayOrder",
+      sortOrder = "asc",
+    } = req.query;
 
     const query = { isDeleted: false };
 
     if (isActive !== undefined) {
-      query.isActive = isActive === 'true';
+      query.isActive = isActive === "true";
     }
 
-    if (platform && platform !== 'all') {
+    if (platform && platform !== "all") {
       query.platform = platform;
     }
 
     if (search) {
       query.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } }
+        { title: { $regex: search, $options: "i" } },
+        { description: { $regex: search, $options: "i" } },
       ];
     }
 
@@ -162,15 +182,15 @@ exports.getAllBanners = async (req, res) => {
     const skip = (pageNum - 1) * limitNum;
 
     const sortObj = {};
-    sortObj[sortBy] = sortOrder === 'desc' ? -1 : 1;
+    sortObj[sortBy] = sortOrder === "desc" ? -1 : 1;
 
     const banners = await Banner.find(query)
       .sort(sortObj)
       .skip(skip)
       .limit(limitNum)
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email')
-      .select('-__v');
+      .populate("createdBy", "name email")
+      .populate("updatedBy", "name email")
+      .select("-__v");
 
     const total = await Banner.countDocuments(query);
 
@@ -181,15 +201,15 @@ exports.getAllBanners = async (req, res) => {
         total,
         page: pageNum,
         limit: limitNum,
-        pages: Math.ceil(total / limitNum)
-      }
+        pages: Math.ceil(total / limitNum),
+      },
     });
   } catch (error) {
-    console.error('Error fetching banners:', error);
+    console.error("Error fetching banners:", error);
     res.status(500).json({
       success: false,
-      message: 'Error fetching banners',
-      error: error.message
+      message: "Error fetching banners",
+      error: error.message,
     });
   }
 };
@@ -202,26 +222,26 @@ exports.getBannerById = async (req, res) => {
     const { id } = req.params;
 
     const banner = await Banner.findById(id)
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+      .populate("createdBy", "name email")
+      .populate("updatedBy", "name email");
 
     if (!banner || banner.isDeleted) {
       return res.status(404).json({
         success: false,
-        message: 'Banner not found'
+        message: "Banner not found",
       });
     }
 
     res.json({
       success: true,
-      data: banner
+      data: banner,
     });
   } catch (error) {
-    console.error('Error fetching banner:', error);
+    console.error("Error fetching banner:", error);
     res.status(500).json({
       success: false,
-      message: 'Error fetching banner',
-      error: error.message
+      message: "Error fetching banner",
+      error: error.message,
     });
   }
 };
@@ -232,7 +252,21 @@ exports.getBannerById = async (req, res) => {
 exports.updateBanner = async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, description, altText, linkUrl, targetBlank, displayOrder, platform, startDate, endDate, isActive } = req.body;
+    const {
+      title,
+      description,
+      altText,
+      linkUrl,
+      targetBlank,
+      displayOrder,
+      platform,
+      startDate,
+      endDate,
+      isActive,
+      redirectType,
+      redirectValue,
+    } = req.body;
+
     const userId = req.user._id;
 
     const banner = await Banner.findById(id);
@@ -240,7 +274,7 @@ exports.updateBanner = async (req, res) => {
     if (!banner || banner.isDeleted) {
       return res.status(404).json({
         success: false,
-        message: 'Banner not found'
+        message: "Banner not found",
       });
     }
 
@@ -249,12 +283,19 @@ exports.updateBanner = async (req, res) => {
     if (description !== undefined) banner.description = description;
     if (altText) banner.altText = altText;
     if (linkUrl !== undefined) banner.linkUrl = linkUrl;
-    if (targetBlank !== undefined) banner.targetBlank = targetBlank === 'true' || targetBlank === true;
-    if (displayOrder !== undefined) banner.displayOrder = parseInt(displayOrder);
+    if (targetBlank !== undefined)
+      banner.targetBlank = targetBlank === "true" || targetBlank === true;
+    if (displayOrder !== undefined)
+      banner.displayOrder = parseInt(displayOrder);
     if (platform) banner.platform = platform;
-    if (startDate !== undefined) banner.startDate = startDate ? new Date(startDate) : null;
-    if (endDate !== undefined) banner.endDate = endDate ? new Date(endDate) : null;
-    if (isActive !== undefined) banner.isActive = isActive === 'true' || isActive === true;
+    if (startDate !== undefined)
+      banner.startDate = startDate ? new Date(startDate) : null;
+    if (endDate !== undefined)
+      banner.endDate = endDate ? new Date(endDate) : null;
+    if (isActive !== undefined)
+      banner.isActive = isActive === "true" || isActive === true;
+    if (redirectType !== undefined) banner.redirectType = redirectType;
+    if (redirectValue !== undefined) banner.redirectValue = redirectValue;
 
     banner.updatedBy = userId;
 
@@ -262,15 +303,15 @@ exports.updateBanner = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Banner updated successfully',
-      data: banner
+      message: "Banner updated successfully",
+      data: banner,
     });
   } catch (error) {
-    console.error('Error updating banner:', error);
+    console.error("Error updating banner:", error);
     res.status(500).json({
       success: false,
-      message: 'Error updating banner',
-      error: error.message
+      message: "Error updating banner",
+      error: error.message,
     });
   }
 };
@@ -286,7 +327,7 @@ exports.replaceBannerImage = async (req, res) => {
     if (!req.file) {
       return res.status(400).json({
         success: false,
-        message: 'New image is required'
+        message: "New image is required",
       });
     }
 
@@ -295,7 +336,7 @@ exports.replaceBannerImage = async (req, res) => {
     if (!banner || banner.isDeleted) {
       return res.status(404).json({
         success: false,
-        message: 'Banner not found'
+        message: "Banner not found",
       });
     }
 
@@ -303,7 +344,7 @@ exports.replaceBannerImage = async (req, res) => {
     try {
       await deleteImageFromS3(banner.imageUrl);
     } catch (error) {
-      console.error('Error deleting old image:', error);
+      console.error("Error deleting old image:", error);
       // Continue anyway - main image is replaced
     }
 
@@ -321,15 +362,15 @@ exports.replaceBannerImage = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Banner image replaced successfully',
-      data: banner
+      message: "Banner image replaced successfully",
+      data: banner,
     });
   } catch (error) {
-    console.error('Error replacing banner image:', error);
+    console.error("Error replacing banner image:", error);
     res.status(500).json({
       success: false,
-      message: 'Error replacing banner image',
-      error: error.message
+      message: "Error replacing banner image",
+      error: error.message,
     });
   }
 };
@@ -347,7 +388,7 @@ exports.toggleBannerStatus = async (req, res) => {
     if (!banner || banner.isDeleted) {
       return res.status(404).json({
         success: false,
-        message: 'Banner not found'
+        message: "Banner not found",
       });
     }
 
@@ -358,15 +399,17 @@ exports.toggleBannerStatus = async (req, res) => {
 
     res.json({
       success: true,
-      message: `Banner ${banner.isActive ? 'activated' : 'deactivated'} successfully`,
-      data: banner
+      message: `Banner ${
+        banner.isActive ? "activated" : "deactivated"
+      } successfully`,
+      data: banner,
     });
   } catch (error) {
-    console.error('Error toggling banner status:', error);
+    console.error("Error toggling banner status:", error);
     res.status(500).json({
       success: false,
-      message: 'Error toggling banner status',
-      error: error.message
+      message: "Error toggling banner status",
+      error: error.message,
     });
   }
 };
@@ -384,7 +427,7 @@ exports.deleteBanner = async (req, res) => {
     if (!banner || banner.isDeleted) {
       return res.status(404).json({
         success: false,
-        message: 'Banner not found'
+        message: "Banner not found",
       });
     }
 
@@ -396,14 +439,14 @@ exports.deleteBanner = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Banner soft deleted successfully'
+      message: "Banner soft deleted successfully",
     });
   } catch (error) {
-    console.error('Error deleting banner:', error);
+    console.error("Error deleting banner:", error);
     res.status(500).json({
       success: false,
-      message: 'Error deleting banner',
-      error: error.message
+      message: "Error deleting banner",
+      error: error.message,
     });
   }
 };
@@ -420,7 +463,7 @@ exports.permanentlyDeleteBanner = async (req, res) => {
     if (!banner) {
       return res.status(404).json({
         success: false,
-        message: 'Banner not found'
+        message: "Banner not found",
       });
     }
 
@@ -428,7 +471,7 @@ exports.permanentlyDeleteBanner = async (req, res) => {
     try {
       await deleteImageFromS3(banner.imageUrl);
     } catch (error) {
-      console.error('Error deleting image from S3:', error);
+      console.error("Error deleting image from S3:", error);
       // Continue with database deletion
     }
 
@@ -437,14 +480,14 @@ exports.permanentlyDeleteBanner = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Banner permanently deleted successfully'
+      message: "Banner permanently deleted successfully",
     });
   } catch (error) {
-    console.error('Error permanently deleting banner:', error);
+    console.error("Error permanently deleting banner:", error);
     res.status(500).json({
       success: false,
-      message: 'Error permanently deleting banner',
-      error: error.message
+      message: "Error permanently deleting banner",
+      error: error.message,
     });
   }
 };
@@ -462,14 +505,14 @@ exports.restoreBanner = async (req, res) => {
     if (!banner) {
       return res.status(404).json({
         success: false,
-        message: 'Banner not found'
+        message: "Banner not found",
       });
     }
 
     if (!banner.isDeleted) {
       return res.status(400).json({
         success: false,
-        message: 'Banner is not deleted'
+        message: "Banner is not deleted",
       });
     }
 
@@ -482,15 +525,15 @@ exports.restoreBanner = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Banner restored successfully',
-      data: banner
+      message: "Banner restored successfully",
+      data: banner,
     });
   } catch (error) {
-    console.error('Error restoring banner:', error);
+    console.error("Error restoring banner:", error);
     res.status(500).json({
       success: false,
-      message: 'Error restoring banner',
-      error: error.message
+      message: "Error restoring banner",
+      error: error.message,
     });
   }
 };
@@ -506,17 +549,17 @@ exports.reorderBanners = async (req, res) => {
     if (!Array.isArray(bannerOrders) || bannerOrders.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'Banner orders array is required'
+        message: "Banner orders array is required",
       });
     }
 
-    const updatePromises = bannerOrders.map(item =>
+    const updatePromises = bannerOrders.map((item) =>
       Banner.findByIdAndUpdate(
         item.id,
         {
           displayOrder: item.displayOrder,
           updatedBy: userId,
-          updatedAt: new Date()
+          updatedAt: new Date(),
         },
         { new: true }
       )
@@ -526,14 +569,14 @@ exports.reorderBanners = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Banners reordered successfully'
+      message: "Banners reordered successfully",
     });
   } catch (error) {
-    console.error('Error reordering banners:', error);
+    console.error("Error reordering banners:", error);
     res.status(500).json({
       success: false,
-      message: 'Error reordering banners',
-      error: error.message
+      message: "Error reordering banners",
+      error: error.message,
     });
   }
 };
@@ -554,21 +597,21 @@ exports.trackBannerClick = async (req, res) => {
     if (!banner) {
       return res.status(404).json({
         success: false,
-        message: 'Banner not found'
+        message: "Banner not found",
       });
     }
 
     res.json({
       success: true,
-      message: 'Click tracked',
-      data: { clickCount: banner.clickCount }
+      message: "Click tracked",
+      data: { clickCount: banner.clickCount },
     });
   } catch (error) {
-    console.error('Error tracking banner click:', error);
+    console.error("Error tracking banner click:", error);
     res.status(500).json({
       success: false,
-      message: 'Error tracking banner click',
-      error: error.message
+      message: "Error tracking banner click",
+      error: error.message,
     });
   }
 };
@@ -581,14 +624,23 @@ exports.getBannerStats = async (req, res) => {
     const stats = {
       total: await Banner.countDocuments({ isDeleted: false }),
       active: await Banner.countDocuments({ isActive: true, isDeleted: false }),
-      inactive: await Banner.countDocuments({ isActive: false, isDeleted: false }),
-      deleted: await Banner.countDocuments({ isDeleted: true })
+      inactive: await Banner.countDocuments({
+        isActive: false,
+        isDeleted: false,
+      }),
+      deleted: await Banner.countDocuments({ isDeleted: true }),
     };
 
     // Get clicks and impressions
     const clickData = await Banner.aggregate([
       { $match: { isDeleted: false } },
-      { $group: { _id: null, totalClicks: { $sum: '$clickCount' }, totalImpressions: { $sum: '$impressions' } } }
+      {
+        $group: {
+          _id: null,
+          totalClicks: { $sum: "$clickCount" },
+          totalImpressions: { $sum: "$impressions" },
+        },
+      },
     ]);
 
     stats.totalClicks = clickData[0]?.totalClicks || 0;
@@ -596,14 +648,14 @@ exports.getBannerStats = async (req, res) => {
 
     res.json({
       success: true,
-      data: stats
+      data: stats,
     });
   } catch (error) {
-    console.error('Error fetching banner stats:', error);
+    console.error("Error fetching banner stats:", error);
     res.status(500).json({
       success: false,
-      message: 'Error fetching banner stats',
-      error: error.message
+      message: "Error fetching banner stats",
+      error: error.message,
     });
   }
 };

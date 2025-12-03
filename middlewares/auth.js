@@ -291,7 +291,7 @@
 
 
 //////////// NEW CODE (FIXED & CLEANED) /////////////
-const admin = require('firebase-admin');
+const { admin } = require('../config/firebase');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
@@ -512,6 +512,99 @@ exports.isAdmin = (req, res, next) => {
       success: false,
       message: 'Access denied. Admin role required.',
       code: 'ADMIN_REQUIRED'
+    });
+  }
+};
+
+
+// 🔥 FLEXIBLE AUTH - Accepts BOTH Firebase Token OR JWT Token
+exports.verifyAnyToken = async (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.split('Bearer ')[1];
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication token required'
+      });
+    }
+
+    // Try JWT first (most common for web users)
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      const userId = decoded.userId || decoded.id;
+
+      if (!userId) {
+        throw new Error('Invalid JWT payload');
+      }
+
+      const user = await User.findById(userId);
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found',
+          code: 'USER_NOT_FOUND'
+        });
+      }
+
+      if (!user.isActive) {
+        return res.status(403).json({
+          success: false,
+          message: 'Account is disabled',
+          code: 'ACCOUNT_DISABLED'
+        });
+      }
+
+      req.user = user;
+      return next();
+
+    } catch (jwtError) {
+      // JWT failed, try Firebase token
+      try {
+        const decodedToken = await admin.auth().verifyIdToken(token);
+        const uid = decodedToken.uid;
+
+        let user = await User.findOne({ firebaseUid: uid });
+
+        if (!user) {
+          const userData = {
+            firebaseUid: uid,
+            name: decodedToken.name || decodedToken.phone_number || decodedToken.email?.split('@')[0] || 'User',
+            profilePicture: decodedToken.picture || '',
+          };
+
+          if (decodedToken.email) {
+            userData.email = decodedToken.email;
+          } else if (decodedToken.phone_number) {
+            userData.email = `${uid}@phone.user`;
+            userData.phoneNumber = decodedToken.phone_number;
+          } else {
+            userData.email = `${uid}@temp.user`;
+          }
+
+          user = new User(userData);
+          await user.save();
+        }
+
+        req.user = user;
+        return next();
+
+      } catch (firebaseError) {
+        // Both failed
+        return res.status(401).json({
+          success: false,
+          message: 'Authentication failed',
+          error: 'Invalid token - not a valid JWT or Firebase token'
+        });
+      }
+    }
+
+  } catch (error) {
+    return res.status(401).json({
+      success: false,
+      message: 'Authentication failed',
+      error: error.message
     });
   }
 };
