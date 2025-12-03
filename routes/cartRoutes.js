@@ -10,29 +10,99 @@ const { verifyToken } = require('../middlewares/auth');
 router.post('/add/:productId', verifyToken, async (req, res) => {
   try {
     const { productId } = req.params;
-    const { quantity = 1 } = req.body;
+    const {
+      quantity = 1,
+      variantId,
+      installmentPlan,
+      totalDays,
+      dailyAmount
+    } = req.body;
     const userId = req.user._id;
 
     const product = await Product.findById(productId);
     if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
+
+    // Support both nested and flat installment plan structure
+    let finalInstallmentPlan;
+    if (installmentPlan && installmentPlan.totalDays && installmentPlan.dailyAmount) {
+      // Nested structure
+      finalInstallmentPlan = {
+        totalDays: Number(installmentPlan.totalDays),
+        dailyAmount: Number(installmentPlan.dailyAmount)
+      };
+    } else if (totalDays && dailyAmount) {
+      // Flat structure
+      finalInstallmentPlan = {
+        totalDays: Number(totalDays),
+        dailyAmount: Number(dailyAmount)
+      };
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Installment plan is required (totalDays and dailyAmount)'
+      });
+    }
+
+    // Validate installment plan
+    if (finalInstallmentPlan.totalDays < 5) {
+      return res.status(400).json({
+        success: false,
+        message: 'Total days must be at least 5'
+      });
+    }
+    if (finalInstallmentPlan.dailyAmount < 50) {
+      return res.status(400).json({
+        success: false,
+        message: 'Daily amount must be at least 50'
+      });
+    }
 
     let cart = await Cart.findOne({ userId });
     if (!cart) {
       cart = new Cart({ userId, products: [] });
     }
 
-    const existing = cart.products.find(p => p.productId.toString() === productId);
+    // Check if product with same variant already exists
+    const existing = cart.products.find(p =>
+      p.productId.toString() === productId &&
+      p.variantId === (variantId || null)
+    );
+
     if (existing) {
       existing.quantity = existing.quantity + Number(quantity);
+      existing.installmentPlan = finalInstallmentPlan;
+      existing.updatedAt = Date.now();
     } else {
-      cart.products.push({ productId, quantity: Number(quantity) });
+      const newProduct = {
+        productId,
+        quantity: Number(quantity),
+        installmentPlan: finalInstallmentPlan
+      };
+
+      // Add variantId if provided
+      if (variantId) {
+        newProduct.variantId = variantId;
+
+        // Try to find and save variant details
+        const variant = product.variants?.find(v => v.variantId === variantId);
+        if (variant) {
+          newProduct.variantDetails = {
+            sku: variant.sku,
+            attributes: variant.attributes,
+            price: variant.price,
+            description: variant.description
+          };
+        }
+      }
+
+      cart.products.push(newProduct);
     }
 
     await cart.save();
     res.json({ success: true, message: 'Product added to cart', data: cart });
   } catch (error) {
     console.error('Error adding to cart:', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Failed to add product to cart', error: error.message });
   }
 });
 
