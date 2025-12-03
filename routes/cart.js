@@ -169,8 +169,14 @@ router.post('/add/:productId', verifyToken, async (req, res) => {
     const userId = req.user._id;
 
     // Support both nested and flat structure for installment plan
+    console.log('🔍 Request body:', JSON.stringify(req.body, null, 2));
+    console.log('🔍 installmentPlan:', installmentPlan);
+    console.log('🔍 topLevelTotalDays:', topLevelTotalDays, 'topLevelDailyAmount:', topLevelDailyAmount);
+
     const totalDays = installmentPlan?.totalDays || topLevelTotalDays;
     const dailyAmount = installmentPlan?.dailyAmount || topLevelDailyAmount;
+
+    console.log('🔍 Final totalDays:', totalDays, 'Final dailyAmount:', dailyAmount);
 
     // Validate inputs
     if (quantity < 1 || quantity > 10) {
@@ -301,7 +307,7 @@ router.post('/add/:productId', verifyToken, async (req, res) => {
       cart.products[existingIndex].updatedAt = new Date();
     } else {
       // New entry - different product, variant, or plan
-      cart.products.push({
+      const newCartItem = {
         productId,
         quantity: Number(quantity),
         variantId: variantId || null,
@@ -312,9 +318,13 @@ router.post('/add/:productId', verifyToken, async (req, res) => {
         },
         addedAt: new Date(),
         updatedAt: new Date()
-      });
+      };
+
+      console.log('🔍 New cart item before push:', JSON.stringify(newCartItem, null, 2));
+      cart.products.push(newCartItem);
     }
 
+    console.log('🔍 Cart products before save:', JSON.stringify(cart.products, null, 2));
     await cart.save();
 
     res.json({
