@@ -207,23 +207,115 @@ const getPaymentSchedule = asyncHandler(async (req, res) => {
  * @desc    Validate coupon
  * @access  Public
  */
+/**
+ * @route   POST /api/installments/validate-coupon
+ * @desc    Validate coupon and calculate benefits for installment orders
+ * @access  Public
+ *
+ * @body {
+ *   couponCode: string (required) - The coupon code to validate
+ *   productId: string (required) - Product ID
+ *   variantId: string (optional) - Product variant ID
+ *   quantity: number (optional, default: 1) - Product quantity
+ *   totalDays: number (required) - Total installment days
+ *   dailyAmount: number (required) - Daily installment amount
+ * }
+ *
+ * @returns Detailed coupon benefits including discount, free days, and pricing breakdown
+ */
 const validateCoupon = asyncHandler(async (req, res) => {
-  const { couponCode, productPrice } = req.body;
+  const {
+    couponCode,
+    productId,
+    variantId,
+    quantity = 1,
+    totalDays,
+    dailyAmount
+  } = req.body;
 
-  if (!couponCode || productPrice === undefined) {
+  // Validation
+  if (!couponCode) {
     return res.status(400).json({
       success: false,
-      message: "couponCode and productPrice are required",
+      message: "couponCode is required",
     });
   }
 
-  if (productPrice < 0) {
+  if (!productId || !totalDays || !dailyAmount) {
     return res.status(400).json({
       success: false,
-      message: "productPrice must be a positive number",
+      message: "productId, totalDays, and dailyAmount are required",
     });
   }
 
+  if (quantity < 1 || quantity > 10) {
+    return res.status(400).json({
+      success: false,
+      message: "quantity must be between 1 and 10",
+    });
+  }
+
+  if (totalDays < 1) {
+    return res.status(400).json({
+      success: false,
+      message: "totalDays must be at least 1",
+    });
+  }
+
+  if (dailyAmount <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: "dailyAmount must be greater than 0",
+    });
+  }
+
+  // Get Product and calculate base price
+  const Product = require("../models/Product");
+  const mongoose = require("mongoose");
+
+  let product;
+  if (mongoose.Types.ObjectId.isValid(productId) && productId.length === 24) {
+    product = await Product.findById(productId);
+  }
+  if (!product) {
+    product = await Product.findOne({ productId });
+  }
+
+  if (!product) {
+    return res.status(404).json({
+      success: false,
+      message: `Product '${productId}' not found`,
+    });
+  }
+
+  // Calculate product price (with variant if provided)
+  let pricePerUnit = product.pricing?.finalPrice || product.pricing?.regularPrice || 0;
+  let selectedVariant = null;
+
+  if (variantId && product.variants && product.variants.length > 0) {
+    selectedVariant = product.variants.find((v) => v.variantId === variantId);
+
+    if (!selectedVariant) {
+      return res.status(404).json({
+        success: false,
+        message: `Variant '${variantId}' not found for this product`,
+      });
+    }
+
+    if (!selectedVariant.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: `Variant '${variantId}' is not available`,
+      });
+    }
+
+    pricePerUnit = selectedVariant.salePrice || selectedVariant.price;
+  }
+
+  const totalProductPrice = pricePerUnit * quantity;
+  const originalPrice = totalProductPrice;
+
+  // Find and validate coupon
   const Coupon = require("../models/Coupon");
   const coupon = await Coupon.findOne({ couponCode: couponCode.toUpperCase() });
 
@@ -245,39 +337,134 @@ const validateCoupon = asyncHandler(async (req, res) => {
   if (now > coupon.expiryDate) {
     return res.status(400).json({
       success: false,
-      message: `Coupon '${couponCode}' has expired`,
+      message: `Coupon '${couponCode}' has expired on ${coupon.expiryDate.toDateString()}`,
     });
   }
 
-  if (productPrice < coupon.minOrderValue) {
+  if (totalProductPrice < coupon.minOrderValue) {
     return res.status(400).json({
       success: false,
-      message: `Minimum order value of ₹${coupon.minOrderValue} is required for this coupon`,
+      message: `Minimum order value of ₹${coupon.minOrderValue} is required for this coupon. Current order value: ₹${totalProductPrice}`,
     });
   }
 
+  // Check usage limit
+  if (coupon.maxUsageCount !== null && coupon.currentUsageCount >= coupon.maxUsageCount) {
+    return res.status(400).json({
+      success: false,
+      message: `Coupon usage limit reached`,
+    });
+  }
+
+  // Calculate discount based on coupon type
   let discountAmount = 0;
-  if (coupon.discountType === "flat") discountAmount = coupon.discountValue;
-  else discountAmount = Math.round((productPrice * coupon.discountValue) / 100);
+  let finalPrice = totalProductPrice;
+  let freeDays = 0;
+  let reducedDays = 0;
+  let milestoneDetails = null;
+  let savingsMessage = "";
+  let howItWorksMessage = "";
 
-  discountAmount = Math.min(discountAmount, productPrice);
+  const couponType = coupon.couponType || "INSTANT";
 
-  const finalPrice = productPrice - discountAmount;
+  // Calculate base discount (for INSTANT and REDUCE_DAYS)
+  if (couponType === "INSTANT" || couponType === "REDUCE_DAYS") {
+    if (coupon.discountType === "flat") {
+      discountAmount = coupon.discountValue;
+    } else if (coupon.discountType === "percentage") {
+      discountAmount = Math.round((totalProductPrice * coupon.discountValue) / 100);
+    }
+    discountAmount = Math.min(discountAmount, totalProductPrice);
+  }
 
-  successResponse(
-    res,
-    {
-      coupon: {
-        code: coupon.couponCode,
-        discountType: coupon.discountType,
-        discountValue: coupon.discountValue,
-        discountAmount,
-        originalPrice: productPrice,
-        finalPrice,
-      },
+  // Apply coupon based on type
+  if (couponType === "INSTANT") {
+    // INSTANT: Reduce price immediately
+    finalPrice = totalProductPrice - discountAmount;
+    savingsMessage = `You will save ₹${discountAmount} instantly!`;
+    howItWorksMessage = `The product price will be reduced from ₹${originalPrice} to ₹${finalPrice}. You will pay ₹${Math.round(finalPrice / totalDays)} per day for ${totalDays} days.`;
+
+  } else if (couponType === "REDUCE_DAYS") {
+    // REDUCE_DAYS: Convert discount to free days
+    finalPrice = totalProductPrice; // Price stays same
+    freeDays = Math.floor(discountAmount / dailyAmount);
+    reducedDays = totalDays - freeDays;
+    savingsMessage = `You will get ${freeDays} FREE days! Pay for only ${reducedDays} days instead of ${totalDays} days.`;
+    howItWorksMessage = `Your last ${freeDays} installment payment(s) will be marked as FREE. You pay ₹${dailyAmount}/day for ${reducedDays} days, and get ${freeDays} days free (worth ₹${freeDays * dailyAmount}).`;
+
+  } else if (couponType === "MILESTONE_REWARD") {
+    // MILESTONE_REWARD: Free days after X payments
+    const milestonePaymentsRequired = coupon.rewardCondition || coupon.milestonePaymentsRequired;
+    const milestoneFreeDays = coupon.rewardValue || coupon.milestoneFreeDays;
+
+    if (!milestonePaymentsRequired || !milestoneFreeDays) {
+      return res.status(500).json({
+        success: false,
+        message: `Invalid milestone coupon configuration`,
+      });
+    }
+
+    finalPrice = totalProductPrice; // Price stays same
+    freeDays = milestoneFreeDays;
+
+    milestoneDetails = {
+      paymentsRequired: milestonePaymentsRequired,
+      freeDaysReward: milestoneFreeDays,
+      milestoneValue: milestoneFreeDays * dailyAmount,
+    };
+
+    savingsMessage = `Complete ${milestonePaymentsRequired} payments and get ${milestoneFreeDays} FREE days (worth ₹${milestoneDetails.milestoneValue})!`;
+    howItWorksMessage = `After you successfully pay ${milestonePaymentsRequired} installments, you will receive ${milestoneFreeDays} free day(s) as a reward. The total reward value is ₹${milestoneDetails.milestoneValue}.`;
+  }
+
+  // Calculate savings percentage
+  const savingsPercentage = originalPrice > 0
+    ? Math.round((discountAmount / originalPrice) * 100)
+    : 0;
+
+  // Build detailed response
+  const response = {
+    valid: true,
+    coupon: {
+      code: coupon.couponCode,
+      type: couponType,
+      description: coupon.description || "",
+      expiryDate: coupon.expiryDate,
+      minOrderValue: coupon.minOrderValue,
     },
-    "Coupon is valid"
-  );
+    pricing: {
+      originalPrice,
+      discountAmount,
+      finalPrice,
+      savingsPercentage,
+      pricePerUnit,
+      quantity,
+    },
+    installment: {
+      totalDays,
+      dailyAmount,
+      freeDays,
+      reducedDays: couponType === "REDUCE_DAYS" ? reducedDays : 0,
+    },
+    benefits: {
+      savingsMessage,
+      howItWorksMessage,
+      totalSavings: couponType === "MILESTONE_REWARD"
+        ? (milestoneDetails?.milestoneValue || 0)
+        : discountAmount,
+    },
+    milestoneDetails,
+    product: {
+      id: product.productId || product._id,
+      name: product.productName,
+      variant: selectedVariant ? {
+        id: selectedVariant.variantId,
+        attributes: selectedVariant.attributes,
+      } : null,
+    },
+  };
+
+  successResponse(res, response, "Coupon is valid and can be applied");
 });
 
 /**
