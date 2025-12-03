@@ -41,6 +41,10 @@ const userSchema = new Schema({
       message: props => `${props.value} is not a valid phone number!`
     }
   },
+  deviceToken: {
+    type: String,
+    default: ""
+  },
   addresses: [{
     name: {
       type: String,
@@ -226,6 +230,10 @@ const userSchema = new Schema({
     type: Schema.Types.ObjectId,
     ref: 'User'
   }],
+  referralLimit: {
+    type: Number,
+    default: 50
+  },
   savedPlans: [{
     product: {
       type: Schema.Types.ObjectId,
@@ -327,19 +335,18 @@ const userSchema = new Schema({
     }
   },
 
-
   deletionRequest: {
-  requestedAt: {
-    type: Date
-  },
-  reason: {
-    type: String
-  },
-  status: {
-    type: String,
-    enum: ['pending', 'cancelled', 'completed'],
-    default: 'pending'
-  }
+    requestedAt: {
+      type: Date
+    },
+    reason: {
+      type: String
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'cancelled', 'completed'],
+      default: 'pending'
+    }
   },
 
   createdAt: {
