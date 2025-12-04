@@ -218,38 +218,6 @@ const getPaymentSchedule = asyncHandler(async (req, res) => {
  *
  * @returns Detailed coupon benefits including discount, free days, and pricing breakdown
  */
-/**
- * @route   POST /api/installments/validate-coupon
- * @desc    Validate coupon and calculate benefits for installment orders
- * @access  Public
- *
- * @body {
- *   couponCode: string (required) - The coupon code to validate
- *   productId: string (required) - Product ID
- *   variantId: string (optional) - Product variant ID
- *   quantity: number (optional, default: 1) - Product quantity
- *   totalDays: number (required) - Total installment days
- *   dailyAmount: number (required) - Daily installment amount
- * }
- *
- * @returns Detailed coupon benefits including discount, free days, and pricing breakdown
- */
-/**
- * @route   POST /api/installments/validate-coupon
- * @desc    Validate coupon and calculate benefits for installment orders
- * @access  Public
- *
- * @body {
- *   couponCode: string (required) - The coupon code to validate
- *   productId: string (required) - Product ID
- *   variantId: string (optional) - Product variant ID
- *   quantity: number (optional, default: 1) - Product quantity
- *   totalDays: number (required) - Total installment days
- *   dailyAmount: number (required) - Daily installment amount
- * }
- *
- * @returns Detailed coupon benefits including discount, free days, and pricing breakdown
- */
 const validateCoupon = asyncHandler(async (req, res) => {
   const {
     couponCode,
@@ -300,11 +268,13 @@ const validateCoupon = asyncHandler(async (req, res) => {
   const Product = require("../models/Product");
   const mongoose = require("mongoose");
 
-  const product =
-    (mongoose.Types.ObjectId.isValid(productId) && productId.length === 24
-      ? await Product.findById(productId)
-      : null) ||
-    (await Product.findOne({ productId }));
+  let product;
+  if (mongoose.Types.ObjectId.isValid(productId) && productId.length === 24) {
+    product = await Product.findById(productId);
+  }
+  if (!product) {
+    product = await Product.findOne({ productId });
+  }
 
   if (!product) {
     return res.status(404).json({
@@ -376,11 +346,6 @@ const validateCoupon = asyncHandler(async (req, res) => {
     coupon.maxUsageCount !== null &&
     coupon.currentUsageCount >= coupon.maxUsageCount
   ) {
-      message: `Coupon '${couponCode}' has expired on ${coupon.expiryDate.toDateString()}`,
-    });
-  }
-
-  if (totalProductPrice < coupon.minOrderValue) {
     return res.status(400).json({
       success: false,
       message: `Coupon usage limit reached`,
@@ -499,11 +464,6 @@ const validateCoupon = asyncHandler(async (req, res) => {
             attributes: selectedVariant.attributes,
           }
         : null,
-      name: product.productName,
-      variant: selectedVariant ? {
-        id: selectedVariant.variantId,
-        attributes: selectedVariant.attributes,
-      } : null,
     },
   };
 
