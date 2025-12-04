@@ -342,6 +342,15 @@ const validateCoupon = asyncHandler(async (req, res) => {
   if (totalProductPrice < coupon.minOrderValue) {
     return res.status(400).json({
       success: false,
+      message: `Minimum order value of ₹${coupon.minOrderValue} required. Current order value: ₹${totalProductPrice}`,
+    });
+  }
+
+  // Max usage check
+  if (
+    coupon.maxUsageCount !== null &&
+    coupon.currentUsageCount >= coupon.maxUsageCount
+  ) {
       message: `Coupon '${couponCode}' has expired on ${coupon.expiryDate.toDateString()}`,
     });
   }
@@ -370,6 +379,14 @@ const validateCoupon = asyncHandler(async (req, res) => {
   let savingsMessage = "";
   let howItWorksMessage = "";
 
+  // Base discount for INSTANT & REDUCE_DAYS
+  if (couponType === "INSTANT" || couponType === "REDUCE_DAYS") {
+    discountAmount =
+      coupon.discountType === "flat"
+        ? coupon.discountValue
+        : coupon.discountType === "percentage"
+        ? Math.round((totalProductPrice * coupon.discountValue) / 100)
+        : 0;
   const couponType = coupon.couponType || "INSTANT";
 
   // Calculate base discount (for INSTANT and REDUCE_DAYS)
@@ -382,6 +399,66 @@ const validateCoupon = asyncHandler(async (req, res) => {
     discountAmount = Math.min(discountAmount, totalProductPrice);
   }
 
+  // -------------------------------
+  // APPLY COUPON TYPE LOGIC
+  // -------------------------------
+  switch (couponType) {
+    case "INSTANT":
+      finalPrice = totalProductPrice - discountAmount;
+      dailyAmount = Math.ceil(finalPrice / totalDays);
+
+      savingsMessage = `You will save ₹${discountAmount} instantly!`;
+      howItWorksMessage = `The product price will be reduced from ₹${originalPrice} to ₹${finalPrice}. You will pay ₹${dailyAmount} per day for ${totalDays} days.`;
+      break;
+
+    case "REDUCE_DAYS":
+      finalPrice = totalProductPrice;
+
+      freeDays = Math.floor(discountAmount / dailyAmount);
+      reducedDays = totalDays - freeDays;
+
+      savingsMessage = `You will get ${freeDays} FREE days! Pay only ${reducedDays} days instead of ${totalDays}.`;
+      howItWorksMessage = `Your last ${freeDays} installment(s) will be FREE. You pay ₹${dailyAmount}/day for ${reducedDays} days and get ${freeDays} days free (worth ₹${freeDays * dailyAmount}).`;
+      break;
+
+    case "MILESTONE_REWARD":
+      const milestonePaymentsRequired =
+        coupon.rewardCondition || coupon.milestonePaymentsRequired;
+
+      const milestoneFreeDays =
+        coupon.rewardValue || coupon.milestoneFreeDays;
+
+      if (!milestonePaymentsRequired || !milestoneFreeDays) {
+        return res.status(500).json({
+          success: false,
+          message: `Invalid milestone coupon configuration`,
+        });
+      }
+
+      freeDays = milestoneFreeDays;
+
+      milestoneDetails = {
+        paymentsRequired: milestonePaymentsRequired,
+        freeDaysReward: milestoneFreeDays,
+        milestoneValue: milestoneFreeDays * dailyAmount,
+      };
+
+      savingsMessage = `Complete ${milestonePaymentsRequired} payments and get ${milestoneFreeDays} FREE days (worth ₹${milestoneDetails.milestoneValue})!`;
+      howItWorksMessage = `After you pay ${milestonePaymentsRequired} installments, you will receive ${milestoneFreeDays} free day(s) worth ₹${milestoneDetails.milestoneValue}.`;
+      break;
+  }
+
+  // -------------------------------
+  // SAVINGS PERCENTAGE
+  // -------------------------------
+  const savingsPercentage =
+    originalPrice > 0
+      ? Math.round((discountAmount / originalPrice) * 100)
+      : 0;
+
+  // -------------------------------
+  // FINAL RESPONSE (Same shape, safe)
+  // -------------------------------
   // Apply coupon based on type
   if (couponType === "INSTANT") {
     // INSTANT: Reduce price immediately
@@ -447,7 +524,7 @@ const validateCoupon = asyncHandler(async (req, res) => {
     },
     installment: {
       totalDays,
-      dailyAmount,
+      dailyAmount,     // updated for INSTANT
       freeDays,
       reducedDays: couponType === "REDUCE_DAYS" ? reducedDays : 0,
     },
@@ -461,6 +538,13 @@ const validateCoupon = asyncHandler(async (req, res) => {
     milestoneDetails,
     product: {
       id: product.productId || product._id,
+      name: product.name || product.productName,
+      variant: selectedVariant
+        ? {
+            id: selectedVariant.variantId,
+            attributes: selectedVariant.attributes,
+          }
+        : null,
       name: product.productName,
       variant: selectedVariant ? {
         id: selectedVariant.variantId,
@@ -471,6 +555,7 @@ const validateCoupon = asyncHandler(async (req, res) => {
 
   successResponse(res, response, "Coupon is valid and can be applied");
 });
+
 
 
 /**
