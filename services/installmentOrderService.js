@@ -63,16 +63,15 @@ async function createOrder(orderData) {
   const {
     userId,
     productId,
-    variantId, // Optional - for products with variants
-    quantity = 1, // ⭐ NEW: Quantity (default 1)
-    couponCode, // Optional - for discount coupons
+    variantId,
+    quantity = 1,
+    couponCode,
     totalDays,
     dailyAmount,
     paymentMethod,
     deliveryAddress,
   } = orderData;
 
-  // ⭐ NEW: Validate quantity
   if (quantity < 1 || quantity > 10) {
     throw new Error("Quantity must be between 1 and 10");
   }
@@ -80,41 +79,17 @@ async function createOrder(orderData) {
   console.log("\n========================================");
   console.log("🔍 DEBUG: Service - createOrder called");
   console.log("========================================");
-  console.log("📦 Input Data:", {
-    userId,
-    productId,
-    variantId,
-    quantity,
-    couponCode,
-    totalDays,
-    dailyAmount,
-    paymentMethod,
-  });
 
-  // ========================================
-  // 1. Validate User
-  // ========================================
   const user = await User.findById(userId);
-  if (!user) {
-    throw new UserNotFoundError(userId);
-  }
+  if (!user) throw new UserNotFoundError(userId);
 
-  // ========================================
-  // 2. Validate Product
-  // ========================================
-  // Handle both custom productId and MongoDB _id
   let product;
   if (mongoose.Types.ObjectId.isValid(productId) && productId.length === 24) {
     product = await Product.findById(productId);
   }
-  if (!product) {
-    product = await Product.findOne({ productId });
-  }
-  if (!product) {
-    throw new ProductNotFoundError(productId);
-  }
+  if (!product) product = await Product.findOne({ productId });
+  if (!product) throw new ProductNotFoundError(productId);
 
-  // Check product availability
   if (
     product.availability?.stockStatus === "out_of_stock" ||
     product.availability?.isAvailable === false
@@ -122,37 +97,24 @@ async function createOrder(orderData) {
     throw new ProductOutOfStockError(productId);
   }
 
-  // ========================================
-  // 2.1. Handle Product Variant (if provided)
-  // ========================================
   let selectedVariant = null;
   let pricePerUnit =
     product.pricing?.finalPrice || product.pricing?.regularPrice || 0;
-  let variantDetails = null;
 
+  let variantDetails = null;
   if (variantId && product.variants && product.variants.length > 0) {
-    // Find the variant
     selectedVariant = product.variants.find((v) => v.variantId === variantId);
 
     if (!selectedVariant) {
-      throw new Error(
-        `Variant with ID ${variantId} not found for this product`
-      );
+      throw new Error(`Variant with ID ${variantId} not found`);
     }
 
     if (!selectedVariant.isActive) {
       throw new Error(`Variant ${variantId} is not available`);
     }
 
-    // Check variant stock (don't enforce, just warn)
-    if (selectedVariant.stock <= 0) {
-      console.warn(`⚠️  Variant ${variantId} is out of stock`);
-    }
-
-    // Use variant price instead of product price
     pricePerUnit = selectedVariant.salePrice || selectedVariant.price;
 
-    // Store variant details
     variantDetails = {
       sku: selectedVariant.sku,
       attributes: selectedVariant.attributes,
@@ -162,24 +124,14 @@ async function createOrder(orderData) {
     };
   }
 
-  // ⭐ NEW: Calculate total product price (pricePerUnit × quantity)
   const totalProductPrice = calculateTotalProductPrice(pricePerUnit, quantity);
-
-  console.log("\n💰 Pricing Calculation:");
-  console.log(`   Price per unit: ₹${pricePerUnit}`);
-  console.log(`   Quantity: ${quantity}`);
-  console.log(`   Total product price: ₹${totalProductPrice}`);
-
-  // ========================================
-  // 2.2. Handle Coupon Code (if provided)
-  // ========================================
-  let couponDiscount = 0;
-  let appliedCouponCode = null;
-  let couponType = null; // ⭐ NEW: INSTANT / REDUCE_DAYS / MILESTONE_REWARD
-  let productPrice = totalProductPrice; // Start with total (including quantity)
+  let productPrice = totalProductPrice;
   let originalPrice = totalProductPrice;
 
-  // ⭐ MILESTONE variables (must be defined before coupon block)
+  let couponDiscount = 0;
+  let appliedCouponCode = null;
+  let couponType = null;
+
   let milestonePaymentsRequired = null;
   let milestoneFreeDays = null;
 
@@ -189,29 +141,17 @@ async function createOrder(orderData) {
       couponCode: couponCode.toUpperCase(),
     });
 
-    if (!coupon) {
-      throw new Error(`Coupon '${couponCode}' not found`);
-    }
-
-    // Validate coupon is active
-    if (!coupon.isActive) {
-      throw new Error(`Coupon '${couponCode}' is not active`);
-    }
-
-    // Validate coupon not expired
-    const now = new Date();
-    if (now > coupon.expiryDate) {
+    if (!coupon) throw new Error(`Coupon '${couponCode}' not found`);
+    if (!coupon.isActive) throw new Error(`Coupon '${couponCode}' is not active`);
+    if (new Date() > coupon.expiryDate)
       throw new Error(`Coupon '${couponCode}' has expired`);
-    }
 
-    // Validate minimum order value
     if (totalProductPrice < coupon.minOrderValue) {
       throw new Error(
-        `Minimum order value of ₹${coupon.minOrderValue} is required for coupon '${couponCode}'`
+        `Minimum order value of ₹${coupon.minOrderValue} required for coupon`
       );
     }
 
-    // Calculate discount
     if (coupon.discountType === "flat") {
       couponDiscount = coupon.discountValue;
     } else if (coupon.discountType === "percentage") {
@@ -220,57 +160,29 @@ async function createOrder(orderData) {
       );
     }
 
-    // Ensure discount doesn't exceed order amount
     couponDiscount = Math.min(couponDiscount, totalProductPrice);
 
-    // ⭐ NEW: Apply coupon based on type
-    couponType = coupon.couponType || "INSTANT"; // Default to INSTANT
+    couponType = coupon.couponType || "INSTANT";
     appliedCouponCode = coupon.couponCode;
 
     if (couponType === "INSTANT") {
-      // INSTANT: Reduce product price immediately
       const result = applyInstantCoupon(totalProductPrice, couponDiscount);
       productPrice = result.finalPrice;
-      console.log(
-        `✅ INSTANT coupon '${appliedCouponCode}' applied: -₹${couponDiscount}`
-      );
-      console.log(
-        `   Original price: ₹${totalProductPrice} → Final price: ₹${productPrice}`
-      );
     } else if (couponType === "REDUCE_DAYS") {
-      // REDUCE_DAYS: Keep product price same, mark last days as FREE
-      productPrice = totalProductPrice; // No price reduction
-      console.log(
-        `✅ REDUCE_DAYS coupon '${appliedCouponCode}' applied: -₹${couponDiscount}`
-      );
-      console.log(`   Will mark last days as FREE in payment schedule`);
+      productPrice = totalProductPrice;
     }
 
-    // ⭐⭐ MILESTONE COUPON SUPPORT
     if (couponType === "MILESTONE_REWARD") {
       milestonePaymentsRequired = coupon.rewardCondition;
       milestoneFreeDays = coupon.rewardValue;
-
       if (!milestonePaymentsRequired || !milestoneFreeDays) {
-        throw new Error(
-          `Invalid milestone coupon '${appliedCouponCode}' — rewardCondition and rewardValue are required`
-        );
+        throw new Error(`Invalid milestone coupon configuration`);
       }
-
-      console.log(
-        `✅ MILESTONE_REWARD coupon '${appliedCouponCode}' applied: Pay ${milestonePaymentsRequired}, get ${milestoneFreeDays} FREE`
-      );
     }
 
-    // Increment coupon usage
-    if (coupon.incrementUsage) {
-      await coupon.incrementUsage();
-    }
+    if (coupon.incrementUsage) await coupon.incrementUsage();
   }
 
-  // ========================================
-  // 3. Validate Installment Duration
-  // ========================================
   const durationValidation = validateInstallmentDuration(
     totalDays,
     productPrice
@@ -283,63 +195,44 @@ async function createOrder(orderData) {
     );
   }
 
-  // ========================================
-  // 4. Calculate Daily Amount
-  // ========================================
-  const calculatedDailyAmount =
-    dailyAmount || calculateDailyAmount(productPrice, totalDays);
+  // ---------------------------------------------------
+  // 🔧 FIX FOR INSTANT COUPON (DAILY AMOUNT RECALC)
+  // ---------------------------------------------------
+  let finalDailyAmount = dailyAmount;
 
-  // Validate minimum daily amount (₹50)
+  if (couponType === "INSTANT") {
+    finalDailyAmount = Math.ceil(productPrice / totalDays);
+    console.log(`🔧 FIXED DAILY AMOUNT (INSTANT): ${finalDailyAmount}`);
+  }
+
+  // Replace old logic with corrected logic
+  const calculatedDailyAmount = finalDailyAmount;
+  // ---------------------------------------------------
+
   if (calculatedDailyAmount < 50) {
     throw new Error("Daily payment amount must be at least ₹50");
   }
 
-  // ========================================
-  // 5. Generate Payment Schedule
-  // ========================================
-  // ⭐ UPDATED: Pass coupon info for REDUCE_DAYS handling
   const couponInfo =
     couponType === "REDUCE_DAYS"
-      ? {
-          type: "REDUCE_DAYS",
-          discount: couponDiscount,
-        }
+      ? { type: "REDUCE_DAYS", discount: couponDiscount }
       : null;
 
   const paymentSchedule = generatePaymentSchedule(
     totalDays,
     calculatedDailyAmount,
     new Date(),
-    couponInfo // ⭐ NEW: Pass coupon info
+    couponInfo
   );
 
-  console.log(`\n📅 Payment Schedule:`);
-  console.log(`   Total days: ${totalDays}`);
-  console.log(`   Daily amount: ₹${calculatedDailyAmount}`);
-  if (couponInfo) {
-    const { freeDays, remainder } = calculateCouponDaysReduction(
-      couponDiscount,
-      calculatedDailyAmount
-    );
-    console.log(`   FREE days (coupon): ${freeDays}`);
-    console.log(`   Remainder on last day: ₹${remainder}`);
-  }
-
-  // ========================================
-  // 6. Get Referrer Information
-  // ========================================
   let referrer = null;
-  let commissionPercentage = 10; // ⭐ UPDATED: Default 10%
+  let commissionPercentage = 10;
 
   if (user.referredBy) {
     referrer = await User.findById(user.referredBy);
-    // ⭐ UPDATED: Get commission percentage from product or default to 10%
     commissionPercentage = product.referralBonus?.value || 10;
   }
 
-  // ========================================
-  // 7. Create Product Snapshot
-  // ========================================
   const productSnapshot = {
     productId: product.productId,
     name: product.name,
@@ -350,45 +243,26 @@ async function createOrder(orderData) {
     category: product.category,
   };
 
-  // ========================================
-  // 8. Start MongoDB Transaction
-  // ========================================
-  // DISABLED FOR LOCAL DEVELOPMENT: MongoDB transactions require replica set
-  // Uncomment for production use with replica set
-  // const session = await mongoose.startSession();
-  // session.startTransaction();
-  const session = null; // Disabled for local development
+  const session = null;
 
   try {
-    // ========================================
-    // 9. Handle Payment Method
-    // ========================================
     let razorpayOrder = null;
     let firstPaymentStatus = "PENDING";
     let walletTransactionId = null;
 
     if (paymentMethod === "RAZORPAY") {
-      // Create Razorpay order for first payment
       razorpayOrder = await razorpay.orders.create({
-        amount: calculatedDailyAmount * 100, // Convert to paise
+        amount: calculatedDailyAmount * 100,
         currency: "INR",
         receipt: `order_${Date.now()}`,
         payment_capture: 1,
-        notes: {
-          productId: product._id.toString(),
-          userId: user._id.toString(),
-          installment: 1,
-        },
       });
-
-      firstPaymentStatus = "PENDING"; // Awaiting Razorpay verification
     } else if (paymentMethod === "WALLET") {
-      // Process wallet deduction immediately
       const walletDeduction = await deductFromWallet(
         userId,
         calculatedDailyAmount,
         `First installment payment for ${product.name}`,
-        null, // session disabled for local development
+        null,
         {
           productId: product._id,
           installmentNumber: 1,
@@ -399,19 +273,13 @@ async function createOrder(orderData) {
       firstPaymentStatus = "COMPLETED";
     }
 
-    // ========================================
-    // 10. Create Order Document
-    // ========================================
     const generatedOrderId = generateOrderId();
-    console.log("\n📝 Creating Order Document...");
-    console.log(`   Generated orderId: ${generatedOrderId}`);
 
     const orderDataForModel = {
       orderId: generatedOrderId,
       user: userId,
       product: product._id,
 
-      // Quantity & Pricing fields
       quantity,
       pricePerUnit,
       totalProductPrice,
@@ -419,21 +287,18 @@ async function createOrder(orderData) {
       productName: product.name,
       productSnapshot,
 
-      // Variant information
       variantId: variantId || null,
-      variantDetails: variantDetails || undefined,
+      variantDetails,
 
-      // Coupon information
       couponCode: appliedCouponCode || null,
-      couponDiscount: couponDiscount || 0,
-      couponType: couponType || null,
+      couponDiscount,
+      couponType,
       originalPrice: couponDiscount > 0 ? originalPrice : null,
       milestonePaymentsRequired,
       milestoneFreeDays,
       milestoneRewardApplied: false,
       milestoneRewardAppliedAt: null,
 
-      // Installment details
       totalDays,
       dailyPaymentAmount: calculatedDailyAmount,
       paidInstallments: paymentMethod === "WALLET" ? 1 : 0,
@@ -445,38 +310,16 @@ async function createOrder(orderData) {
       deliveryAddress,
       deliveryStatus: "PENDING",
 
-      // Referral & Commission
       referrer: referrer?._id || null,
       productCommissionPercentage: commissionPercentage,
       commissionPercentage,
 
-      // Payment tracking
       firstPaymentMethod: paymentMethod,
       lastPaymentDate: paymentMethod === "WALLET" ? new Date() : null,
     };
 
-    console.log("   Order data prepared:", {
-      orderId: orderDataForModel.orderId,
-      quantity: orderDataForModel.quantity,
-      pricePerUnit: orderDataForModel.pricePerUnit,
-      totalProductPrice: orderDataForModel.totalProductPrice,
-      productPrice: orderDataForModel.productPrice,
-      dailyPaymentAmount: orderDataForModel.dailyPaymentAmount,
-      totalDays: orderDataForModel.totalDays,
-      couponType: orderDataForModel.couponType,
-      couponDiscount: orderDataForModel.couponDiscount,
-    });
-
     const order = new InstallmentOrder(orderDataForModel);
-
-    console.log("   Saving order to database...");
     await order.save();
-    console.log(`   ✅ Order saved successfully! ID: ${order._id}`);
-
-    // ========================================
-    // 11. Create First Payment Record
-    // ========================================
-    console.log("\n💳 Creating First Payment Record...");
 
     const paymentData = {
       order: order._id,
@@ -489,29 +332,10 @@ async function createOrder(orderData) {
       walletTransactionId,
       processedAt: paymentMethod === "WALLET" ? new Date() : null,
       completedAt: paymentMethod === "WALLET" ? new Date() : null,
-      // idempotencyKey will be auto-generated in pre-save hook
     };
 
-    console.log("   Payment data:", {
-      order: paymentData.order,
-      amount: paymentData.amount,
-      installmentNumber: paymentData.installmentNumber,
-      paymentMethod: paymentData.paymentMethod,
-      status: paymentData.status,
-    });
-
     const firstPayment = new PaymentRecord(paymentData);
-
-    console.log("   Saving payment record to database...");
     await firstPayment.save();
-    console.log(
-      `   ✅ Payment record saved! ID: ${firstPayment._id}, PaymentID: ${firstPayment.paymentId}`
-    );
-
-    // ========================================
-    // 11.1. Update Order with Payment Reference
-    // ========================================
-    console.log("\n🔄 Updating order with payment reference...");
 
     order.firstPaymentId = firstPayment._id;
 
@@ -520,24 +344,13 @@ async function createOrder(orderData) {
       order.paymentSchedule[0].status = "PAID";
       order.paymentSchedule[0].paidDate = new Date();
       order.paymentSchedule[0].paymentId = firstPayment._id;
-      console.log("   ✅ Marked first installment as PAID");
     }
 
     await order.save();
-    console.log("   ✅ Order updated with payment reference");
 
-    // ========================================
-    // 12. Process Commission (if wallet payment and has referrer)
-    // ========================================
     if (paymentMethod === "WALLET" && referrer && commissionPercentage > 0) {
-      console.log("\n💰 Processing Commission...");
-
       const commissionAmount =
         (calculatedDailyAmount * commissionPercentage) / 100;
-      console.log(
-        `   Commission amount: ₹${commissionAmount} (${commissionPercentage}%)`
-      );
-      console.log(`   Referrer: ${referrer._id}`);
 
       const commissionResult = await creditCommissionToWallet(
         referrer._id,
@@ -547,48 +360,17 @@ async function createOrder(orderData) {
         null
       );
 
-      console.log("   ✅ Commission credited to referrer wallet");
-
-      // Update payment record with commission details
       await firstPayment.recordCommission(
         commissionAmount,
         commissionPercentage,
         commissionResult.walletTransaction._id
       );
 
-      console.log("   ✅ Payment record updated with commission");
-
-      // Update order total commission
       order.totalCommissionPaid = commissionAmount;
       await order.save();
-      console.log("   ✅ Order updated with total commission");
-    } else {
-      console.log(
-        "\n⏭️  Skipping commission (no referrer or non-wallet payment)"
-      );
     }
 
-    // ========================================
-    // 13. Prepare Response
-    // ========================================
-    console.log("\n✅ Order Creation Successful!");
-    console.log("========================================");
-    console.log("📦 Order Summary:");
-    console.log(`   Order ID: ${order.orderId}`);
-    console.log(`   Status: ${order.status}`);
-    console.log(`   Product: ${order.productName}`);
-    console.log(`   Quantity: ${order.quantity}`);
-    console.log(`   Price per unit: ₹${order.pricePerUnit}`);
-    console.log(`   Total product price: ₹${order.totalProductPrice}`);
-    console.log(`   Final price (after coupon): ₹${order.productPrice}`);
-    console.log(`   Daily amount: ₹${order.dailyPaymentAmount}`);
-    console.log(`   Total days: ${order.totalDays}`);
-    console.log(`   Paid installments: ${order.paidInstallments}`);
-    console.log(`   Total paid: ₹${order.totalPaidAmount}`);
-    console.log(`   Remaining: ₹${order.remainingAmount}`);
-    console.log("========================================\n");
-
-    const response = {
+    return {
       order: {
         orderId: order.orderId,
         _id: order._id,
@@ -635,17 +417,12 @@ async function createOrder(orderData) {
           }
         : null,
     };
-
-    return response;
   } catch (error) {
-    console.error("\n❌ Order creation failed!");
-    console.error("========================================");
-    console.error("Error:", error.message);
-    console.error("Stack:", error.stack);
-    console.error("========================================\n");
+    console.error("\n❌ Order creation failed!", error);
     throw new TransactionFailedError(error.message);
   }
 }
+
 
 /**
  * Get order by ID
