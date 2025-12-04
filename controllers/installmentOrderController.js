@@ -317,24 +317,29 @@ const validateCoupon = asyncHandler(async (req, res) => {
 
   // Find and validate coupon
   const Coupon = require("../models/Coupon");
-  const coupon = await Coupon.findOne({ couponCode: couponCode.toUpperCase() });
+
+  const coupon = await Coupon.findOne({
+    couponCode: couponCode.toUpperCase(),
+    isActive: true,
+  });
 
   if (!coupon) {
     return res.status(404).json({
       success: false,
-      message: `Coupon '${couponCode}' not found`,
+      message: `Coupon '${couponCode}' not found or inactive`,
     });
   }
 
-  if (!coupon.isActive) {
+  // Expiry check
+  if (new Date() > coupon.expiryDate) {
     return res.status(400).json({
       success: false,
-      message: `Coupon '${couponCode}' is not active`,
+      message: `Coupon '${couponCode}' expired on ${coupon.expiryDate.toDateString()}`,
     });
   }
 
-  const now = new Date();
-  if (now > coupon.expiryDate) {
+  // Minimum order value check
+  if (totalProductPrice < coupon.minOrderValue) {
     return res.status(400).json({
       success: false,
       message: `Coupon '${couponCode}' has expired on ${coupon.expiryDate.toDateString()}`,
@@ -466,6 +471,7 @@ const validateCoupon = asyncHandler(async (req, res) => {
 
   successResponse(res, response, "Coupon is valid and can be applied");
 });
+
 
 /**
  * ✅ NEW API
