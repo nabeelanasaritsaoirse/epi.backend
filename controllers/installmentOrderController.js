@@ -208,77 +208,273 @@ const getPaymentSchedule = asyncHandler(async (req, res) => {
  * @access  Public
  */
 const validateCoupon = asyncHandler(async (req, res) => {
-  const { couponCode, productPrice } = req.body;
+  let {
+    couponCode,
+    productId,
+    variantId,
+    quantity = 1,
+    totalDays,
+    dailyAmount
+  } = req.body;
 
-  if (!couponCode || productPrice === undefined) {
-    return res.status(400).json({
-      success: false,
-      message: "couponCode and productPrice are required",
-    });
+  // -------------------------------
+  // BASIC VALIDATION
+  // -------------------------------
+  if (!couponCode) {
+    return res.status(400).json({ success: false, message: "couponCode is required" });
   }
 
   if (productPrice < 0) {
     return res.status(400).json({
       success: false,
-      message: "productPrice must be a positive number",
+      message: "productId, totalDays, and dailyAmount are required",
     });
   }
 
+  if (quantity < 1 || quantity > 10) {
+    return res.status(400).json({
+      success: false,
+      message: "quantity must be between 1 and 10",
+    });
+  }
+
+  if (totalDays < 1) {
+    return res.status(400).json({
+      success: false,
+      message: "totalDays must be at least 1",
+    });
+  }
+
+  if (dailyAmount <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: "dailyAmount must be greater than 0",
+    });
+  }
+
+  // -------------------------------
+  // FETCH PRODUCT (Optimized)
+  // -------------------------------
+  const Product = require("../models/Product");
+  const mongoose = require("mongoose");
+
+  const product =
+    (mongoose.Types.ObjectId.isValid(productId) && productId.length === 24
+      ? await Product.findById(productId)
+      : null) ||
+    (await Product.findOne({ productId }));
+
+  if (!product) {
+    return res.status(404).json({
+      success: false,
+      message: `Product '${productId}' not found`,
+    });
+  }
+
+  // -------------------------------
+  // PRICE CALCULATION
+  // -------------------------------
+  let pricePerUnit =
+    product.pricing?.finalPrice || product.pricing?.regularPrice || 0;
+
+  let selectedVariant = null;
+
+  if (variantId && product.variants?.length > 0) {
+    selectedVariant = product.variants.find((v) => v.variantId === variantId);
+
+    if (!selectedVariant) {
+      return res.status(404).json({
+        success: false,
+        message: `Variant '${variantId}' not found for this product`,
+      });
+    }
+
+    if (!selectedVariant.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: `Variant '${variantId}' is not available`,
+      });
+    }
+
+    pricePerUnit = selectedVariant.salePrice || selectedVariant.price;
+  }
+
+  const totalProductPrice = pricePerUnit * quantity;
+  const originalPrice = totalProductPrice;
+
+  // -------------------------------
+  // FETCH COUPON (Optimized)
+  // -------------------------------
   const Coupon = require("../models/Coupon");
-  const coupon = await Coupon.findOne({ couponCode: couponCode.toUpperCase() });
+
+  const coupon = await Coupon.findOne({
+    couponCode: couponCode.toUpperCase(),
+    isActive: true,
+  });
 
   if (!coupon) {
     return res.status(404).json({
       success: false,
-      message: `Coupon '${couponCode}' not found`,
+      message: `Coupon '${couponCode}' not found or inactive`,
     });
   }
 
-  if (!coupon.isActive) {
+  // Expiry check
+  if (new Date() > coupon.expiryDate) {
     return res.status(400).json({
       success: false,
-      message: `Coupon '${couponCode}' is not active`,
+      message: `Coupon '${couponCode}' expired on ${coupon.expiryDate.toDateString()}`,
     });
   }
 
-  const now = new Date();
-  if (now > coupon.expiryDate) {
+  // Minimum order value check
+  if (totalProductPrice < coupon.minOrderValue) {
     return res.status(400).json({
       success: false,
-      message: `Coupon '${couponCode}' has expired`,
+      message: `Minimum order value of ₹${coupon.minOrderValue} required. Current: ₹${totalProductPrice}`,
     });
   }
 
-  if (productPrice < coupon.minOrderValue) {
+  // Max usage check
+  if (coupon.maxUsageCount !== null &&
+      coupon.currentUsageCount >= coupon.maxUsageCount) {
     return res.status(400).json({
       success: false,
-      message: `Minimum order value of ₹${coupon.minOrderValue} is required for this coupon`,
+      message: "Coupon usage limit reached",
     });
   }
+
+  // -------------------------------
+  // DISCOUNT CALCULATION
+  // -------------------------------
+  const couponType = coupon.couponType || "INSTANT";
 
   let discountAmount = 0;
-  if (coupon.discountType === "flat") discountAmount = coupon.discountValue;
-  else discountAmount = Math.round((productPrice * coupon.discountValue) / 100);
+  let finalPrice = totalProductPrice;
+  let freeDays = 0;
+  let reducedDays = 0;
+  let milestoneDetails = null;
 
-  discountAmount = Math.min(discountAmount, productPrice);
+  let savingsMessage = "";
+  let howItWorksMessage = "";
 
-  const finalPrice = productPrice - discountAmount;
+  // Calculate base discount for 2 types
+  if (couponType === "INSTANT" || couponType === "REDUCE_DAYS") {
+    discountAmount =
+      coupon.discountType === "flat"
+        ? coupon.discountValue
+        : coupon.discountType === "percentage"
+        ? Math.round((totalProductPrice * coupon.discountValue) / 100)
+        : 0;
 
-  successResponse(
-    res,
-    {
-      coupon: {
-        code: coupon.couponCode,
-        discountType: coupon.discountType,
-        discountValue: coupon.discountValue,
-        discountAmount,
-        originalPrice: productPrice,
-        finalPrice,
-      },
+    discountAmount = Math.min(discountAmount, totalProductPrice);
+  }
+
+  // -------------------------------
+  // APPLY TYPE LOGIC
+  // -------------------------------
+  switch (couponType) {
+    case "INSTANT":
+      finalPrice = totalProductPrice - discountAmount;
+      dailyAmount = Math.ceil(finalPrice / totalDays);
+
+      savingsMessage = `You will save ₹${discountAmount} instantly!`;
+      howItWorksMessage = `The product price will be reduced from ₹${originalPrice} to ₹${finalPrice}. You will pay ₹${dailyAmount} per day for ${totalDays} days.`;
+      break;
+
+    case "REDUCE_DAYS":
+      freeDays = Math.floor(discountAmount / dailyAmount);
+      reducedDays = totalDays - freeDays;
+
+      savingsMessage = `You will get ${freeDays} FREE days! Pay for only ${reducedDays} days instead of ${totalDays} days.`;
+      howItWorksMessage = `Your last ${freeDays} installment(s) will be FREE. You pay ₹${dailyAmount}/day for ${reducedDays} days and get ${freeDays} days free (worth ₹${freeDays * dailyAmount}).`;
+      break;
+
+    case "MILESTONE_REWARD":
+      const milestonePaymentsRequired =
+        coupon.rewardCondition || coupon.milestonePaymentsRequired;
+
+      const milestoneFreeDays =
+        coupon.rewardValue || coupon.milestoneFreeDays;
+
+      if (!milestonePaymentsRequired || !milestoneFreeDays) {
+        return res.status(500).json({
+          success: false,
+          message: "Invalid milestone coupon configuration",
+        });
+      }
+
+      freeDays = milestoneFreeDays;
+
+      milestoneDetails = {
+        paymentsRequired: milestonePaymentsRequired,
+        freeDaysReward: milestoneFreeDays,
+        milestoneValue: milestoneFreeDays * dailyAmount,
+      };
+
+      savingsMessage = `Complete ${milestonePaymentsRequired} payments and get ${milestoneFreeDays} FREE days (worth ₹${milestoneDetails.milestoneValue})!`;
+      howItWorksMessage = `After you pay ${milestonePaymentsRequired} installments, you will receive ${milestoneFreeDays} free day(s) worth ₹${milestoneDetails.milestoneValue}.`;
+      break;
+  }
+
+  // -------------------------------
+  // SAVINGS %
+  // -------------------------------
+  const savingsPercentage =
+    originalPrice > 0
+      ? Math.round((discountAmount / originalPrice) * 100)
+      : 0;
+
+  // -------------------------------
+  // FINAL RESPONSE (UNCHANGED SHAPE)
+  // -------------------------------
+  const response = {
+    valid: true,
+    coupon: {
+      code: coupon.couponCode,
+      type: couponType,
+      description: coupon.description || "",
+      expiryDate: coupon.expiryDate,
+      minOrderValue: coupon.minOrderValue,
     },
-    "Coupon is valid"
-  );
+    pricing: {
+      originalPrice,
+      discountAmount,
+      finalPrice,
+      savingsPercentage,
+      pricePerUnit,
+      quantity,
+    },
+    installment: {
+      totalDays,
+      dailyAmount,
+      freeDays,
+      reducedDays: couponType === "REDUCE_DAYS" ? reducedDays : 0,
+    },
+    benefits: {
+      savingsMessage,
+      howItWorksMessage,
+      totalSavings:
+        couponType === "MILESTONE_REWARD"
+          ? milestoneDetails?.milestoneValue || 0
+          : discountAmount,
+    },
+    milestoneDetails,
+    product: {
+      id: product.productId || product._id,
+      name: product.name || product.productName, // FIXED
+      variant: selectedVariant
+        ? {
+            id: selectedVariant.variantId,
+            attributes: selectedVariant.attributes,
+          }
+        : null,
+    },
+  };
+
+  return successResponse(res, response, "Coupon is valid and can be applied");
 });
+
 
 /**
  * ✅ NEW API
