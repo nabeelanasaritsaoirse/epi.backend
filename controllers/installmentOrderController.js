@@ -228,6 +228,9 @@ const validateCoupon = asyncHandler(async (req, res) => {
     dailyAmount
   } = req.body;
 
+  // introduce updatedDailyAmount (was requested)
+  let updatedDailyAmount = dailyAmount;
+
   // Validation
   if (!couponCode) {
     return res.status(400).json({
@@ -377,7 +380,7 @@ const validateCoupon = asyncHandler(async (req, res) => {
   switch (couponType) {
     case "INSTANT":
       finalPrice = totalProductPrice - discountAmount;
-      const updatedDailyAmount = Math.ceil(finalPrice / totalDays);
+      updatedDailyAmount = Math.ceil(finalPrice / totalDays);
 
       savingsMessage = `You will save ₹${discountAmount} instantly!`;
       howItWorksMessage = `The product price will be reduced from ₹${originalPrice} to ₹${finalPrice}. You will pay ₹${updatedDailyAmount} per day for ${totalDays} days.`;
@@ -443,7 +446,7 @@ const validateCoupon = asyncHandler(async (req, res) => {
     },
     installment: {
       totalDays,
-      dailyAmount,
+      dailyAmount: updatedDailyAmount,
       freeDays,
       reducedDays: couponType === "REDUCE_DAYS" ? reducedDays : 0,
     },
