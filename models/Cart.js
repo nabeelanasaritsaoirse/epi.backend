@@ -1,9 +1,71 @@
 const mongoose = require('mongoose');
 
+/**
+ * Cart Product Schema
+ * Supports installment-based purchases with variant selection
+ */
 const cartProductSchema = new mongoose.Schema({
-  productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
-  quantity: { type: Number, default: 1, min: 1 },
-  addedAt: { type: Date, default: Date.now }
+  // Product Reference
+  productId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Product',
+    required: true
+  },
+
+  // Quantity
+  quantity: {
+    type: Number,
+    default: 1,
+    min: 1,
+    max: 10
+  },
+
+  // Product Variant (if applicable)
+  variantId: {
+    type: String,
+    default: null
+  },
+
+  // Variant Details Snapshot (saved at time of adding to cart)
+  variantDetails: {
+    sku: { type: String, default: null },
+    attributes: {
+      size: { type: String, default: null },
+      color: { type: String, default: null },
+      weight: { type: String, default: null },
+      purity: { type: String, default: null },
+      material: { type: String, default: null }
+    },
+    price: { type: Number, default: null },
+    description: { type: String, default: null }
+  },
+
+  // Installment Plan (selected by user)
+  installmentPlan: {
+    totalDays: {
+      type: Number,
+      required: false,
+      min: 5,
+      default: null
+    },
+    dailyAmount: {
+      type: Number,
+      required: false,
+      min: 50,
+      default: null
+    }
+  },
+
+  // Timestamps
+  addedAt: {
+    type: Date,
+    default: Date.now
+  },
+
+  updatedAt: {
+    type: Date,
+    default: Date.now
+  }
 }, { _id: false });
 
 const cartSchema = new mongoose.Schema({

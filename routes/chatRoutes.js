@@ -8,7 +8,7 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 
 // Middleware
-const { verifyFirebaseToken } = require('../middlewares/auth');
+const { verifyAnyToken } = require('../middlewares/auth');
 const {
   verifyChatAccess,
   verifyChatEnabled,
@@ -109,7 +109,7 @@ const pollRateLimit = rateLimit({
  */
 router.get(
   '/conversations',
-  verifyFirebaseToken,
+  verifyAnyToken,
   verifyChatEnabled,
   validateGetConversations,
   chatController.getConversations
@@ -121,7 +121,7 @@ router.get(
  */
 router.get(
   '/conversations/:conversationId/messages',
-  verifyFirebaseToken,
+  verifyAnyToken,
   verifyChatEnabled,
   verifyChatAccess,
   validateGetMessages,
@@ -134,7 +134,7 @@ router.get(
  */
 router.post(
   '/conversations/:conversationId/messages',
-  verifyFirebaseToken,
+  verifyAnyToken,
   verifyChatEnabled,
   verifyChatAccess,
   verifyNotBlocked,
@@ -152,7 +152,7 @@ router.post(
  */
 router.post(
   '/conversations/individual',
-  verifyFirebaseToken,
+  verifyAnyToken,
   verifyChatEnabled,
   conversationRateLimit,
   validateCreateIndividualConversation,
@@ -165,7 +165,7 @@ router.post(
  */
 router.post(
   '/conversations/group-broadcast',
-  verifyFirebaseToken,
+  verifyAnyToken,
   verifyChatEnabled,
   conversationRateLimit,
   sanitizeMessage,
@@ -179,7 +179,7 @@ router.post(
  */
 router.post(
   '/conversations/:conversationId/mark-read',
-  verifyFirebaseToken,
+  verifyAnyToken,
   verifyChatAccess,
   validateMarkAsRead,
   chatController.markAsRead
@@ -191,7 +191,7 @@ router.post(
  */
 router.patch(
   '/messages/:messageId',
-  verifyFirebaseToken,
+  verifyAnyToken,
   verifyChatEnabled,
   removeDangerousContent,
   sanitizeMessage,
@@ -206,7 +206,7 @@ router.patch(
  */
 router.delete(
   '/messages/:messageId',
-  verifyFirebaseToken,
+  verifyAnyToken,
   verifyChatEnabled,
   validateDeleteMessage,
   chatController.deleteMessage
@@ -218,7 +218,7 @@ router.delete(
  */
 router.post(
   '/messages/:messageId/report',
-  verifyFirebaseToken,
+  verifyAnyToken,
   reportRateLimit,
   sanitizeMessage,
   validateReportMessage,
@@ -231,7 +231,7 @@ router.post(
  */
 router.get(
   '/my-referrals',
-  verifyFirebaseToken,
+  verifyAnyToken,
   validateGetMyReferrals,
   chatController.getMyReferrals
 );
@@ -242,7 +242,7 @@ router.get(
  */
 router.get(
   '/poll',
-  verifyFirebaseToken,
+  verifyAnyToken,
   pollRateLimit,
   validatePoll,
   chatController.pollMessages
@@ -254,7 +254,7 @@ router.get(
  */
 router.get(
   '/search',
-  verifyFirebaseToken,
+  verifyAnyToken,
   verifyChatEnabled,
   validateSearchMessages,
   chatController.searchMessages

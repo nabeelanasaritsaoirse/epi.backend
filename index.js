@@ -225,9 +225,10 @@ app.use(
       "https://epielio.com",
       "https://api.epielio.com",
       "https://admin.epielio.com",
-      "http://admin-dashboard-site-dev.s3-website-ap-south-1.amazonaws.com"
+      "http://admin-dashboard-site-dev.s3-website-ap-south-1.amazonaws.com",
+      "http://admin-dashboard-site-dev.s3-website.ap-south-1.amazonaws.com"
     ],
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
   })
@@ -330,11 +331,6 @@ app.use((req, res) => {
 });
 
 // ======================================================================
-// START SERVER
+// EXPORT APP (Server is started in server.js)
 // ======================================================================
-const HOST = "0.0.0.0";
-app.listen(PORT, HOST, () => {
-  console.log(`🚀 Server running at http://${HOST}:${PORT}`);
-});
-
 module.exports = app;

@@ -15,7 +15,8 @@ const {
   validateDeleteComment,
   validateFCMToken,
   validateUpdatePreferences,
-  validatePagination
+  validatePagination,
+  validateTriggerNotification
 } = require('../validators/notificationValidator');
 
 // Rate limiters
@@ -34,6 +35,15 @@ const commentLimiter = rateLimit({
   message: {
     success: false,
     message: 'Too many comment requests. Please try again later.'
+  }
+});
+
+const triggerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 20, // 20 notification triggers per hour
+  message: {
+    success: false,
+    message: 'Too many notification requests. Please try again later.'
   }
 });
 
@@ -114,6 +124,19 @@ router.put(
   authenticate,
   validateUpdatePreferences,
   notificationController.updatePreferences
+);
+
+/**
+ * @route   POST /api/notifications/trigger
+ * @desc    Trigger custom notification (push and/or in-app)
+ * @access  Private
+ */
+router.post(
+  '/trigger',
+  authenticate,
+  triggerLimiter,
+  validateTriggerNotification,
+  notificationController.triggerCustomNotification
 );
 
 /**
