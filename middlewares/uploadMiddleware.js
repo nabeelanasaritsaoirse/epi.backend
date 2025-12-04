@@ -15,19 +15,25 @@ const fileFilter = (req, file, cb) => {
 };
 
 /**
- * ⭐ UPDATED:
- * Accept both:
- * - "image"
- * - "file"
- * WITHOUT BREAKING ANY OLD LOGIC
+ * Single file upload handler
+ * Supports both middleware and callback modes
+ * Field names: "image" or "file"
  */
-const uploadSingle = multer({
+const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: {
     fileSize: 10 * 1024 * 1024 // 10MB max
   }
-}).fields([
+});
+
+// For callback mode: uploadSingle(req, res, (err) => {...})
+// For middleware mode: use uploadSingleMiddleware in router
+const uploadSingle = upload.single("file");
+
+// Alternative middleware for routes that use it in middleware mode
+// Maps to fields to accept both "image" and "file"
+const uploadSingleMiddleware = upload.fields([
   { name: 'image', maxCount: 1 },
   { name: 'file', maxCount: 1 }
 ]);
@@ -43,5 +49,6 @@ const uploadMultiple = multer({
 
 module.exports = {
   uploadSingle,
+  uploadSingleMiddleware,
   uploadMultiple
 };
