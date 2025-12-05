@@ -4,11 +4,11 @@ const Kyc = require("../models/Kyc");
 // Runs every minute
 cron.schedule("* * * * *", async () => {
   try {
-    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+    const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
 
     const pendingKycs = await Kyc.find({
       status: "pending",
-      submittedAt: { $lte: tenMinutesAgo }
+      submittedAt: { $lte: sixHoursAgo }
     });
 
     for (let kyc of pendingKycs) {
