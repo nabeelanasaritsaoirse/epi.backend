@@ -40,9 +40,10 @@ async function sendPushNotification(userIds, { title, body, data = {} }) {
     // Get users with valid FCM tokens
     const users = await User.find({
       _id: { $in: targetUserIds },
-      deviceToken: { $exists: true, $ne: null, $ne: '' },
-      'notificationPreferences.pushEnabled': true
-    }).select('deviceToken email name');
+      deviceToken: { $exists: true, $ne: null, $ne: '' }
+    }).select('deviceToken email name notificationPreferences');
+
+    console.log(`[FCM] Found ${users.length} user(s) with deviceToken for userIds:`, targetUserIds);
 
     if (users.length === 0) {
       console.log('[FCM] No users with valid FCM tokens found');
@@ -54,7 +55,26 @@ async function sendPushNotification(userIds, { title, body, data = {} }) {
       };
     }
 
-    const tokens = users.map(u => u.deviceToken).filter(Boolean);
+    // Filter users based on notification preferences (allow if not set)
+    const eligibleUsers = users.filter(u => {
+      // If pushEnabled is not set or is true, allow
+      const pushEnabled = u.notificationPreferences?.pushEnabled;
+      return pushEnabled !== false;
+    });
+
+    if (eligibleUsers.length === 0) {
+      console.log('[FCM] All users have push notifications disabled');
+      return {
+        success: true,
+        sent: 0,
+        failed: 0,
+        message: 'All users have push notifications disabled'
+      };
+    }
+
+    const tokens = eligibleUsers.map(u => u.deviceToken).filter(Boolean);
+
+    console.log(`[FCM] Attempting to send push notification to ${tokens.length} device(s)`);
 
     if (tokens.length === 0) {
       return { success: true, sent: 0, failed: 0 };
