@@ -8,14 +8,18 @@ const admin = require('firebase-admin');
 const { getMessaging } = require('firebase-admin/messaging');
 const User = require('../models/User');
 
-// Check if Firebase is initialized
-const firebaseInitialized = admin.apps.length > 0;
+/**
+ * Check if Firebase is initialized (dynamic check)
+ */
+function isFirebaseInitialized() {
+  return admin.apps.length > 0;
+}
 
 /**
  * Get Firebase Messaging instance (compatible with v13+)
  */
 function getMessagingInstance() {
-  if (!firebaseInitialized) {
+  if (!isFirebaseInitialized()) {
     throw new Error('Firebase is not initialized');
   }
   return getMessaging();
@@ -87,7 +91,7 @@ async function sendToSingleDevice(token, title, body, data = {}) {
  * @returns {Promise<Object>} Result with success status and counts
  */
 async function sendPushNotification(userIds, { title, body, data = {} }) {
-  if (!firebaseInitialized) {
+  if (!isFirebaseInitialized()) {
     console.warn('[FCM] Firebase not initialized, skipping push notification');
     return {
       success: false,
@@ -229,7 +233,7 @@ async function sendPushNotification(userIds, { title, body, data = {} }) {
  * @returns {Promise<Object>} Result with success status and counts
  */
 async function sendPushToAllUsers({ title, body, data = {} }) {
-  if (!firebaseInitialized) {
+  if (!isFirebaseInitialized()) {
     console.warn('[FCM] Firebase not initialized, skipping broadcast');
     return {
       success: false,
