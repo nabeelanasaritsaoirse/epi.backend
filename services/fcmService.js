@@ -40,9 +40,9 @@ async function sendPushNotification(userIds, { title, body, data = {} }) {
     // Get users with valid FCM tokens
     const users = await User.find({
       _id: { $in: targetUserIds },
-      fcmToken: { $exists: true, $ne: null, $ne: '' },
+      deviceToken: { $exists: true, $ne: null, $ne: '' },
       'notificationPreferences.pushEnabled': true
-    }).select('fcmToken email name');
+    }).select('deviceToken email name');
 
     if (users.length === 0) {
       console.log('[FCM] No users with valid FCM tokens found');
@@ -54,7 +54,7 @@ async function sendPushNotification(userIds, { title, body, data = {} }) {
       };
     }
 
-    const tokens = users.map(u => u.fcmToken).filter(Boolean);
+    const tokens = users.map(u => u.deviceToken).filter(Boolean);
 
     if (tokens.length === 0) {
       return { success: true, sent: 0, failed: 0 };
@@ -106,8 +106,8 @@ async function sendPushNotification(userIds, { title, body, data = {} }) {
             resp.error?.code === 'messaging/registration-token-not-registered'
           ) {
             User.updateOne(
-              { fcmToken: tokens[idx] },
-              { $unset: { fcmToken: 1 } }
+              { deviceToken: tokens[idx] },
+              { $unset: { deviceToken: 1 } }
             ).exec().catch(err => {
               console.error('[FCM] Error removing invalid token:', err);
             });
@@ -164,17 +164,17 @@ async function sendPushToAllUsers({ title, body, data = {} }) {
     while (true) {
       // Get users with FCM tokens in batches
       const users = await User.find({
-        fcmToken: { $exists: true, $ne: null, $ne: '' },
+        deviceToken: { $exists: true, $ne: null, $ne: '' },
         'notificationPreferences.pushEnabled': true,
         'notificationPreferences.promotionalOffers': true
       })
-      .select('fcmToken')
+      .select('deviceToken')
       .limit(batchSize)
       .skip(skip);
 
       if (users.length === 0) break;
 
-      const tokens = users.map(u => u.fcmToken).filter(Boolean);
+      const tokens = users.map(u => u.deviceToken).filter(Boolean);
 
       if (tokens.length > 0) {
         const message = {
@@ -247,9 +247,9 @@ async function sendPushToAllUsers({ title, body, data = {} }) {
 async function sendSystemNotification(userId, systemType, { title, body, data = {} }) {
   try {
     // Check user's notification preferences for this type
-    const user = await User.findById(userId).select('fcmToken notificationPreferences');
+    const user = await User.findById(userId).select('deviceToken notificationPreferences');
 
-    if (!user || !user.fcmToken) {
+    if (!user || !user.deviceToken) {
       return { success: false, reason: 'NO_FCM_TOKEN' };
     }
 
@@ -292,7 +292,7 @@ async function registerFCMToken(userId, fcmToken) {
     // Update user's FCM token
     await User.findByIdAndUpdate(
       userId,
-      { fcmToken },
+      { deviceToken: fcmToken },
       { new: true }
     );
 
@@ -314,7 +314,7 @@ async function removeFCMToken(userId) {
   try {
     await User.findByIdAndUpdate(
       userId,
-      { $unset: { fcmToken: 1 } }
+      { $unset: { deviceToken: 1 } }
     );
 
     console.log(`[FCM] Token removed for user ${userId}`);
