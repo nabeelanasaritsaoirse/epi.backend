@@ -26,6 +26,23 @@ function getMessagingInstance() {
 }
 
 /**
+ * Sanitize data object - Firebase requires all values to be strings
+ * @param {Object} data - Data object with any types
+ * @returns {Object} Data object with all values as strings
+ */
+function sanitizeDataForFCM(data = {}) {
+  const sanitized = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value === null || value === undefined) {
+      continue; // Skip null/undefined
+    }
+    // Convert all values to strings
+    sanitized[key] = String(value);
+  }
+  return sanitized;
+}
+
+/**
  * Send push notification to a single device token
  * @param {string} token - FCM device token
  * @param {string} title - Notification title
@@ -35,17 +52,20 @@ function getMessagingInstance() {
  */
 async function sendToSingleDevice(token, title, body, data = {}) {
   try {
+    // Sanitize data to ensure all values are strings (Firebase requirement)
+    const sanitizedData = sanitizeDataForFCM({
+      ...data,
+      clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+      timestamp: Date.now().toString()
+    });
+
     const message = {
       token, // Single token for send()
       notification: {
         title,
         body: body.substring(0, 100)
       },
-      data: {
-        ...data,
-        clickAction: 'FLUTTER_NOTIFICATION_CLICK',
-        timestamp: Date.now().toString()
-      },
+      data: sanitizedData,
       android: {
         priority: 'high',
         notification: {
@@ -151,17 +171,20 @@ async function sendPushNotification(userIds, { title, body, data = {} }) {
       return { success: true, sent: 0, failed: 0 };
     }
 
+    // Sanitize data to ensure all values are strings (Firebase requirement)
+    const sanitizedData = sanitizeDataForFCM({
+      ...data,
+      clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+      timestamp: Date.now().toString()
+    });
+
     // Build the multicast message (supports up to 500 tokens)
     const message = {
       notification: {
         title,
         body: body.substring(0, 100)
       },
-      data: {
-        ...data,
-        clickAction: 'FLUTTER_NOTIFICATION_CLICK',
-        timestamp: Date.now().toString()
-      },
+      data: sanitizedData,
       android: {
         priority: 'high',
         notification: {
@@ -264,17 +287,20 @@ async function sendPushToAllUsers({ title, body, data = {} }) {
       const tokens = users.map(u => u.deviceToken).filter(Boolean);
 
       if (tokens.length > 0) {
+        // Sanitize data to ensure all values are strings (Firebase requirement)
+        const sanitizedData = sanitizeDataForFCM({
+          ...data,
+          clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+          timestamp: Date.now().toString()
+        });
+
         // Build multicast message
         const message = {
           notification: {
             title,
             body: body.substring(0, 100)
           },
-          data: {
-            ...data,
-            clickAction: 'FLUTTER_NOTIFICATION_CLICK',
-            timestamp: Date.now().toString()
-          },
+          data: sanitizedData,
           android: {
             priority: 'high',
             notification: {
