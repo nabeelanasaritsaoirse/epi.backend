@@ -558,3 +558,45 @@ exports.getReferralProductDetails = async (referredUserId, productId) => {
   }
 };
 
+/* ---------- getReferrerInfo (logged-in user's referrer) ---------- */
+exports.getReferrerInfo = async (req, res) => {
+  try {
+    // Normalize ways user id may be provided by the auth middleware
+    let resolvedUserId = null;
+    if (req.user) {
+      resolvedUserId = req.user._id || req.user.id || req.user.userId || null;
+      // If req.user is a string id (some middlewares), handle that
+      if (!resolvedUserId && typeof req.user === "string") resolvedUserId = req.user;
+    }
+    resolvedUserId = resolvedUserId || req.query?.userId || req.body?.userId;
+
+    if (!resolvedUserId) {
+      return res.status(400).json({ success: false, error: "User ID is required" });
+    }
+
+    const user = await User.findById(resolvedUserId).populate(
+      "referredBy",
+      "name email profilePicture referralCode"
+    );
+
+    if (!user) return res.status(404).json({ success: false, error: "User not found" });
+
+    if (!user.referredBy) return res.json({ success: true, referredBy: null });
+
+    const ref = user.referredBy;
+    return res.json({
+      success: true,
+      referredBy: {
+        userId: ref._id,
+        name: ref.name || "",
+        email: ref.email || "",
+        profilePicture: ref.profilePicture || "",
+        referralCode: ref.referralCode || "",
+      },
+    });
+  } catch (error) {
+    console.error("Error in getReferrerInfo:", error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+};
+

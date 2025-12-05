@@ -366,4 +366,7 @@ router.get("/details/:referralId", async (req, res) => {
   }
 });
 
+// Get logged-in user's referrer info
+router.get("/referrer-info", auth.verifyToken, referralController.getReferrerInfo);
+
 module.exports = router;
