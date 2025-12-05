@@ -27,9 +27,11 @@ const upload = multer({
   }
 });
 
-// For callback mode: uploadSingle(req, res, (err) => {...})
-// For middleware mode: use uploadSingleMiddleware in router
-const uploadSingle = upload.single("file");
+// ✅ FIXED — uploadSingle now accepts BOTH "image" and "file"
+const uploadSingle = upload.fields([
+  { name: 'image', maxCount: 1 },
+  { name: 'file', maxCount: 1 }
+]);
 
 // Alternative middleware for routes that use it in middleware mode
 // Maps to fields to accept both "image" and "file"
