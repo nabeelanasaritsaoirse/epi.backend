@@ -208,6 +208,21 @@ async function sendPushNotification(userIds, { title, body, data = {} }) {
 
     console.log(`[FCM] Push sent: ${response.successCount}, failed: ${response.failureCount}`);
 
+    // Enhanced error logging - log detailed failure analysis
+    if (response.failureCount > 0) {
+      console.log('[FCM] Detailed failure analysis:');
+      const errorCounts = {};
+      response.responses.forEach((resp, idx) => {
+        if (!resp.success) {
+          const errorCode = resp.error?.code || 'unknown';
+          const errorMsg = resp.error?.message || 'unknown error';
+          errorCounts[errorCode] = (errorCounts[errorCode] || 0) + 1;
+          console.error(`[FCM] Token ${tokens[idx]?.substring(0, 30)}... failed: ${errorCode} - ${errorMsg}`);
+        }
+      });
+      console.log('[FCM] Error summary:', errorCounts);
+    }
+
     // Clean up invalid tokens
     if (response.failureCount > 0) {
       const failedTokens = [];
@@ -324,6 +339,20 @@ async function sendPushToAllUsers({ title, body, data = {} }) {
 
         totalSent += response.successCount;
         totalFailed += response.failureCount;
+
+        console.log(`[FCM Broadcast] Batch sent: ${response.successCount}, failed: ${response.failureCount}`);
+
+        // Enhanced error logging for broadcast
+        if (response.failureCount > 0) {
+          const errorCounts = {};
+          response.responses.forEach((resp, idx) => {
+            if (!resp.success) {
+              const errorCode = resp.error?.code || 'unknown';
+              errorCounts[errorCode] = (errorCounts[errorCode] || 0) + 1;
+            }
+          });
+          console.log('[FCM Broadcast] Error summary:', errorCounts);
+        }
 
         // Clean up invalid tokens
         if (response.failureCount > 0) {
@@ -462,10 +491,65 @@ async function removeFCMToken(userId) {
   }
 }
 
+/**
+ * Validate FCM tokens by attempting a test send
+ * Returns only valid tokens
+ * @param {Array<string>} tokens - Array of FCM tokens to validate
+ * @returns {Promise<Array<string>>} Array of valid tokens
+ */
+async function validateTokens(tokens) {
+  if (!isFirebaseInitialized()) {
+    console.warn('[FCM] Cannot validate tokens - Firebase not initialized');
+    return tokens; // Return all tokens if we can't validate
+  }
+
+  const validTokens = [];
+  const invalidTokens = [];
+
+  console.log(`[FCM] Validating ${tokens.length} token(s)...`);
+
+  for (const token of tokens) {
+    try {
+      // Try sending a dry-run message (doesn't actually send)
+      await getMessagingInstance().send({
+        token,
+        notification: { title: 'test', body: 'test' },
+        data: { test: 'true' },
+        dryRun: true // This prevents actual sending
+      });
+      validTokens.push(token);
+    } catch (error) {
+      if (
+        error.code === 'messaging/invalid-registration-token' ||
+        error.code === 'messaging/registration-token-not-registered'
+      ) {
+        console.log(`[FCM] Invalid token detected during validation: ${token.substring(0, 30)}...`);
+        invalidTokens.push(token);
+      } else {
+        // For other errors, assume token might be valid (network issues, etc.)
+        validTokens.push(token);
+      }
+    }
+  }
+
+  console.log(`[FCM] Validation complete: ${validTokens.length} valid, ${invalidTokens.length} invalid`);
+
+  // Clean up invalid tokens from database
+  if (invalidTokens.length > 0) {
+    await User.updateMany(
+      { deviceToken: { $in: invalidTokens } },
+      { $unset: { deviceToken: 1 } }
+    ).catch(err => console.error('[FCM] Error removing invalid tokens during validation:', err));
+  }
+
+  return validTokens;
+}
+
 module.exports = {
   sendPushNotification,
   sendPushToAllUsers,
   sendSystemNotification,
   registerFCMToken,
-  removeFCMToken
+  removeFCMToken,
+  validateTokens
 };
