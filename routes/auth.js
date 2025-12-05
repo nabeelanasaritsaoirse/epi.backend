@@ -55,6 +55,11 @@ router.post("/login", async (req, res) => {
         userData.email = `${uid}@temp.user`;
       }
 
+      // Add phone number from Firebase token if available (Firebase OTP login)
+      if (decodedToken.phone_number) {
+        userData.phoneNumber = decodedToken.phone_number;
+      }
+
       try {
         user = new User(userData);
         await user.save();
