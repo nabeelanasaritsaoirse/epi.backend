@@ -1,14 +1,25 @@
 /**
  * Firebase Cloud Messaging (FCM) Service
  * Handles push notification delivery to mobile devices
- * FIXED: Compatible with firebase-admin@13.6.0 (removed sendMulticast)
+ * OPTIMIZED: Uses firebase-admin@13.6.0+ getMessaging() and sendEachForMulticast()
  */
 
-const { admin } = require('../config/firebase');
+const admin = require('firebase-admin');
+const { getMessaging } = require('firebase-admin/messaging');
 const User = require('../models/User');
 
 // Check if Firebase is initialized
 const firebaseInitialized = admin.apps.length > 0;
+
+/**
+ * Get Firebase Messaging instance (compatible with v13+)
+ */
+function getMessagingInstance() {
+  if (!firebaseInitialized) {
+    throw new Error('Firebase is not initialized');
+  }
+  return getMessaging();
+}
 
 /**
  * Send push notification to a single device token
@@ -48,8 +59,8 @@ async function sendToSingleDevice(token, title, body, data = {}) {
       }
     };
 
-    const response = await admin.messaging().send(message);
-    return { success: true, response };
+    const response = await getMessagingInstance().send(message);
+    return { success: true, response, token };
 
   } catch (error) {
     // Handle invalid token errors
@@ -57,17 +68,12 @@ async function sendToSingleDevice(token, title, body, data = {}) {
       error.code === 'messaging/invalid-registration-token' ||
       error.code === 'messaging/registration-token-not-registered'
     ) {
-      // Remove invalid token
-      await User.updateOne(
-        { deviceToken: token },
-        { $unset: { deviceToken: 1 } }
-      ).catch(err => console.error('[FCM] Error removing token:', err));
-      
-      return { success: false, invalidToken: true };
+      console.log(`[FCM] Invalid token detected: ${token.substring(0, 20)}...`);
+      return { success: false, invalidToken: true, token };
     }
-    
-    console.error('[FCM] Error sending to device:', error);
-    return { success: false, error: error.message };
+
+    console.error('[FCM] Error sending to device:', error.code || error.message);
+    return { success: false, error: error.message, token };
   }
 }
 
@@ -141,29 +147,65 @@ async function sendPushNotification(userIds, { title, body, data = {} }) {
       return { success: true, sent: 0, failed: 0 };
     }
 
-    // CRITICAL FIX: Send to each device individually using send() instead of sendMulticast()
-    const results = await Promise.allSettled(
-      tokens.map(token => sendToSingleDevice(token, title, body, data))
-    );
-
-    // Count successes and failures
-    let successCount = 0;
-    let failureCount = 0;
-
-    results.forEach(result => {
-      if (result.status === 'fulfilled' && result.value.success) {
-        successCount++;
-      } else {
-        failureCount++;
+    // Build the multicast message (supports up to 500 tokens)
+    const message = {
+      notification: {
+        title,
+        body: body.substring(0, 100)
+      },
+      data: {
+        ...data,
+        clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+        timestamp: Date.now().toString()
+      },
+      android: {
+        priority: 'high',
+        notification: {
+          sound: 'default',
+          channelId: 'default'
+        }
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default',
+            badge: 1
+          }
+        }
       }
-    });
+    };
 
-    console.log(`[FCM] Push sent: ${successCount}, failed: ${failureCount}`);
+    // Use sendEachForMulticast for efficient batch sending (up to 500 tokens)
+    const multicastMessage = { tokens, ...message };
+    const response = await getMessagingInstance().sendEachForMulticast(multicastMessage);
+
+    console.log(`[FCM] Push sent: ${response.successCount}, failed: ${response.failureCount}`);
+
+    // Clean up invalid tokens
+    if (response.failureCount > 0) {
+      const failedTokens = [];
+      response.responses.forEach((resp, idx) => {
+        if (!resp.success && (
+          resp.error?.code === 'messaging/invalid-registration-token' ||
+          resp.error?.code === 'messaging/registration-token-not-registered'
+        )) {
+          failedTokens.push(tokens[idx]);
+        }
+      });
+
+      if (failedTokens.length > 0) {
+        console.log(`[FCM] Removing ${failedTokens.length} invalid token(s)`);
+        await User.updateMany(
+          { deviceToken: { $in: failedTokens } },
+          { $unset: { deviceToken: 1 } }
+        ).catch(err => console.error('[FCM] Error removing invalid tokens:', err));
+      }
+    }
 
     return {
       success: true,
-      sent: successCount,
-      failed: failureCount,
+      sent: response.successCount,
+      failed: response.failureCount,
       totalTargeted: tokens.length
     };
 
@@ -218,19 +260,60 @@ async function sendPushToAllUsers({ title, body, data = {} }) {
       const tokens = users.map(u => u.deviceToken).filter(Boolean);
 
       if (tokens.length > 0) {
-        // CRITICAL FIX: Send individually instead of multicast
-        const results = await Promise.allSettled(
-          tokens.map(token => sendToSingleDevice(token, title, body, data))
-        );
-
-        // Count results
-        results.forEach(result => {
-          if (result.status === 'fulfilled' && result.value.success) {
-            totalSent++;
-          } else {
-            totalFailed++;
+        // Build multicast message
+        const message = {
+          notification: {
+            title,
+            body: body.substring(0, 100)
+          },
+          data: {
+            ...data,
+            clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+            timestamp: Date.now().toString()
+          },
+          android: {
+            priority: 'high',
+            notification: {
+              sound: 'default',
+              channelId: 'default'
+            }
+          },
+          apns: {
+            payload: {
+              aps: {
+                sound: 'default',
+                badge: 1
+              }
+            }
           }
-        });
+        };
+
+        // Send with sendEachForMulticast (handles up to 500 tokens)
+        const multicastMessage = { tokens, ...message };
+        const response = await getMessagingInstance().sendEachForMulticast(multicastMessage);
+
+        totalSent += response.successCount;
+        totalFailed += response.failureCount;
+
+        // Clean up invalid tokens
+        if (response.failureCount > 0) {
+          const failedTokens = [];
+          response.responses.forEach((resp, idx) => {
+            if (!resp.success && (
+              resp.error?.code === 'messaging/invalid-registration-token' ||
+              resp.error?.code === 'messaging/registration-token-not-registered'
+            )) {
+              failedTokens.push(tokens[idx]);
+            }
+          });
+
+          if (failedTokens.length > 0) {
+            await User.updateMany(
+              { deviceToken: { $in: failedTokens } },
+              { $unset: { deviceToken: 1 } }
+            ).catch(err => console.error('[FCM] Error removing invalid tokens:', err));
+          }
+        }
 
         console.log(`[FCM Broadcast] Batch: Sent ${totalSent}, Failed ${totalFailed}`);
       }
