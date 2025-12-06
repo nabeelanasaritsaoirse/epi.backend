@@ -4,7 +4,7 @@
   "description": "Epi project backend",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "echo '❌ Do not use npm start in production. Use PM2 only: pm2 restart epi-backend'",
     "dev": "nodemon index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "setup-cron": "node scripts/setupCron.js",
