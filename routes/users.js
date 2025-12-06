@@ -4,7 +4,7 @@ const { verifyToken, isAdmin } = require('../middlewares/auth');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const Product = require('../models/Product');
-const { uploadSingle } = require('../middlewares/uploadMiddleware');
+const { uploadSingleMiddleware } = require('../middlewares/uploadMiddleware');
 const { uploadSingleFileToS3, deleteImageFromS3 } = require('../services/awsUploadService');
 
 
@@ -1335,79 +1335,76 @@ router.put('/:userId/kyc-details/verify', verifyToken, isAdmin, async (req, res)
  * @desc    Update user profile picture with S3 upload
  * @access  Private
  */
-router.put('/:userId/profile-picture', verifyToken, (req, res) => {
-  uploadSingle(req, res, async (err) => {
-    try {
-      const { userId } = req.params;
+router.put('/:userId/profile-picture', verifyToken, uploadSingleMiddleware, async (req, res) => {
+  try {
+    const { userId } = req.params;
 
-      // Verify user permissions (either the same user or admin)
-      if (req.user._id.toString() !== userId && req.user.role !== 'admin') {
-        return res.status(403).json({ success: false, message: 'Unauthorized' });
-      }
+    // Verify user permissions (either the same user or admin)
+    if (req.user._id.toString() !== userId && req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
+    }
 
-      // Handle multer errors
-      if (err) {
-        console.error('Multer error:', err);
-        return res.status(400).json({
-          success: false,
-          message: err.message || 'Error uploading file'
-        });
-      }
+    // Accept both 'file' and 'image' fields (multer.fields populates req.files)
+    let selectedFile = null;
+    if (req.files && req.files.file && req.files.file.length > 0) {
+      selectedFile = req.files.file[0];
+    } else if (req.files && req.files.image && req.files.image.length > 0) {
+      selectedFile = req.files.image[0];
+    }
 
-      // Check if file was uploaded
-      if (!req.file) {
-        return res.status(400).json({
-          success: false,
-          message: 'Please upload an image file'
-        });
-      }
-
-      // Find user
-      const user = await User.findById(userId);
-      if (!user) {
-        return res.status(404).json({ success: false, message: 'User not found' });
-      }
-
-      // Delete old profile picture from S3 if it exists
-      if (user.profilePicture && user.profilePicture.includes('s3.amazonaws.com')) {
-        try {
-          await deleteImageFromS3(user.profilePicture);
-        } catch (deleteError) {
-          console.error('Error deleting old profile picture:', deleteError);
-          // Continue with upload even if delete fails
-        }
-      }
-
-      // Upload new profile picture to S3
-      const uploadResult = await uploadSingleFileToS3(
-        req.file,
-        'profile-pictures/',
-        480 // resize width
-      );
-
-      // Update user profile picture URL
-      user.profilePicture = uploadResult.url;
-      user.updatedAt = Date.now();
-      await user.save();
-
-      res.status(200).json({
-        success: true,
-        message: 'Profile picture updated successfully',
-        profilePicture: user.profilePicture,
-        uploadDetails: {
-          size: uploadResult.size,
-          mimeType: uploadResult.mimeType
-        }
-      });
-
-    } catch (error) {
-      console.error('Error updating profile picture:', error);
-      res.status(500).json({
+    // No file uploaded
+    if (!selectedFile) {
+      return res.status(400).json({
         success: false,
-        message: 'Server error: ' + error.message
+        message: 'Please upload an image file'
       });
     }
-  });
+
+    // Find user
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Delete old profile picture from S3 if it exists
+    if (user.profilePicture && user.profilePicture.includes('s3.amazonaws.com')) {
+      try {
+        await deleteImageFromS3(user.profilePicture);
+      } catch (deleteError) {
+        console.error('Error deleting old profile picture:', deleteError);
+        // Continue with upload even if delete fails
+      }
+    }
+
+    // Upload new profile picture to S3 — pass selectedFile (same shape as previous req.file)
+    const uploadResult = await uploadSingleFileToS3(
+      selectedFile,
+      'profile-pictures/',
+      480 // resize width
+    );
+
+    // Update user profile picture URL
+    user.profilePicture = uploadResult.url;
+    user.updatedAt = Date.now();
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Profile picture updated successfully',
+      profilePicture: user.profilePicture,
+      uploadDetails: {
+        size: uploadResult.size,
+        mimeType: uploadResult.mimeType
+      }
+    });
+  } catch (error) {
+    console.error('Error updating profile picture:', error);
+    // If multer/middleware forwarded an error, respond gracefully
+    res.status(500).json({
+      success: false,
+      message: 'Server error: ' + (error.message || error)
+    });
+  }
 });
 
 
@@ -1688,4 +1685,4 @@ router.get('/:userId/deletion-info', verifyToken, async (req, res) => {
   }
 });
 
-module.exports = router; 
+module.exports = router;
