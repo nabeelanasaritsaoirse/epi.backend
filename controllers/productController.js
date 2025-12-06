@@ -421,7 +421,7 @@ exports.updateProduct = async (req, res) => {
           price: v.price,
           salePrice: v.salePrice,
           paymentPlan: v.paymentPlan || {},
-          stock: v.stock || 0,
+          stock: v.stock || 0, // ✅ PRESERVE variant stock exactly as provided
           images: v.images || [],
           isActive: v.isActive !== undefined ? v.isActive : true,
         };
@@ -459,13 +459,37 @@ exports.updateProduct = async (req, res) => {
       }
     });
 
-    // 🔥 STOCK FIX — this is the ONLY new part added
-    if (req.body.pricing && req.body.pricing.stock !== undefined) {
-      const newStock = Number(req.body.pricing.stock);
+    // ============================================================
+    // ✅ FIXED STOCK HANDLING — NEW LOGIC
+    // ============================================================
+    // Determine if stock update was requested by checking multiple possible field locations
+    let stockUpdateRequested = false;
+    let newStock = null;
 
-      // Update main availability
+    // Priority order: availability.stockQuantity > stock > pricing.stock (legacy)
+    if (
+      req.body.availability &&
+      req.body.availability.stockQuantity !== undefined
+    ) {
+      newStock = Number(req.body.availability.stockQuantity);
+      stockUpdateRequested = true;
+    } else if (req.body.stock !== undefined) {
+      newStock = Number(req.body.stock);
+      stockUpdateRequested = true;
+    } else if (
+      req.body.pricing &&
+      req.body.pricing.stock !== undefined
+    ) {
+      newStock = Number(req.body.pricing.stock);
+      stockUpdateRequested = true;
+    }
+
+    // If stock update was requested, update both main availability and regional global
+    if (stockUpdateRequested && !isNaN(newStock)) {
+      // Update main product availability
       product.availability.stockQuantity = newStock;
 
+      // ✅ Recalculate stockStatus based on new stockQuantity
       if (newStock <= 0) {
         product.availability.stockStatus = "out_of_stock";
       } else if (newStock <= (product.availability.lowStockLevel || 10)) {
@@ -474,7 +498,7 @@ exports.updateProduct = async (req, res) => {
         product.availability.stockStatus = "in_stock";
       }
 
-      // Update regional availability (GLOBAL region)
+      // ✅ Sync to regional availability (global region only)
       if (Array.isArray(product.regionalAvailability)) {
         const globalRegion = product.regionalAvailability.find(
           (r) => r.region === "global"
@@ -484,8 +508,13 @@ exports.updateProduct = async (req, res) => {
           globalRegion.stockStatus = product.availability.stockStatus;
         }
       }
+
+      // ✅ NOTE: Do NOT overwrite variants[].stock from product-level stock
+      // Variant stock is independent and managed via req.body.variants
     }
-    // 🔥 END OF FIX
+    // ============================================================
+    // ✅ END OF FIXED STOCK HANDLING
+    // ============================================================
 
     product.updatedAt = new Date();
     await product.save();
