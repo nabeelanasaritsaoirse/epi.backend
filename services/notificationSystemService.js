@@ -99,10 +99,11 @@ async function triggerNotification({
         ...metadata
       };
 
-      // Convert ObjectIds to strings for push data
+      // Convert all values to strings (Firebase requirement - no ObjectIds or numbers)
       Object.keys(pushData).forEach(key => {
-        if (pushData[key] && typeof pushData[key] === 'object' && pushData[key]._id) {
-          pushData[key] = pushData[key].toString();
+        if (pushData[key] !== null && pushData[key] !== undefined) {
+          // Convert everything to string (handles ObjectIds, numbers, objects, etc.)
+          pushData[key] = String(pushData[key]);
         }
       });
 
