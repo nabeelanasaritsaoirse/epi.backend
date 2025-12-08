@@ -4,80 +4,99 @@ const Kyc = require("../models/Kyc");
 
 exports.getDashboardStats = async (req, res) => {
   try {
-    const today = new Date();
-    const startOfToday = new Date(today.setHours(0, 0, 0, 0));
+    const now = new Date();
+    const startOfToday = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      0, 0, 0, 0
+    );
 
-    // ---------------- USERS ----------------
-    const totalUsers = await User.countDocuments();
-    const newUsersToday = await User.countDocuments({
-      createdAt: { $gte: startOfToday }
-    });
+    // Run everything in parallel for speed
+    const [
+      totalUsers,
+      newUsersToday,
+      totalOrders,
+      pendingOrders,
+      todayOrders,
+      revenueAgg,
+      pendingKyc,
+      approvedKyc,
+      rejectedKyc,
+      todayKyc,
+      walletAgg,
+      recentUsers,
+      recentOrders,
+      recentKyc
+    ] = await Promise.all([
+      // ---------- USERS ----------
+      User.countDocuments(),
+      User.countDocuments({ createdAt: { $gte: startOfToday } }),
 
-    // ---------------- ORDERS ----------------
-    const totalOrders = await Order.countDocuments();
-    const pendingOrders = await Order.countDocuments({ status: "pending" });
-    const todayOrders = await Order.countDocuments({
-      createdAt: { $gte: startOfToday }
-    });
+      // ---------- ORDERS ----------
+      Order.countDocuments(),
+      // FIX: use orderStatus, not status
+      Order.countDocuments({ orderStatus: "pending" }),
+      Order.countDocuments({ createdAt: { $gte: startOfToday } }),
 
-    // Revenue: handle "amount" OR "totalAmount"
-    const revenueData = await Order.aggregate([
-      { 
-        $match: { status: "paid" } 
-      },
-      {
-        $group: { 
-          _id: null, 
-          total: { 
-            $sum: { 
-              $ifNull: ["$amount", "$totalAmount"] 
-            } 
-          } 
+      // FIX: use paymentStatus + totalPaid/orderAmount instead of status/amount
+      Order.aggregate([
+        {
+          $match: { paymentStatus: "completed" }
+        },
+        {
+          $group: {
+            _id: null,
+            // if totalPaid is null, fall back to orderAmount
+            total: {
+              $sum: {
+                $ifNull: ["$totalPaid", "$orderAmount"]
+              }
+            }
+          }
         }
-      }
+      ]),
+
+      // ---------- KYC ----------
+      Kyc.countDocuments({ status: "pending" }),
+      Kyc.countDocuments({ status: "approved" }),
+      Kyc.countDocuments({ status: "rejected" }),
+      Kyc.countDocuments({ submittedAt: { $gte: startOfToday } }),
+
+      // ---------- WALLET ----------
+      User.aggregate([
+        {
+          $group: {
+            _id: null,
+            totalBalance: { $sum: "$wallet.balance" }
+          }
+        }
+      ]),
+
+      // ---------- RECENT ACTIVITY ----------
+      User.find()
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .select("name email phoneNumber createdAt"),
+
+      // FIX: use `user` field, not `userId`
+      Order.find()
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .select("user orderAmount orderStatus paymentStatus createdAt")
+        .populate("user", "name email phoneNumber"),
+
+      // KYC: userId is correct here (matches schema)
+      Kyc.find()
+        .sort({ submittedAt: -1 })
+        .limit(10)
+        .select("userId status submittedAt")
+        .populate("userId", "name email phoneNumber")
     ]);
 
-    const totalRevenue = revenueData.length ? revenueData[0].total : 0;
+    const totalRevenue = revenueAgg[0]?.total || 0;
+    const totalSystemBalance = walletAgg[0]?.totalBalance || 0;
 
-    // ---------------- KYC ----------------
-    const pendingKyc = await Kyc.countDocuments({ status: "pending" });
-
-    const approvedKyc = 
-      await Kyc.countDocuments({ status: "approved" }) +
-      await Kyc.countDocuments({ status: "auto_approved" });
-
-    const rejectedKyc = await Kyc.countDocuments({ status: "rejected" });
-
-    const todayKyc = await Kyc.countDocuments({
-      submittedAt: { $gte: startOfToday }
-    });
-
-    // ---------------- WALLET ----------------
-    const walletStats = await User.aggregate([
-      { $group: { _id: null, totalBalance: { $sum: "$wallet.balance" } } }
-    ]);
-
-    const totalSystemBalance = walletStats.length ? walletStats[0].totalBalance : 0;
-
-    // ---------------- RECENT ACTIVITY ----------------
-    const recentUsers = await User.find()
-      .sort({ createdAt: -1 })
-      .limit(10)
-      .select("name email createdAt");
-
-    const recentOrders = await Order.find()
-      .sort({ createdAt: -1 })
-      .limit(10)
-      .select("userId amount totalAmount status createdAt")
-      .populate("userId", "name email");
-
-    const recentKyc = await Kyc.find()
-      .sort({ submittedAt: -1 })
-      .limit(10)
-      .select("userId status submittedAt")
-      .populate("userId", "name email");
-
-    // ---------------- RESPONSE ----------------
     return res.json({
       success: true,
       data: {
@@ -101,16 +120,16 @@ exports.getDashboardStats = async (req, res) => {
           systemBalance: totalSystemBalance
         },
         recentActivity: {
+          // Option D: name + email + phone are all available
           users: recentUsers,
           orders: recentOrders,
           kyc: recentKyc
         }
       }
     });
-
   } catch (err) {
     console.error("Dashboard Stats Error:", err);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to load dashboard stats",
       error: err.message
