@@ -92,6 +92,20 @@ router.post("/login", async (req, res) => {
       }
     }
 
+    // If an existing user is found and the Firebase token contains a phone number,
+    // ensure the user's phoneNumber is set/kept in sync. Do a minimal atomic save.
+    if (user && decodedToken.phone_number && ( !user.phoneNumber || user.phoneNumber !== decodedToken.phone_number )) {
+      try {
+        user.phoneNumber = decodedToken.phone_number.trim();
+        // Save only this change; skip full validation to avoid breaking other fields
+        await user.save({ validateBeforeSave: false });
+        console.log('Updated existing user phoneNumber from token for user:', user._id);
+      } catch (phoneSaveError) {
+        console.error('Failed to update phoneNumber for existing user:', phoneSaveError);
+        // Do not fail the login flow on phone update error; continue normally
+      }
+    }
+
     if (!user) {
       return res.status(404).json({
         success: false,
