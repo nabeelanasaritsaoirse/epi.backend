@@ -206,6 +206,7 @@ const adminChatRoutes = require("./routes/adminChatRoutes");
 
 // ⭐ ADDED: COUPON ROUTES ⭐
 const couponRoutes = require("./routes/couponRoutes");
+const dashboardRoutes = require("./routes/dashboardRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -304,6 +305,7 @@ app.use("/api/cart", cartRoutes);
 
 // ⭐ MOUNTED COUPON ROUTES ⭐
 app.use("/api/coupons", couponRoutes);
+app.use("/api/admin", dashboardRoutes);
 
 // HEALTH CHECK
 app.use("/api/health-check", healthCheckRoutes);
