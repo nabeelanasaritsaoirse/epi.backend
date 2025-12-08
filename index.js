@@ -37,6 +37,7 @@ const adminNotificationRoutes = require("./routes/adminNotificationRoutes");
 const chatRoutes = require("./routes/chatRoutes");
 const adminChatRoutes = require("./routes/adminChatRoutes");
 const couponRoutes = require("./routes/couponRoutes");
+const dashboardRoutes = require("./routes/dashboardRoutes");
 
 const app = express();
 
@@ -139,6 +140,7 @@ app.use("/api/wishlist", wishlistRoutes);
 app.use("/api/cart", cartRoutes);
 
 app.use("/api/coupons", couponRoutes);
+app.use("/api/admin", dashboardRoutes);
 
 // HEALTH CHECK
 app.use("/api/health-check", healthCheckRoutes);
