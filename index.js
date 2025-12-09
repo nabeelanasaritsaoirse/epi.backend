@@ -141,6 +141,7 @@ app.use("/api/cart", cartRoutes);
 
 app.use("/api/coupons", couponRoutes);
 app.use("/api/admin", dashboardRoutes);
+app.use("/api/admin/orders", require("./routes/adminOrders"));
 
 // HEALTH CHECK
 app.use("/api/health-check", healthCheckRoutes);
