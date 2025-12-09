@@ -145,18 +145,26 @@ exports.getKycStatus = async (req, res) => {
 ============================================================ */
 exports.getAllKyc = async (req, res) => {
   try {
-    const list = await Kyc.find()
-      .populate("userId", "name email phone")
+    let list = await Kyc.find()
+      .populate("userId", "name email phoneNumber")
       .sort({ submittedAt: -1 });
+
+    list = list.map(item => {
+      if (!item.userId) {
+        return {
+          ...item._doc,
+          userId: { name: "-", email: "-", phoneNumber: "-" }
+        };
+      }
+      return item;
+    });
 
     return res.json({
       success: true,
       count: list.length,
       data: list
     });
-
   } catch (err) {
-    console.log("Admin get all KYC error:", err);
     res.status(500).json({ success: false, message: "Server error" });
   }
 };
