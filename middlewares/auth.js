@@ -505,16 +505,16 @@ exports.verifyRefreshToken = async (req, res, next) => {
 
 // 🔥 CHECK ADMIN
 exports.isAdmin = (req, res, next) => {
-  if (req.user && req.user.role === 'admin') {
-    next();
-  } else {
-    return res.status(403).json({ 
-      success: false,
-      message: 'Access denied. Admin role required.',
-      code: 'ADMIN_REQUIRED'
-    });
+  if (req.user && (req.user.role === 'admin' || req.user.role === 'super_admin')) {
+    return next();
   }
+  return res.status(403).json({
+    success: false,
+    message: 'Access denied',
+    code: 'ADMIN_REQUIRED'
+  });
 };
+
 
 
 // 🔥 FLEXIBLE AUTH - Accepts BOTH Firebase Token OR JWT Token
