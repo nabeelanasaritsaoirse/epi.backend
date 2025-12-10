@@ -27,6 +27,7 @@ if (!admin.apps.length) {
       });
 
       console.log('✅ Firebase Admin SDK initialized successfully');
+      console.log(`   Project ID: ${process.env.FIREBASE_PROJECT_ID}`);
     } else {
       console.warn('⚠️  Firebase Admin SDK NOT initialized');
       console.warn('⚠️  Push notifications will be disabled');
@@ -38,4 +39,6 @@ if (!admin.apps.length) {
   }
 }
 
+// Export admin instance (compatible with both old and new import styles)
 module.exports = { admin };
+module.exports.default = admin;

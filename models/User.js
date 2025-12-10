@@ -26,8 +26,12 @@ const userSchema = new Schema({
   },
   firebaseUid: {
     type: String,
-    required: true,
+    required: function() {
+      // firebaseUid is required for regular users, optional for password-based admins
+      return this.role === 'user';
+    },
     unique: true,
+    sparse: true, // Allow null values for admins
     index: true
   },
   phoneNumber: {
@@ -40,6 +44,10 @@ const userSchema = new Schema({
       },
       message: props => `${props.value} is not a valid phone number!`
     }
+  },
+  deviceToken: {
+    type: String,
+    default: ""
   },
   addresses: [{
     name: {
@@ -226,6 +234,10 @@ const userSchema = new Schema({
     type: Schema.Types.ObjectId,
     ref: 'User'
   }],
+  referralLimit: {
+    type: Number,
+    default: 50
+  },
   savedPlans: [{
     product: {
       type: Schema.Types.ObjectId,
@@ -258,9 +270,39 @@ const userSchema = new Schema({
   }],
   role: {
     type: String,
-    enum: ['user', 'admin'],
+    enum: ['user', 'admin', 'super_admin'],
     default: 'user'
   },
+
+  // Admin-specific fields for password-based login (not Firebase)
+  password: {
+    type: String,
+    default: null,
+    // Only required for admin/super_admin users who login with password
+    // Regular users use Firebase authentication
+  },
+
+  // Module access control for sub-admins
+  moduleAccess: [{
+    type: String,
+    // Array of module IDs that admin can access
+    // e.g., ['dashboard', 'products', 'orders', 'categories']
+    // Super admin gets all modules automatically
+  }],
+
+  // Track who created this admin (for sub-admins)
+  createdBy: {
+    type: Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+
+  // Last login timestamp
+  lastLogin: {
+    type: Date,
+    default: null
+  },
+
   isActive: {
     type: Boolean,
     default: true
@@ -327,19 +369,18 @@ const userSchema = new Schema({
     }
   },
 
-
   deletionRequest: {
-  requestedAt: {
-    type: Date
-  },
-  reason: {
-    type: String
-  },
-  status: {
-    type: String,
-    enum: ['pending', 'cancelled', 'completed'],
-    default: 'pending'
-  }
+    requestedAt: {
+      type: Date
+    },
+    reason: {
+      type: String
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'cancelled', 'completed'],
+      default: 'pending'
+    }
   },
 
   createdAt: {

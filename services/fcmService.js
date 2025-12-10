@@ -1,13 +1,105 @@
 /**
  * Firebase Cloud Messaging (FCM) Service
  * Handles push notification delivery to mobile devices
+ * OPTIMIZED: Uses firebase-admin@13.6.0+ getMessaging() and sendEachForMulticast()
  */
 
-const { admin } = require('../config/firebase');
+const admin = require('firebase-admin');
+const { getMessaging } = require('firebase-admin/messaging');
 const User = require('../models/User');
 
-// Check if Firebase is initialized
-const firebaseInitialized = admin.apps.length > 0;
+/**
+ * Check if Firebase is initialized (dynamic check)
+ */
+function isFirebaseInitialized() {
+  return admin.apps.length > 0;
+}
+
+/**
+ * Get Firebase Messaging instance (compatible with v13+)
+ */
+function getMessagingInstance() {
+  if (!isFirebaseInitialized()) {
+    throw new Error('Firebase is not initialized');
+  }
+  return getMessaging();
+}
+
+/**
+ * Sanitize data object - Firebase requires all values to be strings
+ * @param {Object} data - Data object with any types
+ * @returns {Object} Data object with all values as strings
+ */
+function sanitizeDataForFCM(data = {}) {
+  const sanitized = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value === null || value === undefined) {
+      continue; // Skip null/undefined
+    }
+    // Convert all values to strings
+    sanitized[key] = String(value);
+  }
+  return sanitized;
+}
+
+/**
+ * Send push notification to a single device token
+ * @param {string} token - FCM device token
+ * @param {string} title - Notification title
+ * @param {string} body - Notification body
+ * @param {Object} data - Additional data
+ * @returns {Promise<Object>} Result
+ */
+async function sendToSingleDevice(token, title, body, data = {}) {
+  try {
+    // Sanitize data to ensure all values are strings (Firebase requirement)
+    const sanitizedData = sanitizeDataForFCM({
+      ...data,
+      clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+      timestamp: Date.now().toString()
+    });
+
+    const message = {
+      token, // Single token for send()
+      notification: {
+        title,
+        body: body.substring(0, 100)
+      },
+      data: sanitizedData,
+      android: {
+        priority: 'high',
+        notification: {
+          sound: 'default',
+          channelId: 'default'
+        }
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default',
+            badge: 1
+          }
+        }
+      }
+    };
+
+    const response = await getMessagingInstance().send(message);
+    return { success: true, response, token };
+
+  } catch (error) {
+    // Handle invalid token errors
+    if (
+      error.code === 'messaging/invalid-registration-token' ||
+      error.code === 'messaging/registration-token-not-registered'
+    ) {
+      console.log(`[FCM] Invalid token detected: ${token.substring(0, 20)}...`);
+      return { success: false, invalidToken: true, token };
+    }
+
+    console.error('[FCM] Error sending to device:', error.code || error.message);
+    return { success: false, error: error.message, token };
+  }
+}
 
 /**
  * Send push notification to specific user(s)
@@ -19,7 +111,7 @@ const firebaseInitialized = admin.apps.length > 0;
  * @returns {Promise<Object>} Result with success status and counts
  */
 async function sendPushNotification(userIds, { title, body, data = {} }) {
-  if (!firebaseInitialized) {
+  if (!isFirebaseInitialized()) {
     console.warn('[FCM] Firebase not initialized, skipping push notification');
     return {
       success: false,
@@ -40,9 +132,10 @@ async function sendPushNotification(userIds, { title, body, data = {} }) {
     // Get users with valid FCM tokens
     const users = await User.find({
       _id: { $in: targetUserIds },
-      fcmToken: { $exists: true, $ne: null, $ne: '' },
-      'notificationPreferences.pushEnabled': true
-    }).select('fcmToken email name');
+      deviceToken: { $exists: true, $ne: null, $ne: '' }
+    }).select('deviceToken email name notificationPreferences');
+
+    console.log(`[FCM] Found ${users.length} user(s) with deviceToken for userIds:`, targetUserIds);
 
     if (users.length === 0) {
       console.log('[FCM] No users with valid FCM tokens found');
@@ -54,24 +147,44 @@ async function sendPushNotification(userIds, { title, body, data = {} }) {
       };
     }
 
-    const tokens = users.map(u => u.fcmToken).filter(Boolean);
+    // Filter users based on notification preferences
+    const eligibleUsers = users.filter(u => {
+      const pushEnabled = u.notificationPreferences?.pushEnabled;
+      return pushEnabled !== false;
+    });
+
+    if (eligibleUsers.length === 0) {
+      console.log('[FCM] All users have push notifications disabled');
+      return {
+        success: true,
+        sent: 0,
+        failed: 0,
+        message: 'All users have push notifications disabled'
+      };
+    }
+
+    const tokens = eligibleUsers.map(u => u.deviceToken).filter(Boolean);
+
+    console.log(`[FCM] Attempting to send push notification to ${tokens.length} device(s)`);
 
     if (tokens.length === 0) {
       return { success: true, sent: 0, failed: 0 };
     }
 
-    // Prepare FCM message
+    // Sanitize data to ensure all values are strings (Firebase requirement)
+    const sanitizedData = sanitizeDataForFCM({
+      ...data,
+      clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+      timestamp: Date.now().toString()
+    });
+
+    // Build the multicast message (supports up to 500 tokens)
     const message = {
       notification: {
         title,
-        body: body.substring(0, 100) // FCM has a limit
+        body: body.substring(0, 100)
       },
-      data: {
-        ...data,
-        clickAction: 'FLUTTER_NOTIFICATION_CLICK',
-        timestamp: Date.now().toString()
-      },
-      tokens,
+      data: sanitizedData,
       android: {
         priority: 'high',
         notification: {
@@ -89,33 +202,46 @@ async function sendPushNotification(userIds, { title, body, data = {} }) {
       }
     };
 
-    // Send to multiple devices
-    const response = await admin.messaging().sendMulticast(message);
+    // Use sendEachForMulticast for efficient batch sending (up to 500 tokens)
+    const multicastMessage = { tokens, ...message };
+    const response = await getMessagingInstance().sendEachForMulticast(multicastMessage);
 
-    // Handle failed tokens (invalid or unregistered)
+    console.log(`[FCM] Push sent: ${response.successCount}, failed: ${response.failureCount}`);
+
+    // Enhanced error logging - log detailed failure analysis
     if (response.failureCount > 0) {
-      const failedTokens = [];
-
+      console.log('[FCM] Detailed failure analysis:');
+      const errorCounts = {};
       response.responses.forEach((resp, idx) => {
         if (!resp.success) {
-          failedTokens.push(tokens[idx]);
+          const errorCode = resp.error?.code || 'unknown';
+          const errorMsg = resp.error?.message || 'unknown error';
+          errorCounts[errorCode] = (errorCounts[errorCode] || 0) + 1;
+          console.error(`[FCM] Token ${tokens[idx]?.substring(0, 30)}... failed: ${errorCode} - ${errorMsg}`);
+        }
+      });
+      console.log('[FCM] Error summary:', errorCounts);
+    }
 
-          // Remove invalid tokens from database
-          if (
-            resp.error?.code === 'messaging/invalid-registration-token' ||
-            resp.error?.code === 'messaging/registration-token-not-registered'
-          ) {
-            User.updateOne(
-              { fcmToken: tokens[idx] },
-              { $unset: { fcmToken: 1 } }
-            ).exec().catch(err => {
-              console.error('[FCM] Error removing invalid token:', err);
-            });
-          }
+    // Clean up invalid tokens
+    if (response.failureCount > 0) {
+      const failedTokens = [];
+      response.responses.forEach((resp, idx) => {
+        if (!resp.success && (
+          resp.error?.code === 'messaging/invalid-registration-token' ||
+          resp.error?.code === 'messaging/registration-token-not-registered'
+        )) {
+          failedTokens.push(tokens[idx]);
         }
       });
 
-      console.log(`[FCM] Sent: ${response.successCount}, Failed: ${response.failureCount}`);
+      if (failedTokens.length > 0) {
+        console.log(`[FCM] Removing ${failedTokens.length} invalid token(s)`);
+        await User.updateMany(
+          { deviceToken: { $in: failedTokens } },
+          { $unset: { deviceToken: 1 } }
+        ).catch(err => console.error('[FCM] Error removing invalid tokens:', err));
+      }
     }
 
     return {
@@ -145,7 +271,7 @@ async function sendPushNotification(userIds, { title, body, data = {} }) {
  * @returns {Promise<Object>} Result with success status and counts
  */
 async function sendPushToAllUsers({ title, body, data = {} }) {
-  if (!firebaseInitialized) {
+  if (!isFirebaseInitialized()) {
     console.warn('[FCM] Firebase not initialized, skipping broadcast');
     return {
       success: false,
@@ -156,7 +282,7 @@ async function sendPushToAllUsers({ title, body, data = {} }) {
   }
 
   try {
-    const batchSize = 500; // FCM multicast limit
+    const batchSize = 500;
     let skip = 0;
     let totalSent = 0;
     let totalFailed = 0;
@@ -164,30 +290,32 @@ async function sendPushToAllUsers({ title, body, data = {} }) {
     while (true) {
       // Get users with FCM tokens in batches
       const users = await User.find({
-        fcmToken: { $exists: true, $ne: null, $ne: '' },
-        'notificationPreferences.pushEnabled': true,
-        'notificationPreferences.promotionalOffers': true
+        deviceToken: { $exists: true, $ne: null, $ne: '' },
+        'notificationPreferences.pushEnabled': { $ne: false }
       })
-      .select('fcmToken')
+      .select('deviceToken')
       .limit(batchSize)
       .skip(skip);
 
       if (users.length === 0) break;
 
-      const tokens = users.map(u => u.fcmToken).filter(Boolean);
+      const tokens = users.map(u => u.deviceToken).filter(Boolean);
 
       if (tokens.length > 0) {
+        // Sanitize data to ensure all values are strings (Firebase requirement)
+        const sanitizedData = sanitizeDataForFCM({
+          ...data,
+          clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+          timestamp: Date.now().toString()
+        });
+
+        // Build multicast message
         const message = {
           notification: {
             title,
             body: body.substring(0, 100)
           },
-          data: {
-            ...data,
-            clickAction: 'FLUTTER_NOTIFICATION_CLICK',
-            timestamp: Date.now().toString()
-          },
-          tokens,
+          data: sanitizedData,
           android: {
             priority: 'high',
             notification: {
@@ -205,11 +333,48 @@ async function sendPushToAllUsers({ title, body, data = {} }) {
           }
         };
 
-        const response = await admin.messaging().sendMulticast(message);
+        // Send with sendEachForMulticast (handles up to 500 tokens)
+        const multicastMessage = { tokens, ...message };
+        const response = await getMessagingInstance().sendEachForMulticast(multicastMessage);
+
         totalSent += response.successCount;
         totalFailed += response.failureCount;
 
-        console.log(`[FCM Broadcast] Batch: Sent ${response.successCount}, Failed ${response.failureCount}`);
+        console.log(`[FCM Broadcast] Batch sent: ${response.successCount}, failed: ${response.failureCount}`);
+
+        // Enhanced error logging for broadcast
+        if (response.failureCount > 0) {
+          const errorCounts = {};
+          response.responses.forEach((resp, idx) => {
+            if (!resp.success) {
+              const errorCode = resp.error?.code || 'unknown';
+              errorCounts[errorCode] = (errorCounts[errorCode] || 0) + 1;
+            }
+          });
+          console.log('[FCM Broadcast] Error summary:', errorCounts);
+        }
+
+        // Clean up invalid tokens
+        if (response.failureCount > 0) {
+          const failedTokens = [];
+          response.responses.forEach((resp, idx) => {
+            if (!resp.success && (
+              resp.error?.code === 'messaging/invalid-registration-token' ||
+              resp.error?.code === 'messaging/registration-token-not-registered'
+            )) {
+              failedTokens.push(tokens[idx]);
+            }
+          });
+
+          if (failedTokens.length > 0) {
+            await User.updateMany(
+              { deviceToken: { $in: failedTokens } },
+              { $unset: { deviceToken: 1 } }
+            ).catch(err => console.error('[FCM] Error removing invalid tokens:', err));
+          }
+        }
+
+        console.log(`[FCM Broadcast] Batch: Sent ${totalSent}, Failed ${totalFailed}`);
       }
 
       skip += batchSize;
@@ -247,14 +412,14 @@ async function sendPushToAllUsers({ title, body, data = {} }) {
 async function sendSystemNotification(userId, systemType, { title, body, data = {} }) {
   try {
     // Check user's notification preferences for this type
-    const user = await User.findById(userId).select('fcmToken notificationPreferences');
+    const user = await User.findById(userId).select('deviceToken notificationPreferences');
 
-    if (!user || !user.fcmToken) {
+    if (!user || !user.deviceToken) {
       return { success: false, reason: 'NO_FCM_TOKEN' };
     }
 
     // Check type-specific preferences
-    let shouldSend = user.notificationPreferences?.pushEnabled || true;
+    let shouldSend = user.notificationPreferences?.pushEnabled !== false;
 
     if (systemType.startsWith('ORDER_')) {
       shouldSend = shouldSend && (user.notificationPreferences?.orderUpdates !== false);
@@ -292,7 +457,7 @@ async function registerFCMToken(userId, fcmToken) {
     // Update user's FCM token
     await User.findByIdAndUpdate(
       userId,
-      { fcmToken },
+      { deviceToken: fcmToken },
       { new: true }
     );
 
@@ -314,7 +479,7 @@ async function removeFCMToken(userId) {
   try {
     await User.findByIdAndUpdate(
       userId,
-      { $unset: { fcmToken: 1 } }
+      { $unset: { deviceToken: 1 } }
     );
 
     console.log(`[FCM] Token removed for user ${userId}`);
@@ -326,10 +491,65 @@ async function removeFCMToken(userId) {
   }
 }
 
+/**
+ * Validate FCM tokens by attempting a test send
+ * Returns only valid tokens
+ * @param {Array<string>} tokens - Array of FCM tokens to validate
+ * @returns {Promise<Array<string>>} Array of valid tokens
+ */
+async function validateTokens(tokens) {
+  if (!isFirebaseInitialized()) {
+    console.warn('[FCM] Cannot validate tokens - Firebase not initialized');
+    return tokens; // Return all tokens if we can't validate
+  }
+
+  const validTokens = [];
+  const invalidTokens = [];
+
+  console.log(`[FCM] Validating ${tokens.length} token(s)...`);
+
+  for (const token of tokens) {
+    try {
+      // Try sending a dry-run message (doesn't actually send)
+      await getMessagingInstance().send({
+        token,
+        notification: { title: 'test', body: 'test' },
+        data: { test: 'true' },
+        dryRun: true // This prevents actual sending
+      });
+      validTokens.push(token);
+    } catch (error) {
+      if (
+        error.code === 'messaging/invalid-registration-token' ||
+        error.code === 'messaging/registration-token-not-registered'
+      ) {
+        console.log(`[FCM] Invalid token detected during validation: ${token.substring(0, 30)}...`);
+        invalidTokens.push(token);
+      } else {
+        // For other errors, assume token might be valid (network issues, etc.)
+        validTokens.push(token);
+      }
+    }
+  }
+
+  console.log(`[FCM] Validation complete: ${validTokens.length} valid, ${invalidTokens.length} invalid`);
+
+  // Clean up invalid tokens from database
+  if (invalidTokens.length > 0) {
+    await User.updateMany(
+      { deviceToken: { $in: invalidTokens } },
+      { $unset: { deviceToken: 1 } }
+    ).catch(err => console.error('[FCM] Error removing invalid tokens during validation:', err));
+  }
+
+  return validTokens;
+}
+
 module.exports = {
   sendPushNotification,
   sendPushToAllUsers,
   sendSystemNotification,
   registerFCMToken,
-  removeFCMToken
+  removeFCMToken,
+  validateTokens
 };
