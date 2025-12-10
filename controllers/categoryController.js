@@ -155,7 +155,7 @@ exports.getAllCategories = async (req, res) => {
  */
 exports.getAllCategoriesForAdmin = async (req, res) => {
   try {
-    const { parentCategoryId, isActive, showDeleted } = req.query;
+    const { parentCategoryId, isActive, showDeleted, region } = req.query;
 
     let filter = {};
 
@@ -175,6 +175,18 @@ exports.getAllCategoriesForAdmin = async (req, res) => {
       filter.isActive = isActive === "true" || isActive === true;
     }
 
+    // Region filter - OPTIONAL for admin
+    // Admin by default sees ALL regions
+    // Use ?region=india to filter by specific region
+    // Categories with empty availableInRegions array are global (visible everywhere)
+    if (region && region !== "all" && region !== "global") {
+      filter.$or = [
+        { availableInRegions: region },
+        { availableInRegions: { $size: 0 } }, // Global categories
+        { availableInRegions: { $exists: false } } // Legacy categories without region field
+      ];
+    }
+
     const categories = await Category.find(filter)
       .populate("subCategories", "categoryId name slug image displayOrder isDeleted")
       .populate("deletedBy", "name email")
@@ -185,6 +197,13 @@ exports.getAllCategoriesForAdmin = async (req, res) => {
       success: true,
       count: categories.length,
       data: categories,
+      // Include applied filters for debugging
+      appliedFilters: {
+        parentCategoryId: parentCategoryId || "all",
+        isActive: isActive || "all",
+        region: region || "all",
+        showDeleted: showDeleted === "true"
+      }
     });
   } catch (error) {
     console.error("Error fetching categories for admin:", error);
