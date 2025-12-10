@@ -715,16 +715,17 @@ router.post("/admin-login", async (req, res) => {
 
     console.log('Admin credentials verified successfully');
 
-    // Check if super admin user exists in database
-    let adminUser = await User.findOne({ email: ADMIN_EMAIL, role: 'super_admin' });
+    const crypto = require('crypto');
+    const bcrypt = require('bcryptjs');
 
-    // If super admin doesn't exist, create one
+    // Check if ANY admin user exists with this email (could be old 'admin' role)
+    let adminUser = await User.findOne({ email: ADMIN_EMAIL });
+
+    // If admin doesn't exist, create new super admin
     if (!adminUser) {
-      console.log('Super admin user not found in database. Creating super admin...');
+      console.log('Admin user not found in database. Creating super admin...');
 
       // Generate a unique firebaseUid for admin
-      const crypto = require('crypto');
-      const bcrypt = require('bcryptjs');
       const adminFirebaseUid = 'super_admin_' + crypto.randomBytes(8).toString('hex');
 
       // Hash the admin password
@@ -744,7 +745,28 @@ router.post("/admin-login", async (req, res) => {
       await adminUser.save();
       console.log('Super admin user created successfully. User ID:', adminUser._id);
     } else {
-      console.log('Super admin user found. User ID:', adminUser._id);
+      console.log('Admin user found. User ID:', adminUser._id);
+
+      // Update existing admin to super_admin with password if needed
+      let needsUpdate = false;
+
+      if (adminUser.role !== 'super_admin') {
+        console.log('Upgrading admin role to super_admin');
+        adminUser.role = 'super_admin';
+        needsUpdate = true;
+      }
+
+      if (!adminUser.password) {
+        console.log('Setting password for admin');
+        const hashedPassword = await bcrypt.hash(ADMIN_PASSWORD, 10);
+        adminUser.password = hashedPassword;
+        needsUpdate = true;
+      }
+
+      if (needsUpdate) {
+        await adminUser.save();
+        console.log('Admin user updated successfully');
+      }
     }
 
     // Generate JWT tokens
