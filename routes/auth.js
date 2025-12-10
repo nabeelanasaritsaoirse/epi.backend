@@ -715,31 +715,36 @@ router.post("/admin-login", async (req, res) => {
 
     console.log('Admin credentials verified successfully');
 
-    // Check if admin user exists in database
-    let adminUser = await User.findOne({ email: ADMIN_EMAIL, role: 'admin' });
+    // Check if super admin user exists in database
+    let adminUser = await User.findOne({ email: ADMIN_EMAIL, role: 'super_admin' });
 
-    // If admin doesn't exist, create one
+    // If super admin doesn't exist, create one
     if (!adminUser) {
-      console.log('Admin user not found in database. Creating admin user...');
+      console.log('Super admin user not found in database. Creating super admin...');
 
       // Generate a unique firebaseUid for admin
       const crypto = require('crypto');
-      const adminFirebaseUid = 'admin_' + crypto.randomBytes(8).toString('hex');
+      const bcrypt = require('bcryptjs');
+      const adminFirebaseUid = 'super_admin_' + crypto.randomBytes(8).toString('hex');
+
+      // Hash the admin password
+      const hashedPassword = await bcrypt.hash(ADMIN_PASSWORD, 10);
 
       adminUser = new User({
-        name: 'Admin',
+        name: 'Super Admin',
         email: ADMIN_EMAIL,
         firebaseUid: adminFirebaseUid,
-        role: 'admin',
+        password: hashedPassword,
+        role: 'super_admin',
         profilePicture: '',
         phoneNumber: '',
         isActive: true
       });
 
       await adminUser.save();
-      console.log('Admin user created successfully. User ID:', adminUser._id);
+      console.log('Super admin user created successfully. User ID:', adminUser._id);
     } else {
-      console.log('Admin user found. User ID:', adminUser._id);
+      console.log('Super admin user found. User ID:', adminUser._id);
     }
 
     // Generate JWT tokens
@@ -756,6 +761,8 @@ router.post("/admin-login", async (req, res) => {
         email: adminUser.email,
         role: adminUser.role,
         profilePicture: adminUser.profilePicture,
+        isSuperAdmin: adminUser.role === 'super_admin',
+        modules: [],
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken
       }
@@ -774,7 +781,7 @@ router.post("/admin-login", async (req, res) => {
 
       try {
         const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@epi.com';
-        const adminUser = await User.findOne({ email: ADMIN_EMAIL, role: 'admin' });
+        const adminUser = await User.findOne({ email: ADMIN_EMAIL, role: 'super_admin' });
 
         if (adminUser) {
           const tokens = generateTokens(adminUser._id.toString(), adminUser.role);
