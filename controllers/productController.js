@@ -189,21 +189,20 @@ exports.getAllProducts = async (req, res) => {
 
     const filter = {};
 
-    // -----------------------------------------
-    // SOFT DELETE FILTER
-    // -----------------------------------------
-    // Filter out soft deleted products for non-admin users
+    // ===============================
+    // ADMIN OVERRIDE (OPTION D FIX)
+    // ===============================
     const isAdmin = req.user && req.user.role === "admin";
+
     if (!isAdmin) {
+      // Apply soft delete filter for normal users
       filter.isDeleted = false;
     }
 
-    // -----------------------------------------
-    // VARIANT FILTERING (CLEAN + NO CONFLICTS)
-    // -----------------------------------------
-
+    // ===============================
+    // Variant filtering
+    // ===============================
     if (simpleOnly === "true") {
-      // Highest priority → force simple products
       filter.hasVariants = false;
     } else if (hasVariants === "true") {
       filter.hasVariants = true;
@@ -211,9 +210,9 @@ exports.getAllProducts = async (req, res) => {
       filter.hasVariants = false;
     }
 
-    // -----------------------------------------
-    // SEARCH
-    // -----------------------------------------
+    // ===============================
+    // Search
+    // ===============================
     if (search) {
       filter.$or = [
         { name: { $regex: search, $options: "i" } },
@@ -222,48 +221,50 @@ exports.getAllProducts = async (req, res) => {
       ];
     }
 
-    // -----------------------------------------
-    // BASIC FILTERS
-    // -----------------------------------------
+    // ===============================
+    // Basic filters
+    // ===============================
     if (category) filter["category.mainCategoryId"] = category;
     if (brand) filter.brand = brand;
     if (status) filter.status = status;
 
-    // -----------------------------------------
-    // REGION FILTER (AUTO-DETECT FROM USER'S PHONE/ADDRESS)
-    // -----------------------------------------
-    // Priority: Query param > Auto-detected country > Show all
-    const userRegion = region && region !== "global" && region !== "all"
-      ? region
-      : req.userCountry; // Auto-detected by countryMiddleware
+    // ===============================
+    // REGION FILTER — DISABLED FOR ADMINS (IMPORTANT)
+    // ===============================
+    if (!isAdmin) {
+      const userRegion =
+        region && region !== "global" && region !== "all"
+          ? region
+          : req.userCountry;
 
-    if (userRegion && userRegion !== "all" && userRegion !== "global") {
-      // Show products available in user's region OR globally available products
-      filter.$or = filter.$or || [];
-      filter.$or.push(
-        {
-          "regionalAvailability.region": userRegion,
-          "regionalAvailability.isAvailable": true
-        },
-        {
-          // Products with no regional restrictions (global products)
-          regionalAvailability: { $exists: true, $size: 0 }
-        }
-      );
+      if (userRegion && userRegion !== "all" && userRegion !== "global") {
+        filter.$or = filter.$or || [];
+
+        filter.$or.push(
+          {
+            "regionalAvailability.region": userRegion,
+            "regionalAvailability.isAvailable": true,
+          },
+          {
+            // Global unrestricted products
+            regionalAvailability: { $exists: true, $size: 0 },
+          }
+        );
+      }
     }
 
-    // -----------------------------------------
-    // PRICE FILTER
-    // -----------------------------------------
+    // ===============================
+    // Price filter
+    // ===============================
     if (minPrice || maxPrice) {
       filter["pricing.finalPrice"] = {};
       if (minPrice) filter["pricing.finalPrice"].$gte = parseFloat(minPrice);
       if (maxPrice) filter["pricing.finalPrice"].$lte = parseFloat(maxPrice);
     }
 
-    // -----------------------------------------
-    // EXECUTE QUERY
-    // -----------------------------------------
+    // ===============================
+    // DB Query
+    // ===============================
     const products = await Product.find(filter)
       .sort({ createdAt: -1 })
       .limit(parseInt(limit))
@@ -287,6 +288,7 @@ exports.getAllProducts = async (req, res) => {
     });
   }
 };
+
 
 // Add this new endpoint for stats
 exports.getProductStats = async (req, res) => {
