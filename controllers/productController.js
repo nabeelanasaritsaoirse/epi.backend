@@ -230,11 +230,26 @@ exports.getAllProducts = async (req, res) => {
     if (status) filter.status = status;
 
     // -----------------------------------------
-    // REGION FILTER
+    // REGION FILTER (AUTO-DETECT FROM USER'S PHONE/ADDRESS)
     // -----------------------------------------
-    if (region && region !== "all" && region !== "global") {
-      filter["regionalAvailability.region"] = region;
-      filter["regionalAvailability.isAvailable"] = true;
+    // Priority: Query param > Auto-detected country > Show all
+    const userRegion = region && region !== "global" && region !== "all"
+      ? region
+      : req.userCountry; // Auto-detected by countryMiddleware
+
+    if (userRegion && userRegion !== "all" && userRegion !== "global") {
+      // Show products available in user's region OR globally available products
+      filter.$or = filter.$or || [];
+      filter.$or.push(
+        {
+          "regionalAvailability.region": userRegion,
+          "regionalAvailability.isAvailable": true
+        },
+        {
+          // Products with no regional restrictions (global products)
+          regionalAvailability: { $exists: true, $size: 0 }
+        }
+      );
     }
 
     // -----------------------------------------

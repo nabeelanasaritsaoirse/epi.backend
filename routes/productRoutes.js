@@ -4,6 +4,7 @@ const productController = require('../controllers/productController');
 const productFeaturedController = require('../controllers/productFeaturedController');
 const { uploadMultiple } = require('../middlewares/uploadMiddleware');
 const { verifyToken, isAdmin } = require('../middlewares/auth');
+const { detectCountryWithCache } = require('../middlewares/countryMiddleware');
 
 // ============================================
 // ADMIN ROUTES (With authentication)
@@ -11,29 +12,29 @@ const { verifyToken, isAdmin } = require('../middlewares/auth');
 router.get('/admin/all', verifyToken, isAdmin, productController.getAllProductsForAdmin);
 
 // ============================================
-// BASIC PRODUCT ROUTES
+// BASIC PRODUCT ROUTES (With auto country detection for mobile users)
 // ============================================
 router.post('/', verifyToken, isAdmin, productController.createProduct);
-router.get('/', productController.getAllProducts);
-router.get('/stats', productController.getProductStats);
-router.get('/search', productController.searchProductsAdvanced);
-router.get('/low-stock', productController.getLowStockProducts);
+router.get('/', detectCountryWithCache, productController.getAllProducts);
+router.get('/stats', detectCountryWithCache, productController.getProductStats);
+router.get('/search', detectCountryWithCache, productController.searchProductsAdvanced);
+router.get('/low-stock', detectCountryWithCache, productController.getLowStockProducts);
 
 // ============================================
-// FEATURED PRODUCT ROUTES
+// FEATURED PRODUCT ROUTES (With auto country detection)
 // ============================================
-router.get('/featured/all', productFeaturedController.getAllFeaturedProducts);
-router.get('/featured/popular', productFeaturedController.getMostPopularProducts);
-router.get('/featured/best-sellers', productFeaturedController.getBestSellerProducts);
-router.get('/featured/trending', productFeaturedController.getTrendingProducts);
+router.get('/featured/all', detectCountryWithCache, productFeaturedController.getAllFeaturedProducts);
+router.get('/featured/popular', detectCountryWithCache, productFeaturedController.getMostPopularProducts);
+router.get('/featured/best-sellers', detectCountryWithCache, productFeaturedController.getBestSellerProducts);
+router.get('/featured/trending', detectCountryWithCache, productFeaturedController.getTrendingProducts);
 
 // ============================================
-// CATEGORY + PROJECT ROUTES
+// CATEGORY + PROJECT ROUTES (With auto country detection)
 // ============================================
-router.get('/category/:category', productController.getProductsByCategory);
-router.get('/project/:projectId', productController.getProductsByProject);
+router.get('/category/:category', detectCountryWithCache, productController.getProductsByCategory);
+router.get('/project/:projectId', detectCountryWithCache, productController.getProductsByProject);
 // products routes
-router.get('/category/:categoryId', productController.getProductsByCategoryId);
+router.get('/category/:categoryId', detectCountryWithCache, productController.getProductsByCategoryId);
 
 
 // ============================================

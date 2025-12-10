@@ -106,7 +106,30 @@ const categorySchema = new mongoose.Schema({
   deletedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
-  }
+  },
+
+  // ============================================
+  // REGIONAL AVAILABILITY (For admin to control which regions see this category)
+  // ============================================
+  availableInRegions: [{
+    type: String,
+    lowercase: true,
+    trim: true
+    // Examples: ['india', 'usa', 'uk', 'uae']
+    // If empty array, category is available globally in all regions
+  }],
+
+  regionalMeta: [{
+    region: {
+      type: String,
+      required: true,
+      lowercase: true,
+      trim: true
+    },
+    title: String,
+    description: String,
+    keywords: [String]
+  }]
 });
 
 // Middleware to update the updatedAt field and auto-calculate level & path
@@ -139,5 +162,6 @@ categorySchema.pre('save', async function(next) {
 // Create index for faster queries
 categorySchema.index({ name: 1, parentCategoryId: 1 });
 categorySchema.index({ slug: 1 });
+categorySchema.index({ availableInRegions: 1 }); // For regional filtering
 
 module.exports = mongoose.model('Category', categorySchema);
