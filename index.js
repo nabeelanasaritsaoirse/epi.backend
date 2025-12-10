@@ -23,6 +23,10 @@ const paymentRoutes = require("./routes/payments");
 const orderRoutes = require("./routes/orders");
 const adminRoutes = require("./routes/admin");
 
+// New admin management routes
+const adminAuthRoutes = require("./routes/adminAuth");
+const adminManagementRoutes = require("./routes/adminManagement");
+
 const referralRoutes = require("./routes/referralRoutes");
 const planRoutes = require("./routes/plans");
 const cartRoutes = require("./routes/cart");
@@ -141,6 +145,10 @@ app.use("/api/cart", cartRoutes);
 
 app.use("/api/coupons", couponRoutes);
 app.use("/api/admin", dashboardRoutes);
+
+// ADMIN MANAGEMENT ROUTES (Super admin only)
+app.use("/api/admin-auth", adminAuthRoutes);
+app.use("/api/admin-mgmt", adminManagementRoutes);
 
 // HEALTH CHECK
 app.use("/api/health-check", healthCheckRoutes);

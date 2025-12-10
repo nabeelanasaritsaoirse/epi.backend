@@ -340,5 +340,34 @@ productSchema.pre('save', function(next) {
   next();
 });
 
+// ============================================
+// INDEXES FOR PERFORMANCE
+// ============================================
+
+// Index for country-based filtering (CRITICAL for performance)
+productSchema.index({
+  'regionalAvailability.region': 1,
+  'regionalAvailability.isAvailable': 1
+});
+
+// Compound index for common queries
+productSchema.index({
+  'status': 1,
+  'isDeleted': 1,
+  'createdAt': -1
+});
+
+// Index for category filtering
+productSchema.index({
+  'category.mainCategoryId': 1
+});
+
+// Index for search functionality
+productSchema.index({
+  'name': 'text',
+  'description': 'text',
+  'regionalSeo.metaTitle': 'text'
+});
+
 const Product = mongoose.model('Product', productSchema);
 module.exports = Product;
