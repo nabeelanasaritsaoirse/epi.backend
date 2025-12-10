@@ -1713,7 +1713,7 @@ exports.getAllProductsForAdmin = async (req, res) => {
       minPrice,
       maxPrice,
       status,
-      region = "global",
+      region, // No default - admin sees all regions by default
       hasVariants,
       simpleOnly,
       showDeleted,
@@ -1749,7 +1749,10 @@ exports.getAllProductsForAdmin = async (req, res) => {
     if (brand) filter.brand = brand;
     if (status) filter.status = status;
 
-    // Region filter
+    // Region filter - ONLY apply if specific region requested
+    // Admin by default sees ALL regions
+    // Use ?region=india or ?region=usa to filter by specific region
+    // Use ?region=all or ?region=global to explicitly see all (same as no param)
     if (region && region !== "all" && region !== "global") {
       filter["regionalAvailability.region"] = region;
       filter["regionalAvailability.isAvailable"] = true;
@@ -1778,6 +1781,14 @@ exports.getAllProductsForAdmin = async (req, res) => {
         pages: Math.ceil(total / parseInt(limit)),
         total,
       },
+      // Include applied filters for debugging
+      appliedFilters: {
+        region: region || "all",
+        status: status || "all",
+        category: category || "all",
+        hasVariants: hasVariants || "all",
+        showDeleted: showDeleted === "true"
+      }
     });
   } catch (error) {
     res.status(500).json({
