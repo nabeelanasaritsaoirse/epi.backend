@@ -80,6 +80,9 @@ exports.createCategory = async (req, res) => {
       isFeatured:
         req.body.isFeatured === true || req.body.isFeatured === "true", // ✅ FIX
     });
+    // 🌍 REGIONAL SUPPORT
+    newCategory.availableInRegions = req.body.availableInRegions || [];
+    newCategory.regionalMeta = req.body.regionalMeta || [];
 
     await newCategory.save();
 
@@ -113,7 +116,7 @@ exports.getAllCategories = async (req, res) => {
 
     // Filter out soft deleted categories for non-admin users
     // Admin can see deleted categories only when explicitly requested
-    const isAdmin = req.user && req.user.role === 'admin';
+    const isAdmin = req.user && req.user.role === "admin";
     if (!isAdmin) {
       filter.isDeleted = false;
     }
@@ -160,7 +163,7 @@ exports.getAllCategoriesForAdmin = async (req, res) => {
     let filter = {};
 
     // Show deleted categories only if explicitly requested
-    if (showDeleted !== 'true') {
+    if (showDeleted !== "true") {
       filter.isDeleted = false;
     }
 
@@ -188,7 +191,10 @@ exports.getAllCategoriesForAdmin = async (req, res) => {
     }
 
     const categories = await Category.find(filter)
-      .populate("subCategories", "categoryId name slug image displayOrder isDeleted")
+      .populate(
+        "subCategories",
+        "categoryId name slug image displayOrder isDeleted"
+      )
       .populate("deletedBy", "name email")
       .sort({ displayOrder: 1, name: 1 })
       .exec();
@@ -234,7 +240,7 @@ exports.getCategoryById = async (req, res) => {
     }
 
     // Check if category is deleted and user is not admin
-    const isAdmin = req.user && req.user.role === 'admin';
+    const isAdmin = req.user && req.user.role === "admin";
     if (category.isDeleted && !isAdmin) {
       return res.status(404).json({
         success: false,
@@ -380,6 +386,15 @@ exports.updateCategory = async (req, res) => {
 
     // Meta
     if (meta !== undefined) category.meta = meta;
+    // 🌍 Regional Availability
+    if (req.body.availableInRegions !== undefined) {
+      category.availableInRegions = req.body.availableInRegions;
+    }
+
+    // 🌍 Per-Region SEO Meta
+    if (req.body.regionalMeta !== undefined) {
+      category.regionalMeta = req.body.regionalMeta;
+    }
 
     // Flags
     if (displayOrder !== undefined) category.displayOrder = displayOrder;
@@ -903,7 +918,8 @@ exports.deleteCategoryImage = async (req, res) => {
     if (isNaN(index) || index < 1) {
       return res.status(400).json({
         success: false,
-        message: "Invalid image index. Index must be a positive number starting from 1",
+        message:
+          "Invalid image index. Index must be a positive number starting from 1",
       });
     }
 
@@ -976,7 +992,8 @@ exports.reorderCategoryImages = async (req, res) => {
     if (!imageOrders || !Array.isArray(imageOrders)) {
       return res.status(400).json({
         success: false,
-        message: "imageOrders must be an array of {index: number, order: number}",
+        message:
+          "imageOrders must be an array of {index: number, order: number}",
       });
     }
 
@@ -992,7 +1009,7 @@ exports.reorderCategoryImages = async (req, res) => {
     }
 
     // Update order for each image
-    imageOrders.forEach(item => {
+    imageOrders.forEach((item) => {
       const arrayIndex = item.index - 1;
       category.images[arrayIndex].order = item.order;
     });
