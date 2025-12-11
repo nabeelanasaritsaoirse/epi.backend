@@ -238,18 +238,37 @@ exports.getAllProducts = async (req, res) => {
           : req.userCountry;
 
       if (userRegion && userRegion !== "all" && userRegion !== "global") {
-        filter.$or = filter.$or || [];
+        // Show products available in user's region OR globally available products
+        // Need to handle $or properly if it already exists (from search)
+        const regionFilter = {
+          $or: [
+            {
+              // Products specifically available in user's region
+              "regionalAvailability.region": userRegion,
+              "regionalAvailability.isAvailable": true
+            },
+            {
+              // Products marked as "global" region
+              "regionalAvailability.region": "global",
+              "regionalAvailability.isAvailable": true
+            },
+            {
+              // Products with no regional restrictions (empty array)
+              regionalAvailability: { $exists: true, $size: 0 }
+            }
+          ]
+        };
 
-        filter.$or.push(
-          {
-            "regionalAvailability.region": userRegion,
-            "regionalAvailability.isAvailable": true,
-          },
-          {
-            // Global unrestricted products
-            regionalAvailability: { $exists: true, $size: 0 },
-          }
-        );
+        // Merge with existing $or filter from search if present
+        if (filter.$or) {
+          filter.$and = [
+            { $or: filter.$or }, // Search filter
+            regionFilter // Region filter
+          ];
+          delete filter.$or;
+        } else {
+          Object.assign(filter, regionFilter);
+        }
       }
     }
 
