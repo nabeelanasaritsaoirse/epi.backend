@@ -641,6 +641,64 @@ async function getAnalytics(req, res) {
   }
 }
 
+/**
+ * @route   POST /api/admin/notifications/send-to-user
+ * @desc    Send push notification to specific user (admin only)
+ * @access  Admin
+ */
+async function sendToUser(req, res) {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const { userId, title, message, sendPush = true, sendInApp = true, data = {} } = req.body;
+
+    console.log(`[Admin] Sending notification to user: ${userId}`);
+
+    // Use the notification service to send notification to specific user
+    const result = await notificationService.triggerNotification({
+      type: 'GENERAL',
+      userId: userId,
+      title: title,
+      body: message,
+      sendPush: sendPush,
+      sendInApp: sendInApp,
+      data: data,
+      metadata: {
+        source: 'admin_send_to_user',
+        sentBy: req.user._id.toString(),
+        sentAt: new Date()
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Notification sent successfully',
+      data: {
+        userId: userId,
+        sentPush: sendPush,
+        sentInApp: sendInApp,
+        pushResult: result.pushResult || null,
+        inAppNotificationId: result.notificationId || null
+      }
+    });
+
+  } catch (error) {
+    console.error('Error in sendToUser:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to send notification',
+      error: error.message
+    });
+  }
+}
+
 module.exports = {
   createNotification,
   uploadImage,
@@ -651,5 +709,6 @@ module.exports = {
   updateSettings,
   deleteComment,
   getAllNotifications,
-  getAnalytics
+  getAnalytics,
+  sendToUser
 };

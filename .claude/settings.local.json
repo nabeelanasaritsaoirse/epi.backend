@@ -12,7 +12,10 @@
       "Bash(2)",
       "Bash(curl:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(node scripts/testLiveNotification.js:*)",
+      "Bash(node scripts/sendToNishant.js:*)",
+      "Bash(node scripts/sendPushToNishantFixed.js:*)"
     ],
     "deny": [],
     "ask": []
