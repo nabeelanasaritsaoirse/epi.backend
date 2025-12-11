@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
-const { generateTokens } = require('../middlewares/auth');
+const { generateTokens, verifyToken } = require('../middlewares/auth');
 
 /**
  * @route   POST /api/admin-auth/login
@@ -115,6 +115,111 @@ router.post('/login', async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Login failed',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route   POST /api/admin-auth/change-password
+ * @desc    Change password for logged-in admin (both super_admin and sub-admin)
+ * @access  Authenticated Admin/Super Admin
+ */
+router.post('/change-password', verifyToken, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    console.log('Password change request for user:', req.user.email);
+
+    // Validation
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Current password and new password are required',
+        code: 'MISSING_FIELDS'
+      });
+    }
+
+    // Verify user is admin or super_admin
+    if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only admins can change password via this endpoint',
+        code: 'NOT_ADMIN'
+      });
+    }
+
+    // Validate new password strength
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password must be at least 6 characters long',
+        code: 'WEAK_PASSWORD'
+      });
+    }
+
+    // Don't allow same password
+    if (currentPassword === newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password must be different from current password',
+        code: 'SAME_PASSWORD'
+      });
+    }
+
+    // Get user from database
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+        code: 'USER_NOT_FOUND'
+      });
+    }
+
+    // Verify current password
+    if (!user.password) {
+      return res.status(400).json({
+        success: false,
+        message: 'No password set for this account',
+        code: 'NO_PASSWORD'
+      });
+    }
+
+    const isCurrentPasswordValid = await bcrypt.compare(currentPassword, user.password);
+
+    if (!isCurrentPasswordValid) {
+      console.log('Invalid current password for:', user.email);
+      return res.status(401).json({
+        success: false,
+        message: 'Current password is incorrect',
+        code: 'INVALID_CURRENT_PASSWORD'
+      });
+    }
+
+    // Hash and save new password
+    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hashedNewPassword;
+    user.updatedAt = new Date();
+    await user.save();
+
+    console.log('Password changed successfully for:', user.email);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Password changed successfully',
+      data: {
+        email: user.email,
+        updatedAt: user.updatedAt
+      }
+    });
+
+  } catch (error) {
+    console.error('Password change error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to change password',
       error: error.message
     });
   }

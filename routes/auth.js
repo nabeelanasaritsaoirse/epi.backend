@@ -756,16 +756,16 @@ router.post("/admin-login", async (req, res) => {
         needsUpdate = true;
       }
 
-      if (!adminUser.password) {
-        console.log('Setting password for admin');
-        const hashedPassword = await bcrypt.hash(ADMIN_PASSWORD, 10);
-        adminUser.password = hashedPassword;
-        needsUpdate = true;
-      }
+      // Always sync password with ENV on successful login
+      // This ensures if ENV password changes, DB gets updated automatically
+      console.log('Syncing admin password with ENV configuration');
+      const hashedPassword = await bcrypt.hash(ADMIN_PASSWORD, 10);
+      adminUser.password = hashedPassword;
+      needsUpdate = true;
 
       if (needsUpdate) {
         await adminUser.save();
-        console.log('Admin user updated successfully');
+        console.log('Admin user updated successfully (password synced with ENV)');
       }
     }
 
