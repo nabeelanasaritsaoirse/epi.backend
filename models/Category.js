@@ -1,116 +1,138 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
 // Image schema for categories with order field
-const imageSchema = new mongoose.Schema({
-  url: String,
-  altText: String,
-  order: {
-    type: Number,
-    default: 1
-  }
-}, { _id: false });
+const imageSchema = new mongoose.Schema(
+  {
+    url: String,
+    altText: String,
+    order: {
+      type: Number,
+      default: 1,
+    },
+  },
+  { _id: false }
+);
 
 const categorySchema = new mongoose.Schema({
   categoryId: {
     type: String,
     unique: true,
-    required: true
+    required: true,
   },
   name: {
     type: String,
     required: true,
     trim: true,
-    unique: true
+    unique: true,
   },
   description: {
     type: String,
-    trim: true
+    trim: true,
   },
   slug: {
     type: String,
     unique: true,
     lowercase: true,
-    trim: true
+    trim: true,
   },
   image: {
     url: String,
-    altText: String
+    altText: String,
   },
   images: [imageSchema],
   banner: {
     url: String,
     altText: String,
-    link: String
+    link: String,
   },
   icon: {
-    type: String
+    type: String,
   },
   parentCategoryId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Category',
-    default: null
+    ref: "Category",
+    default: null,
   },
-  subCategories: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Category'
-  }],
+  subCategories: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
+    },
+  ],
   level: {
     type: Number,
-    default: 0
+    default: 0,
   },
-  path: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Category'
-  }],
+  path: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
+    },
+  ],
   productCount: {
     type: Number,
-    default: 0
+    default: 0,
   },
   isActive: {
     type: Boolean,
-    default: true
+    default: true,
   },
   isFeatured: {
     type: Boolean,
-    default: false
+    default: false,
   },
   showInMenu: {
     type: Boolean,
-    default: true
+    default: true,
   },
   displayOrder: {
     type: Number,
-    default: 0
+    default: 0,
   },
   meta: {
     title: String,
     description: String,
-    keywords: [String]
+    keywords: [String],
   },
+  // 🌍 NEW FIELDS — Regional Availability
+  availableInRegions: {
+    type: [String], // ["india", "usa", ...]
+    default: [],
+  },
+
+  // 🌍 NEW FIELDS — Per-Region SEO Meta
+  regionalMeta: [
+    {
+      region: { type: String, required: true },
+      metaTitle: String,
+      metaDescription: String,
+      keywords: [String],
+    },
+  ],
   createdAt: {
     type: Date,
-    default: Date.now
+    default: Date.now,
   },
   updatedAt: {
     type: Date,
-    default: Date.now
+    default: Date.now,
   },
   // Soft delete fields
   isDeleted: {
     type: Boolean,
-    default: false
+    default: false,
   },
   deletedAt: {
-    type: Date
+    type: Date,
   },
   deletedBy: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
-  }
+    ref: "User",
+  },
 });
 
 // Middleware to update the updatedAt field and auto-calculate level & path
-categorySchema.pre('save', async function(next) {
+categorySchema.pre("save", async function (next) {
   this.updatedAt = new Date();
 
   // Auto-calculate level and path based on parent
@@ -140,4 +162,4 @@ categorySchema.pre('save', async function(next) {
 categorySchema.index({ name: 1, parentCategoryId: 1 });
 categorySchema.index({ slug: 1 });
 
-module.exports = mongoose.model('Category', categorySchema);
+module.exports = mongoose.model("Category", categorySchema);
