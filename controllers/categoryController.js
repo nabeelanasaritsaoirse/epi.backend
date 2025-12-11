@@ -82,7 +82,23 @@ exports.createCategory = async (req, res) => {
     });
     // 🌍 REGIONAL SUPPORT
     newCategory.availableInRegions = req.body.availableInRegions || [];
-    newCategory.regionalMeta = req.body.regionalMeta || [];
+
+    // Regional meta FIX
+    newCategory.regionalMeta = Array.isArray(req.body.regionalMeta)
+      ? req.body.regionalMeta.map((rm) => ({
+          region: rm.region,
+          metaTitle: rm.metaTitle || "",
+          metaDescription: rm.metaDescription || "",
+          keywords: Array.isArray(rm.keywords)
+            ? rm.keywords
+            : typeof rm.keywords === "string"
+            ? rm.keywords
+                .split(",")
+                .map((k) => k.trim())
+                .filter(Boolean)
+            : [],
+        }))
+      : [];
 
     await newCategory.save();
 
@@ -91,7 +107,6 @@ exports.createCategory = async (req, res) => {
         $push: { subCategories: newCategory._id },
       });
     }
-
     res.status(201).json({
       success: true,
       message: "Category created successfully",
@@ -186,7 +201,7 @@ exports.getAllCategoriesForAdmin = async (req, res) => {
       filter.$or = [
         { availableInRegions: region },
         { availableInRegions: { $size: 0 } }, // Global categories
-        { availableInRegions: { $exists: false } } // Legacy categories without region field
+        { availableInRegions: { $exists: false } }, // Legacy categories without region field
       ];
     }
 
@@ -208,8 +223,8 @@ exports.getAllCategoriesForAdmin = async (req, res) => {
         parentCategoryId: parentCategoryId || "all",
         isActive: isActive || "all",
         region: region || "all",
-        showDeleted: showDeleted === "true"
-      }
+        showDeleted: showDeleted === "true",
+      },
     });
   } catch (error) {
     console.error("Error fetching categories for admin:", error);
@@ -391,11 +406,24 @@ exports.updateCategory = async (req, res) => {
       category.availableInRegions = req.body.availableInRegions;
     }
 
-    // 🌍 Per-Region SEO Meta
+    // 🌍 Per-Region SEO Meta (SAFE & FIXED)
     if (req.body.regionalMeta !== undefined) {
-      category.regionalMeta = req.body.regionalMeta;
+      category.regionalMeta = Array.isArray(req.body.regionalMeta)
+        ? req.body.regionalMeta.map((rm) => ({
+            region: rm.region,
+            metaTitle: rm.metaTitle || "",
+            metaDescription: rm.metaDescription || "",
+            keywords: Array.isArray(rm.keywords)
+              ? rm.keywords
+              : typeof rm.keywords === "string"
+              ? rm.keywords
+                  .split(",")
+                  .map((k) => k.trim())
+                  .filter(Boolean)
+              : [],
+          }))
+        : []; // ensures no crash when input is invalid
     }
-
     // Flags
     if (displayOrder !== undefined) category.displayOrder = displayOrder;
     if (isActive !== undefined) category.isActive = isActive;
