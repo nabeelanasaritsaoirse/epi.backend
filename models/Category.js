@@ -11,9 +11,14 @@ const imageSchema = new mongoose.Schema(
 
 const categorySchema = new mongoose.Schema({
   categoryId: { type: String, unique: true, required: true },
+
+  // FIXED: removed unique:true
   name: { type: String, required: true, trim: true },
+
   description: { type: String, trim: true },
-  slug: { type: String, unique: true, lowercase: true, trim: true },
+
+  // FIXED: removed unique:true from slug
+  slug: { type: String, lowercase: true, trim: true },
 
   image: { url: String, altText: String },
   images: [imageSchema],
@@ -51,10 +56,7 @@ const categorySchema = new mongoose.Schema({
     keywords: [String],
   },
 
-  /* ------------------------------------------------------
-     🌍 REGIONAL FIELDS — FINAL VALID VERSION (NO DUPLICATES)
-     ------------------------------------------------------ */
-
+  // REGIONAL FIELDS
   availableInRegions: [
     {
       type: String,
@@ -71,8 +73,8 @@ const categorySchema = new mongoose.Schema({
         lowercase: true,
         trim: true,
       },
-      metaTitle: String, // <── matches frontend
-      metaDescription: String, // <── matches frontend
+      metaTitle: String,
+      metaDescription: String,
       keywords: [String],
     },
   ],
@@ -85,7 +87,7 @@ const categorySchema = new mongoose.Schema({
   deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
 });
 
-// Auto-update path/level
+// Auto-update path + level
 categorySchema.pre("save", async function (next) {
   this.updatedAt = new Date();
 
@@ -111,8 +113,17 @@ categorySchema.pre("save", async function (next) {
   next();
 });
 
+/* -------------------------
+   FIXED INDEXES (IMPORTANT)
+   ------------------------- */
+
+// Name must be unique ONLY among non-deleted categories
 categorySchema.index({ name: 1, isDeleted: 1 }, { unique: true });
-categorySchema.index({ slug: 1 });
+
+// Slug must also be unique ONLY among non-deleted categories
+categorySchema.index({ slug: 1, isDeleted: 1 }, { unique: true });
+
+// Region index
 categorySchema.index({ availableInRegions: 1 });
 
 module.exports = mongoose.model("Category", categorySchema);
