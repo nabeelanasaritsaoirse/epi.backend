@@ -21,16 +21,19 @@ router.post("/temp-images", verifyToken, isAdmin, upload.single("image"), async 
     const folder = "temp-images/";
     const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
 
-    const s3Url = await uploadToS3(resized, folder, fileName);
+    const url = await uploadToS3(resized, folder, fileName);
 
-    return res.json({
+    res.json({
       success: true,
-      url: s3Url
+      url
     });
 
   } catch (err) {
-    console.error("TEMP UPLOAD ERR:", err);
-    res.status(500).json({ success: false, message: "Error uploading temporary image" });
+    console.error("TEMP UPLOAD ERROR:", err);
+    res.status(500).json({
+      success: false,
+      message: "Failed to upload temporary image"
+    });
   }
 });
 
