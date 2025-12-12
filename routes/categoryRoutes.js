@@ -8,6 +8,9 @@ const { uploadSingle } = require('../middlewares/uploadMiddleware');
  * Public routes
  */
 
+// Export categories (admin only - must be BEFORE generic routes)
+router.get('/export', verifyToken, isAdmin, categoryController.exportCategories);
+
 // Get category stats
 router.get('/stats', categoryController.getCategoryStats);
 
@@ -68,5 +71,8 @@ router.delete('/:categoryId', verifyToken, isAdmin, categoryController.deleteCat
 
 // Bulk reorder categories
 router.put('/bulk/reorder', verifyToken, isAdmin, categoryController.reorderCategories);
+
+// Sync product counts for all categories
+router.post('/sync-product-counts', verifyToken, isAdmin, categoryController.syncAllProductCounts);
 
 module.exports = router;

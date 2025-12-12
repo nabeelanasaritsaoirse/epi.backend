@@ -12,6 +12,11 @@ const { detectCountryWithCache } = require('../middlewares/countryMiddleware');
 router.get('/admin/all', verifyToken, isAdmin, productController.getAllProductsForAdmin);
 
 // ============================================
+// EXPORT ROUTE (Must be BEFORE generic routes)
+// ============================================
+router.get('/export', verifyToken, isAdmin, productController.exportProducts);
+
+// ============================================
 // BASIC PRODUCT ROUTES (With auto country detection for mobile users)
 // ============================================
 router.post('/', verifyToken, isAdmin, productController.createProduct);

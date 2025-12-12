@@ -9,6 +9,10 @@ const {
   uploadMultipleFilesToS3,
   deleteImageFromS3,
 } = require("../services/awsUploadService");
+const {
+  exportProductsToExcel,
+  exportProductsToCSV,
+} = require("../services/exportService");
 
 // Create product and a number of product CRUD helpers with enhanced regional features
 exports.createProduct = async (req, res) => {
@@ -2160,6 +2164,76 @@ exports.reorderVariantImages = async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message,
+    });
+  }
+};
+
+/**
+ * @desc    Export products to CSV or Excel
+ * @route   GET /api/products/export?format=excel&status=published
+ * @access  Admin
+ */
+exports.exportProducts = async (req, res) => {
+  try {
+    const {
+      format = 'excel',
+      status,
+      category,
+      region,
+      brand,
+      hasVariants,
+      search
+    } = req.query;
+
+    // Build filter (same as existing response format)
+    const filter = { isDeleted: false };
+
+    if (status) filter.status = status;
+    if (category) filter['category.mainCategoryId'] = category;
+    if (brand) filter.brand = brand;
+
+    if (hasVariants === 'true') {
+      filter.hasVariants = true;
+    } else if (hasVariants === 'false') {
+      filter.hasVariants = false;
+    }
+
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    if (region && region !== 'all' && region !== 'global') {
+      filter['regionalAvailability.region'] = region;
+      filter['regionalAvailability.isAvailable'] = true;
+    }
+
+    if (format === 'csv') {
+      // Export as CSV
+      const csvData = await exportProductsToCSV(filter);
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="products-${Date.now()}.csv"`);
+      res.send(csvData);
+
+    } else {
+      // Export as Excel (default)
+      const workbook = await exportProductsToExcel(filter);
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="products-${Date.now()}.xlsx"`);
+
+      await workbook.xlsx.write(res);
+      res.end();
+    }
+
+  } catch (error) {
+    console.error('Export error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 };

@@ -370,4 +370,62 @@ productSchema.index({
 });
 
 const Product = mongoose.model('Product', productSchema);
+
+// ============================================
+// AUTO-UPDATE CATEGORY PRODUCT COUNT
+// ============================================
+
+// Helper function to update category product count
+async function updateCategoryProductCount(categoryId) {
+  try {
+    const Category = require('./Category');
+
+    // Count only active/published products that are not deleted
+    const count = await Product.countDocuments({
+      'category.mainCategoryId': categoryId,
+      isDeleted: false,
+      status: { $in: ['published', 'active'] }
+    });
+
+    await Category.findByIdAndUpdate(categoryId, {
+      productCount: count
+    });
+  } catch (error) {
+    console.error('Error updating category product count:', error);
+  }
+}
+
+// Update category count after product is saved
+productSchema.post('save', async function(doc) {
+  try {
+    if (doc.category && doc.category.mainCategoryId) {
+      await updateCategoryProductCount(doc.category.mainCategoryId);
+    }
+  } catch (error) {
+    console.error('Error in post-save hook:', error);
+  }
+});
+
+// Update category count after product is deleted
+productSchema.post('findOneAndUpdate', async function(doc) {
+  try {
+    if (doc && doc.category && doc.category.mainCategoryId) {
+      await updateCategoryProductCount(doc.category.mainCategoryId);
+    }
+  } catch (error) {
+    console.error('Error in post-update hook:', error);
+  }
+});
+
+// Update category count after product is removed
+productSchema.post('findOneAndDelete', async function(doc) {
+  try {
+    if (doc && doc.category && doc.category.mainCategoryId) {
+      await updateCategoryProductCount(doc.category.mainCategoryId);
+    }
+  } catch (error) {
+    console.error('Error in post-delete hook:', error);
+  }
+});
+
 module.exports = Product;
