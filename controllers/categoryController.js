@@ -4,6 +4,10 @@ const {
   uploadMultipleFilesToS3,
   deleteImageFromS3,
 } = require("../services/awsUploadService");
+const {
+  exportCategoriesToExcel,
+  exportCategoriesToCSV,
+} = require("../services/exportService");
 
 /**
  * @desc    Create a new category
@@ -1057,6 +1061,94 @@ exports.reorderCategoryImages = async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message,
+    });
+  }
+};
+
+/**
+ * @desc    Sync product counts for all categories
+ * @route   POST /api/categories/sync-product-counts
+ * @access  Admin
+ */
+exports.syncAllProductCounts = async (req, res) => {
+  try {
+    const Product = require("../models/Product");
+    const categories = await Category.find({});
+    let updated = 0;
+
+    for (const category of categories) {
+      // Count only active/published products that are not deleted
+      const count = await Product.countDocuments({
+        "category.mainCategoryId": category._id,
+        isDeleted: false,
+        status: { $in: ["published", "active"] },
+      });
+
+      category.productCount = count;
+      await category.save();
+      updated++;
+    }
+
+    res.json({
+      success: true,
+      message: `Product counts synced successfully for ${updated} categories`,
+      data: {
+        categoriesUpdated: updated,
+      },
+    });
+  } catch (error) {
+    console.error("Error syncing product counts:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+/**
+ * @desc    Export categories to CSV or Excel
+ * @route   GET /api/categories/export?format=excel
+ * @access  Admin
+ */
+exports.exportCategories = async (req, res) => {
+  try {
+    const { format = 'excel', isActive, parentCategoryId } = req.query;
+
+    // Build filter (same as existing response format)
+    const filter = { isDeleted: false };
+
+    if (isActive !== undefined && isActive !== 'all') {
+      filter.isActive = isActive === 'true' || isActive === true;
+    }
+
+    if (parentCategoryId) {
+      filter.parentCategoryId = parentCategoryId === 'null' ? null : parentCategoryId;
+    }
+
+    if (format === 'csv') {
+      // Export as CSV
+      const csvData = await exportCategoriesToCSV(filter);
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="categories-${Date.now()}.csv"`);
+      res.send(csvData);
+
+    } else {
+      // Export as Excel (default)
+      const workbook = await exportCategoriesToExcel(filter);
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="categories-${Date.now()}.xlsx"`);
+
+      await workbook.xlsx.write(res);
+      res.end();
+    }
+
+  } catch (error) {
+    console.error('Export error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 };
