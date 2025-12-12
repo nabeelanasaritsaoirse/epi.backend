@@ -131,6 +131,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/plans", planRoutes);
 app.use("/api/image-store", imageStoreRoutes);
 app.use("/api/banners", bannerRoutes);
+app.use("/api/uploads", require("./routes/tempUploadRoutes"));
 app.use("/api/success-stories", successStoryRoutes);
 app.use("/api/installments", installmentRoutes);
 
