@@ -34,6 +34,7 @@ exports.createCategory = async (req, res) => {
 
     const existingCategory = await Category.findOne({
       name: { $regex: `^${name}$`, $options: "i" },
+      isDeleted: false, // ← CRITICAL FIX
     });
 
     if (existingCategory) {
