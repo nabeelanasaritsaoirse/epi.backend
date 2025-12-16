@@ -27,9 +27,15 @@ async function getAllSubcategoryIds(categoryId) {
       return [categoryId];
     }
 
-    const category = await Category.findById(categoryId).select('subCategories');
+    const category = await Category.findById(categoryId).select(
+      "subCategories"
+    );
 
-    if (!category || !category.subCategories || category.subCategories.length === 0) {
+    if (
+      !category ||
+      !category.subCategories ||
+      category.subCategories.length === 0
+    ) {
       return [categoryId]; // Return only the category itself if no subcategories
     }
 
@@ -38,13 +44,15 @@ async function getAllSubcategoryIds(categoryId) {
     // Recursively get subcategories for each child
     for (const subCategoryId of category.subCategories) {
       const childIds = await getAllSubcategoryIds(subCategoryId);
-      allIds = allIds.concat(childIds.filter(id => id.toString() !== categoryId.toString()));
+      allIds = allIds.concat(
+        childIds.filter((id) => id.toString() !== categoryId.toString())
+      );
     }
 
     // Remove duplicates
-    return [...new Set(allIds.map(id => id.toString()))];
+    return [...new Set(allIds.map((id) => id.toString()))];
   } catch (error) {
-    console.error('Error in getAllSubcategoryIds:', error);
+    console.error("Error in getAllSubcategoryIds:", error);
     return [categoryId]; // Fallback to just the category ID
   }
 }
@@ -167,13 +175,21 @@ exports.createProduct = async (req, res) => {
         return {
           variantId,
           sku,
-          attributes: v.attributes || {},
-          description: v.description || {},
+
+          attributes: v.attributes !== undefined ? v.attributes : {},
+
+          description: v.description !== undefined ? v.description : {},
+
           price: v.price,
-          salePrice: v.salePrice,
-          paymentPlan: v.paymentPlan || {},
-          stock: v.stock || 0,
-          images: v.images || [],
+
+          salePrice: v.salePrice !== undefined ? v.salePrice : undefined,
+
+          paymentPlan: v.paymentPlan !== undefined ? v.paymentPlan : {},
+
+          stock: v.stock !== undefined ? v.stock : 0, // ✅ allows 0 intentionally
+
+          images: v.images !== undefined ? v.images : [], // ✅ explicit, safe
+
           isActive: v.isActive !== undefined ? v.isActive : true,
         };
       });
@@ -231,7 +247,9 @@ exports.getAllProducts = async (req, res) => {
     // ===============================
     // ADMIN OVERRIDE (OPTION D FIX)
     // ===============================
-    const isAdmin = req.user && (req.user.role === "admin" || req.user.role === "super_admin");
+    const isAdmin =
+      req.user &&
+      (req.user.role === "admin" || req.user.role === "super_admin");
 
     if (!isAdmin) {
       // Apply soft delete filter for normal users
@@ -271,15 +289,15 @@ exports.getAllProducts = async (req, res) => {
       const categoryFilter = {
         $or: [
           { "category.mainCategoryId": { $in: allCategoryIds } },
-          { "category.subCategoryId": { $in: allCategoryIds } }
-        ]
+          { "category.subCategoryId": { $in: allCategoryIds } },
+        ],
       };
 
       if (filter.$or) {
         // If search filter exists, use $and to combine
         filter.$and = [
           { $or: filter.$or }, // Search filter
-          categoryFilter // Category filter
+          categoryFilter, // Category filter
         ];
         delete filter.$or;
       } else {
@@ -479,7 +497,9 @@ exports.updateProduct = async (req, res) => {
       product.hasVariants = !!req.body.hasVariants;
     }
 
-    // Handle variants
+    /* ============================================================
+       VARIANTS — SAFE MERGE (CRITICAL FIX)
+    ============================================================ */
     if (req.body.variants) {
       if (!Array.isArray(req.body.variants)) {
         return res
@@ -488,12 +508,19 @@ exports.updateProduct = async (req, res) => {
       }
 
       const normalizedVariants = req.body.variants.map((v, idx) => {
+        // 🔍 Find existing variant
+        const existingVariant = product.variants.find(
+          (ev) => ev.variantId === v.variantId
+        );
+
         const timestamp = Date.now().toString().slice(-6);
         const random = Math.floor(Math.random() * 1000)
           .toString()
           .padStart(3, "0");
+
         const variantId =
           v.variantId ||
+          existingVariant?.variantId ||
           `VAR${timestamp}${random}${idx.toString().padStart(2, "0")}`;
 
         const skuBase =
@@ -501,7 +528,11 @@ exports.updateProduct = async (req, res) => {
           product.sku ||
           product.productId ||
           `PROD${timestamp}`;
-        const sku = v.sku || `${skuBase}-V${idx + 1}-${variantId.slice(-4)}`;
+
+        const sku =
+          v.sku ||
+          existingVariant?.sku ||
+          `${skuBase}-V${idx + 1}-${variantId.slice(-4)}`;
 
         if (v.price === undefined || v.price === null) {
           throw new Error(
@@ -512,21 +543,47 @@ exports.updateProduct = async (req, res) => {
         return {
           variantId,
           sku,
-          attributes: v.attributes || {},
-          description: v.description || {},
+
+          attributes:
+            v.attributes !== undefined
+              ? v.attributes
+              : existingVariant?.attributes || {},
+
+          description:
+            v.description !== undefined
+              ? v.description
+              : existingVariant?.description || {},
+
           price: v.price,
-          salePrice: v.salePrice,
-          paymentPlan: v.paymentPlan || {},
-          stock: v.stock || 0, // ✅ PRESERVE variant stock exactly as provided
-          images: v.images || [],
-          isActive: v.isActive !== undefined ? v.isActive : true,
+
+          salePrice:
+            v.salePrice !== undefined
+              ? v.salePrice
+              : existingVariant?.salePrice,
+
+          paymentPlan:
+            v.paymentPlan !== undefined
+              ? v.paymentPlan
+              : existingVariant?.paymentPlan || {},
+
+          stock: v.stock !== undefined ? v.stock : existingVariant?.stock ?? 0,
+
+          images:
+            v.images !== undefined ? v.images : existingVariant?.images || [],
+
+          isActive:
+            v.isActive !== undefined
+              ? v.isActive
+              : existingVariant?.isActive ?? true,
         };
       });
 
       product.variants = normalizedVariants;
     }
 
-    // Safe shallow merge for normal fields
+    /* ============================================================
+       SAFE SHALLOW MERGE — NON VARIANT FIELDS
+    ============================================================ */
     const updatableFields = [
       "name",
       "description",
@@ -556,14 +613,12 @@ exports.updateProduct = async (req, res) => {
       }
     });
 
-    // ============================================================
-    // ✅ FIXED STOCK HANDLING — NEW LOGIC
-    // ============================================================
-    // Determine if stock update was requested by checking multiple possible field locations
+    /* ============================================================
+       STOCK HANDLING — UNCHANGED (YOUR LOGIC KEPT)
+    ============================================================ */
     let stockUpdateRequested = false;
     let newStock = null;
 
-    // Priority order: availability.stockQuantity > stock > pricing.stock (legacy)
     if (
       req.body.availability &&
       req.body.availability.stockQuantity !== undefined
@@ -578,12 +633,9 @@ exports.updateProduct = async (req, res) => {
       stockUpdateRequested = true;
     }
 
-    // If stock update was requested, update both main availability and regional global
     if (stockUpdateRequested && !isNaN(newStock)) {
-      // Update main product availability
       product.availability.stockQuantity = newStock;
 
-      // ✅ Recalculate stockStatus based on new stockQuantity
       if (newStock <= 0) {
         product.availability.stockStatus = "out_of_stock";
       } else if (newStock <= (product.availability.lowStockLevel || 10)) {
@@ -592,7 +644,6 @@ exports.updateProduct = async (req, res) => {
         product.availability.stockStatus = "in_stock";
       }
 
-      // ✅ Sync to regional availability (global region only)
       if (Array.isArray(product.regionalAvailability)) {
         const globalRegion = product.regionalAvailability.find(
           (r) => r.region === "global"
@@ -602,13 +653,7 @@ exports.updateProduct = async (req, res) => {
           globalRegion.stockStatus = product.availability.stockStatus;
         }
       }
-
-      // ✅ NOTE: Do NOT overwrite variants[].stock from product-level stock
-      // Variant stock is independent and managed via req.body.variants
     }
-    // ============================================================
-    // ✅ END OF FIXED STOCK HANDLING
-    // ============================================================
 
     product.updatedAt = new Date();
     await product.save();
@@ -728,8 +773,8 @@ exports.getProductsByCategory = async (req, res) => {
     const filter = {
       $or: [
         { "category.mainCategoryId": { $in: allCategoryIds } },
-        { "category.subCategoryId": { $in: allCategoryIds } }
-      ]
+        { "category.subCategoryId": { $in: allCategoryIds } },
+      ],
     };
 
     if (region && region !== "all" && region !== "global") {
@@ -829,15 +874,15 @@ exports.getProductsByRegion = async (req, res) => {
       const categoryFilter = {
         $or: [
           { "category.mainCategoryId": { $in: allCategoryIds } },
-          { "category.subCategoryId": { $in: allCategoryIds } }
-        ]
+          { "category.subCategoryId": { $in: allCategoryIds } },
+        ],
       };
 
       if (filter.$or) {
         // If search filter exists, use $and to combine
         filter.$and = [
           { $or: filter.$or }, // Search filter
-          categoryFilter // Category filter
+          categoryFilter, // Category filter
         ];
         delete filter.$or;
       } else {
@@ -1472,15 +1517,15 @@ exports.searchProductsAdvanced = async (req, res) => {
       const categoryFilter = {
         $or: [
           { "category.mainCategoryId": { $in: allCategoryIds } },
-          { "category.subCategoryId": { $in: allCategoryIds } }
-        ]
+          { "category.subCategoryId": { $in: allCategoryIds } },
+        ],
       };
 
       if (filter.$or) {
         // If search filter exists, use $and to combine
         filter.$and = [
           { $or: filter.$or }, // Search filter
-          categoryFilter // Category filter
+          categoryFilter, // Category filter
         ];
         delete filter.$or;
       } else {
@@ -1879,15 +1924,15 @@ exports.getAllProductsForAdmin = async (req, res) => {
       const categoryFilter = {
         $or: [
           { "category.mainCategoryId": { $in: allCategoryIds } },
-          { "category.subCategoryId": { $in: allCategoryIds } }
-        ]
+          { "category.subCategoryId": { $in: allCategoryIds } },
+        ],
       };
 
       if (filter.$or) {
         // If search filter exists, use $and to combine
         filter.$and = [
           { $or: filter.$or }, // Search filter
-          categoryFilter // Category filter
+          categoryFilter, // Category filter
         ];
         delete filter.$or;
       } else {
