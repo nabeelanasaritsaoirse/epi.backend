@@ -1,4 +1,5 @@
 const Product = require("../models/Product");
+const Category = require("../models/Category");
 const mongoose = require("mongoose");
 const {
   calculateEquivalentValues,
@@ -13,6 +14,40 @@ const {
   exportProductsToExcel,
   exportProductsToCSV,
 } = require("../services/exportService");
+
+/**
+ * Helper function to recursively get all subcategory IDs
+ * @param {String} categoryId - The category ID to get subcategories for
+ * @returns {Array} - Array of all category IDs (including the parent)
+ */
+async function getAllSubcategoryIds(categoryId) {
+  try {
+    // Validate if it's a valid ObjectId
+    if (!mongoose.isValidObjectId(categoryId)) {
+      return [categoryId];
+    }
+
+    const category = await Category.findById(categoryId).select('subCategories');
+
+    if (!category || !category.subCategories || category.subCategories.length === 0) {
+      return [categoryId]; // Return only the category itself if no subcategories
+    }
+
+    let allIds = [categoryId];
+
+    // Recursively get subcategories for each child
+    for (const subCategoryId of category.subCategories) {
+      const childIds = await getAllSubcategoryIds(subCategoryId);
+      allIds = allIds.concat(childIds.filter(id => id.toString() !== categoryId.toString()));
+    }
+
+    // Remove duplicates
+    return [...new Set(allIds.map(id => id.toString()))];
+  } catch (error) {
+    console.error('Error in getAllSubcategoryIds:', error);
+    return [categoryId]; // Fallback to just the category ID
+  }
+}
 
 // Create product and a number of product CRUD helpers with enhanced regional features
 exports.createProduct = async (req, res) => {
@@ -228,13 +263,15 @@ exports.getAllProducts = async (req, res) => {
     // ===============================
     // Basic filters
     // ===============================
-    // Support both main category and subcategory filtering
+    // Support hierarchical category filtering (includes all subcategories)
     if (category) {
-      // Merge with existing $or filter from search if present
+      // Get all subcategory IDs recursively
+      const allCategoryIds = await getAllSubcategoryIds(category);
+
       const categoryFilter = {
         $or: [
-          { "category.mainCategoryId": category },
-          { "category.subCategoryId": category }
+          { "category.mainCategoryId": { $in: allCategoryIds } },
+          { "category.subCategoryId": { $in: allCategoryIds } }
         ]
       };
 
@@ -687,11 +724,14 @@ exports.getProductsByCategory = async (req, res) => {
     const { category } = req.params;
     const { page = 1, limit = 10, region = "global" } = req.query;
 
-    // Support both main category and subcategory filtering
+    // Get all subcategory IDs recursively (includes parent + all children)
+    const allCategoryIds = await getAllSubcategoryIds(category);
+
+    // Support hierarchical category filtering
     const filter = {
       $or: [
-        { "category.mainCategoryId": category },
-        { "category.subCategoryId": category }
+        { "category.mainCategoryId": { $in: allCategoryIds } },
+        { "category.subCategoryId": { $in: allCategoryIds } }
       ]
     };
 
@@ -785,12 +825,14 @@ exports.getProductsByRegion = async (req, res) => {
       ];
     }
 
-    // Support both main category and subcategory filtering
+    // Support hierarchical category filtering
     if (category) {
+      const allCategoryIds = await getAllSubcategoryIds(category);
+
       const categoryFilter = {
         $or: [
-          { "category.mainCategoryId": category },
-          { "category.subCategoryId": category }
+          { "category.mainCategoryId": { $in: allCategoryIds } },
+          { "category.subCategoryId": { $in: allCategoryIds } }
         ]
       };
 
@@ -1426,12 +1468,14 @@ exports.searchProductsAdvanced = async (req, res) => {
       filter["regionalAvailability.isAvailable"] = true;
     }
 
-    // Support both main category and subcategory filtering
+    // Support hierarchical category filtering
     if (category) {
+      const allCategoryIds = await getAllSubcategoryIds(category);
+
       const categoryFilter = {
         $or: [
-          { "category.mainCategoryId": category },
-          { "category.subCategoryId": category }
+          { "category.mainCategoryId": { $in: allCategoryIds } },
+          { "category.subCategoryId": { $in: allCategoryIds } }
         ]
       };
 
@@ -1831,12 +1875,14 @@ exports.getAllProductsForAdmin = async (req, res) => {
       ];
     }
 
-    // Basic filters - Support both main category and subcategory filtering
+    // Basic filters - Support hierarchical category filtering
     if (category) {
+      const allCategoryIds = await getAllSubcategoryIds(category);
+
       const categoryFilter = {
         $or: [
-          { "category.mainCategoryId": category },
-          { "category.subCategoryId": category }
+          { "category.mainCategoryId": { $in: allCategoryIds } },
+          { "category.subCategoryId": { $in: allCategoryIds } }
         ]
       };
 
