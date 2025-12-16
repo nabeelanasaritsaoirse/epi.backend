@@ -11,9 +11,14 @@ const imageSchema = new mongoose.Schema(
 
 const categorySchema = new mongoose.Schema({
   categoryId: { type: String, unique: true, required: true },
-  name: { type: String, required: true, trim: true, unique: true },
+
+  // FIXED: removed unique:true
+  name: { type: String, required: true, trim: true },
+
   description: { type: String, trim: true },
-  slug: { type: String, unique: true, lowercase: true, trim: true },
+
+  // FIXED: removed unique:true from slug
+  slug: { type: String, lowercase: true, trim: true },
 
   image: { url: String, altText: String },
   images: [imageSchema],
@@ -32,9 +37,7 @@ const categorySchema = new mongoose.Schema({
     default: null,
   },
 
-  subCategories: [
-    { type: mongoose.Schema.Types.ObjectId, ref: "Category" }
-  ],
+  subCategories: [{ type: mongoose.Schema.Types.ObjectId, ref: "Category" }],
 
   level: { type: Number, default: 0 },
   path: [{ type: mongoose.Schema.Types.ObjectId, ref: "Category" }],
@@ -53,37 +56,38 @@ const categorySchema = new mongoose.Schema({
     keywords: [String],
   },
 
-  /* ------------------------------------------------------
-     🌍 REGIONAL FIELDS — FINAL VALID VERSION (NO DUPLICATES)
-     ------------------------------------------------------ */
-
-  availableInRegions: [{
-    type: String,
-    lowercase: true,
-    trim: true
-  }],
-
-  regionalMeta: [{
-    region: {
+  // REGIONAL FIELDS
+  availableInRegions: [
+    {
       type: String,
-      required: true,
       lowercase: true,
-      trim: true
+      trim: true,
     },
-    metaTitle: String,         // <── matches frontend
-    metaDescription: String,   // <── matches frontend
-    keywords: [String]
-  }],
+  ],
+
+  regionalMeta: [
+    {
+      region: {
+        type: String,
+        required: true,
+        lowercase: true,
+        trim: true,
+      },
+      metaTitle: String,
+      metaDescription: String,
+      keywords: [String],
+    },
+  ],
 
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 
   isDeleted: { type: Boolean, default: false },
   deletedAt: Date,
-  deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }
+  deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
 });
 
-// Auto-update path/level
+// Auto-update path + level
 categorySchema.pre("save", async function (next) {
   this.updatedAt = new Date();
 
@@ -109,8 +113,17 @@ categorySchema.pre("save", async function (next) {
   next();
 });
 
-categorySchema.index({ name: 1, parentCategoryId: 1 });
-categorySchema.index({ slug: 1 });
+/* -------------------------
+   FIXED INDEXES (IMPORTANT)
+   ------------------------- */
+
+// Name must be unique ONLY among non-deleted categories
+categorySchema.index({ name: 1, isDeleted: 1 }, { unique: true });
+
+// Slug must also be unique ONLY among non-deleted categories
+categorySchema.index({ slug: 1, isDeleted: 1 }, { unique: true });
+
+// Region index
 categorySchema.index({ availableInRegions: 1 });
 
 module.exports = mongoose.model("Category", categorySchema);
