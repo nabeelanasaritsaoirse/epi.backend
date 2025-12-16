@@ -1,4 +1,5 @@
 const Product = require("../models/Product");
+const Category = require("../models/Category");
 const mongoose = require("mongoose");
 const {
   calculateEquivalentValues,
@@ -13,6 +14,40 @@ const {
   exportProductsToExcel,
   exportProductsToCSV,
 } = require("../services/exportService");
+
+/**
+ * Helper function to recursively get all subcategory IDs
+ * @param {String} categoryId - The category ID to get subcategories for
+ * @returns {Array} - Array of all category IDs (including the parent)
+ */
+async function getAllSubcategoryIds(categoryId) {
+  try {
+    // Validate if it's a valid ObjectId
+    if (!mongoose.isValidObjectId(categoryId)) {
+      return [categoryId];
+    }
+
+    const category = await Category.findById(categoryId).select('subCategories');
+
+    if (!category || !category.subCategories || category.subCategories.length === 0) {
+      return [categoryId]; // Return only the category itself if no subcategories
+    }
+
+    let allIds = [categoryId];
+
+    // Recursively get subcategories for each child
+    for (const subCategoryId of category.subCategories) {
+      const childIds = await getAllSubcategoryIds(subCategoryId);
+      allIds = allIds.concat(childIds.filter(id => id.toString() !== categoryId.toString()));
+    }
+
+    // Remove duplicates
+    return [...new Set(allIds.map(id => id.toString()))];
+  } catch (error) {
+    console.error('Error in getAllSubcategoryIds:', error);
+    return [categoryId]; // Fallback to just the category ID
+  }
+}
 
 // Create product and a number of product CRUD helpers with enhanced regional features
 exports.createProduct = async (req, res) => {
@@ -196,7 +231,7 @@ exports.getAllProducts = async (req, res) => {
     // ===============================
     // ADMIN OVERRIDE (OPTION D FIX)
     // ===============================
-    const isAdmin = req.user && req.user.role === "admin";
+    const isAdmin = req.user && (req.user.role === "admin" || req.user.role === "super_admin");
 
     if (!isAdmin) {
       // Apply soft delete filter for normal users
@@ -228,7 +263,29 @@ exports.getAllProducts = async (req, res) => {
     // ===============================
     // Basic filters
     // ===============================
-    if (category) filter["category.mainCategoryId"] = category;
+    // Support hierarchical category filtering (includes all subcategories)
+    if (category) {
+      // Get all subcategory IDs recursively
+      const allCategoryIds = await getAllSubcategoryIds(category);
+
+      const categoryFilter = {
+        $or: [
+          { "category.mainCategoryId": { $in: allCategoryIds } },
+          { "category.subCategoryId": { $in: allCategoryIds } }
+        ]
+      };
+
+      if (filter.$or) {
+        // If search filter exists, use $and to combine
+        filter.$and = [
+          { $or: filter.$or }, // Search filter
+          categoryFilter // Category filter
+        ];
+        delete filter.$or;
+      } else {
+        Object.assign(filter, categoryFilter);
+      }
+    }
     if (brand) filter.brand = brand;
     if (status) filter.status = status;
 
@@ -664,7 +721,16 @@ exports.getProductsByCategory = async (req, res) => {
     const { category } = req.params;
     const { page = 1, limit = 10, region = "global" } = req.query;
 
-    const filter = { "category.mainCategoryId": category };
+    // Get all subcategory IDs recursively (includes parent + all children)
+    const allCategoryIds = await getAllSubcategoryIds(category);
+
+    // Support hierarchical category filtering
+    const filter = {
+      $or: [
+        { "category.mainCategoryId": { $in: allCategoryIds } },
+        { "category.subCategoryId": { $in: allCategoryIds } }
+      ]
+    };
 
     if (region && region !== "all" && region !== "global") {
       filter["regionalAvailability.region"] = region;
@@ -756,7 +822,28 @@ exports.getProductsByRegion = async (req, res) => {
       ];
     }
 
-    if (category) filter["category.mainCategoryId"] = category;
+    // Support hierarchical category filtering
+    if (category) {
+      const allCategoryIds = await getAllSubcategoryIds(category);
+
+      const categoryFilter = {
+        $or: [
+          { "category.mainCategoryId": { $in: allCategoryIds } },
+          { "category.subCategoryId": { $in: allCategoryIds } }
+        ]
+      };
+
+      if (filter.$or) {
+        // If search filter exists, use $and to combine
+        filter.$and = [
+          { $or: filter.$or }, // Search filter
+          categoryFilter // Category filter
+        ];
+        delete filter.$or;
+      } else {
+        Object.assign(filter, categoryFilter);
+      }
+    }
     if (brand) filter.brand = brand;
     if (status) filter.status = status;
 
@@ -1378,7 +1465,28 @@ exports.searchProductsAdvanced = async (req, res) => {
       filter["regionalAvailability.isAvailable"] = true;
     }
 
-    if (category) filter["category.mainCategoryId"] = category;
+    // Support hierarchical category filtering
+    if (category) {
+      const allCategoryIds = await getAllSubcategoryIds(category);
+
+      const categoryFilter = {
+        $or: [
+          { "category.mainCategoryId": { $in: allCategoryIds } },
+          { "category.subCategoryId": { $in: allCategoryIds } }
+        ]
+      };
+
+      if (filter.$or) {
+        // If search filter exists, use $and to combine
+        filter.$and = [
+          { $or: filter.$or }, // Search filter
+          categoryFilter // Category filter
+        ];
+        delete filter.$or;
+      } else {
+        Object.assign(filter, categoryFilter);
+      }
+    }
     if (brand) filter.brand = brand;
     if (projectId) filter["project.projectId"] = projectId;
     if (hasVariants) filter.hasVariants = true;
@@ -1764,8 +1872,28 @@ exports.getAllProductsForAdmin = async (req, res) => {
       ];
     }
 
-    // Basic filters
-    if (category) filter["category.mainCategoryId"] = category;
+    // Basic filters - Support hierarchical category filtering
+    if (category) {
+      const allCategoryIds = await getAllSubcategoryIds(category);
+
+      const categoryFilter = {
+        $or: [
+          { "category.mainCategoryId": { $in: allCategoryIds } },
+          { "category.subCategoryId": { $in: allCategoryIds } }
+        ]
+      };
+
+      if (filter.$or) {
+        // If search filter exists, use $and to combine
+        filter.$and = [
+          { $or: filter.$or }, // Search filter
+          categoryFilter // Category filter
+        ];
+        delete filter.$or;
+      } else {
+        Object.assign(filter, categoryFilter);
+      }
+    }
     if (brand) filter.brand = brand;
     if (status) filter.status = status;
 

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const categoryController = require('../controllers/categoryController');
-const { verifyToken, isAdmin } = require('../middlewares/auth');
+const { verifyToken, isAdmin, optionalAuth } = require('../middlewares/auth');
 const { uploadSingle } = require('../middlewares/uploadMiddleware');
 
 /**
@@ -18,19 +18,19 @@ router.get('/stats', categoryController.getCategoryStats);
 router.get('/featured', categoryController.getFeaturedCategories);
 
 // Get all main categories with subcategories (for dropdown)
-router.get('/dropdown/all', categoryController.getCategoriesForDropdown);
+router.get('/dropdown/all', optionalAuth, categoryController.getCategoriesForDropdown);
 
 // Get all categories
-router.get('/', categoryController.getAllCategories);
+router.get('/', optionalAuth, categoryController.getAllCategories);
 
 // Search categories
-router.get('/search/:query', categoryController.searchCategories);
+router.get('/search/:query', optionalAuth, categoryController.searchCategories);
 
 // Get category by ID with subcategories
-router.get('/:categoryId/with-subcategories', categoryController.getCategoryWithSubcategories);
+router.get('/:categoryId/with-subcategories', optionalAuth, categoryController.getCategoryWithSubcategories);
 
 // Get category by ID
-router.get('/:categoryId', categoryController.getCategoryById);
+router.get('/:categoryId', optionalAuth, categoryController.getCategoryById);
 
 /**
  * Admin routes (With authentication)
