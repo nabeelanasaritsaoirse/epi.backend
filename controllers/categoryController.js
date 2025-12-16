@@ -135,7 +135,7 @@ exports.getAllCategories = async (req, res) => {
 
     // Filter out soft deleted categories for non-admin users
     // Admin can see deleted categories only when explicitly requested
-    const isAdmin = req.user && req.user.role === "admin";
+    const isAdmin = req.user && (req.user.role === "admin" || req.user.role === "super_admin");
     if (!isAdmin) {
       filter.isDeleted = false;
     }
@@ -259,7 +259,7 @@ exports.getCategoryById = async (req, res) => {
     }
 
     // Check if category is deleted and user is not admin
-    const isAdmin = req.user && req.user.role === "admin";
+    const isAdmin = req.user && (req.user.role === "admin" || req.user.role === "super_admin");
     if (category.isDeleted && !isAdmin) {
       return res.status(404).json({
         success: false,
