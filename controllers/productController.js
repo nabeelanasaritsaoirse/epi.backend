@@ -492,23 +492,25 @@ exports.updateProduct = async (req, res) => {
         .json({ success: false, message: "Product not found" });
     }
 
+    // Ensure variants array always exists
+    if (!Array.isArray(product.variants)) {
+      product.variants = [];
+    }
+
     // Update hasVariants
     if (req.body.hasVariants !== undefined) {
       product.hasVariants = !!req.body.hasVariants;
     }
 
     /* ============================================================
-       VARIANTS — SAFE MERGE (CRITICAL FIX)
+       VARIANTS — SAFE MERGE (IMAGE SAFE)
     ============================================================ */
-    if (req.body.variants) {
-      if (!Array.isArray(req.body.variants)) {
-        return res
-          .status(400)
-          .json({ success: false, message: "variants must be an array" });
-      }
+    if (Array.isArray(req.body.variants)) {
+      const updatedVariants = [];
 
-      const normalizedVariants = req.body.variants.map((v, idx) => {
-        // 🔍 Find existing variant
+      for (let idx = 0; idx < req.body.variants.length; idx++) {
+        const v = req.body.variants[idx];
+
         const existingVariant = product.variants.find(
           (ev) => ev.variantId === v.variantId
         );
@@ -540,7 +542,7 @@ exports.updateProduct = async (req, res) => {
           );
         }
 
-        return {
+        updatedVariants.push({
           variantId,
           sku,
 
@@ -568,6 +570,7 @@ exports.updateProduct = async (req, res) => {
 
           stock: v.stock !== undefined ? v.stock : existingVariant?.stock ?? 0,
 
+          // 🔥 IMAGE PRESERVATION (CRITICAL)
           images:
             v.images !== undefined ? v.images : existingVariant?.images || [],
 
@@ -575,10 +578,10 @@ exports.updateProduct = async (req, res) => {
             v.isActive !== undefined
               ? v.isActive
               : existingVariant?.isActive ?? true,
-        };
-      });
+        });
+      }
 
-      product.variants = normalizedVariants;
+      product.variants = updatedVariants;
     }
 
     /* ============================================================
@@ -614,7 +617,7 @@ exports.updateProduct = async (req, res) => {
     });
 
     /* ============================================================
-       STOCK HANDLING — UNCHANGED (YOUR LOGIC KEPT)
+       STOCK HANDLING — UNCHANGED
     ============================================================ */
     let stockUpdateRequested = false;
     let newStock = null;
