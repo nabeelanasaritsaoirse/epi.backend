@@ -3,7 +3,7 @@ const router = express.Router();
 const productController = require('../controllers/productController');
 const productFeaturedController = require('../controllers/productFeaturedController');
 const { uploadMultiple } = require('../middlewares/uploadMiddleware');
-const { verifyToken, isAdmin } = require('../middlewares/auth');
+const { verifyToken, isAdmin, optionalAuth } = require('../middlewares/auth');
 const { detectCountryWithCache } = require('../middlewares/countryMiddleware');
 
 // ============================================
@@ -20,10 +20,10 @@ router.get('/export', verifyToken, isAdmin, productController.exportProducts);
 // BASIC PRODUCT ROUTES (With auto country detection for mobile users)
 // ============================================
 router.post('/', verifyToken, isAdmin, productController.createProduct);
-router.get('/', detectCountryWithCache, productController.getAllProducts);
-router.get('/stats', detectCountryWithCache, productController.getProductStats);
-router.get('/search', detectCountryWithCache, productController.searchProductsAdvanced);
-router.get('/low-stock', detectCountryWithCache, productController.getLowStockProducts);
+router.get('/', optionalAuth, detectCountryWithCache, productController.getAllProducts);
+router.get('/stats', optionalAuth, detectCountryWithCache, productController.getProductStats);
+router.get('/search', optionalAuth, detectCountryWithCache, productController.searchProductsAdvanced);
+router.get('/low-stock', optionalAuth, detectCountryWithCache, productController.getLowStockProducts);
 
 // ============================================
 // FEATURED PRODUCT ROUTES (With auto country detection)

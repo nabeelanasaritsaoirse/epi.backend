@@ -196,7 +196,7 @@ exports.getAllProducts = async (req, res) => {
     // ===============================
     // ADMIN OVERRIDE (OPTION D FIX)
     // ===============================
-    const isAdmin = req.user && req.user.role === "admin";
+    const isAdmin = req.user && (req.user.role === "admin" || req.user.role === "super_admin");
 
     if (!isAdmin) {
       // Apply soft delete filter for normal users
@@ -228,7 +228,27 @@ exports.getAllProducts = async (req, res) => {
     // ===============================
     // Basic filters
     // ===============================
-    if (category) filter["category.mainCategoryId"] = category;
+    // Support both main category and subcategory filtering
+    if (category) {
+      // Merge with existing $or filter from search if present
+      const categoryFilter = {
+        $or: [
+          { "category.mainCategoryId": category },
+          { "category.subCategoryId": category }
+        ]
+      };
+
+      if (filter.$or) {
+        // If search filter exists, use $and to combine
+        filter.$and = [
+          { $or: filter.$or }, // Search filter
+          categoryFilter // Category filter
+        ];
+        delete filter.$or;
+      } else {
+        Object.assign(filter, categoryFilter);
+      }
+    }
     if (brand) filter.brand = brand;
     if (status) filter.status = status;
 
@@ -667,7 +687,13 @@ exports.getProductsByCategory = async (req, res) => {
     const { category } = req.params;
     const { page = 1, limit = 10, region = "global" } = req.query;
 
-    const filter = { "category.mainCategoryId": category };
+    // Support both main category and subcategory filtering
+    const filter = {
+      $or: [
+        { "category.mainCategoryId": category },
+        { "category.subCategoryId": category }
+      ]
+    };
 
     if (region && region !== "all" && region !== "global") {
       filter["regionalAvailability.region"] = region;
@@ -759,7 +785,26 @@ exports.getProductsByRegion = async (req, res) => {
       ];
     }
 
-    if (category) filter["category.mainCategoryId"] = category;
+    // Support both main category and subcategory filtering
+    if (category) {
+      const categoryFilter = {
+        $or: [
+          { "category.mainCategoryId": category },
+          { "category.subCategoryId": category }
+        ]
+      };
+
+      if (filter.$or) {
+        // If search filter exists, use $and to combine
+        filter.$and = [
+          { $or: filter.$or }, // Search filter
+          categoryFilter // Category filter
+        ];
+        delete filter.$or;
+      } else {
+        Object.assign(filter, categoryFilter);
+      }
+    }
     if (brand) filter.brand = brand;
     if (status) filter.status = status;
 
@@ -1381,7 +1426,26 @@ exports.searchProductsAdvanced = async (req, res) => {
       filter["regionalAvailability.isAvailable"] = true;
     }
 
-    if (category) filter["category.mainCategoryId"] = category;
+    // Support both main category and subcategory filtering
+    if (category) {
+      const categoryFilter = {
+        $or: [
+          { "category.mainCategoryId": category },
+          { "category.subCategoryId": category }
+        ]
+      };
+
+      if (filter.$or) {
+        // If search filter exists, use $and to combine
+        filter.$and = [
+          { $or: filter.$or }, // Search filter
+          categoryFilter // Category filter
+        ];
+        delete filter.$or;
+      } else {
+        Object.assign(filter, categoryFilter);
+      }
+    }
     if (brand) filter.brand = brand;
     if (projectId) filter["project.projectId"] = projectId;
     if (hasVariants) filter.hasVariants = true;
@@ -1767,8 +1831,26 @@ exports.getAllProductsForAdmin = async (req, res) => {
       ];
     }
 
-    // Basic filters
-    if (category) filter["category.mainCategoryId"] = category;
+    // Basic filters - Support both main category and subcategory filtering
+    if (category) {
+      const categoryFilter = {
+        $or: [
+          { "category.mainCategoryId": category },
+          { "category.subCategoryId": category }
+        ]
+      };
+
+      if (filter.$or) {
+        // If search filter exists, use $and to combine
+        filter.$and = [
+          { $or: filter.$or }, // Search filter
+          categoryFilter // Category filter
+        ];
+        delete filter.$or;
+      } else {
+        Object.assign(filter, categoryFilter);
+      }
+    }
     if (brand) filter.brand = brand;
     if (status) filter.status = status;
 
