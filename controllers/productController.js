@@ -137,6 +137,9 @@ exports.createProduct = async (req, res) => {
       plans: req.body.plans || [],
 
       status: req.body.status || "draft",
+      createdByEmail: req.user.email,
+      updatedByEmail: req.user.email,
+
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -659,6 +662,7 @@ exports.updateProduct = async (req, res) => {
     }
 
     product.updatedAt = new Date();
+    product.updatedByEmail = req.user.email;
     await product.save();
 
     res.json({
@@ -708,7 +712,8 @@ exports.deleteProduct = async (req, res) => {
     // Soft delete the product
     product.isDeleted = true;
     product.deletedAt = new Date();
-    product.deletedBy = req.user?._id || null;
+    product.deletedByEmail = req.user.email;
+    product.updatedByEmail = req.user.email;
     await product.save();
 
     res.json({
@@ -748,7 +753,11 @@ exports.restoreProduct = async (req, res) => {
 
     product.isDeleted = false;
     product.deletedAt = null;
-    product.deletedBy = null;
+    product.deletedByEmail = null;
+
+    product.restoredAt = new Date();
+    product.restoredByEmail = req.user.email;
+    product.updatedByEmail = req.user.email;
     await product.save();
 
     res.json({
@@ -1962,7 +1971,6 @@ exports.getAllProductsForAdmin = async (req, res) => {
     }
 
     const products = await Product.find(filter)
-      .populate("deletedBy", "name email")
       .sort({ createdAt: -1 })
       .limit(parseInt(limit))
       .skip((parseInt(page) - 1) * parseInt(limit));
