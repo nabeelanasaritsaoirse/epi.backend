@@ -183,7 +183,7 @@ const productSchema = new mongoose.Schema({
     costPrice: { type: Number, min: 0 },
     currency: { type: String, default: "USD" },
   },
-  
+
   isGlobalProduct: {
     type: Boolean,
     default: true,
@@ -260,12 +260,28 @@ const productSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 
-  // Soft delete fields
+  createdByEmail: {
+    type: String,
+    required: true,
+    index: true,
+  },
+
+  updatedByEmail: {
+    type: String,
+    index: true,
+  },
+
   isDeleted: { type: Boolean, default: false },
   deletedAt: { type: Date },
-  deletedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User",
+  deletedByEmail: { type: String, index: true },
+
+  restoredByEmail: {
+    type: String,
+    index: true,
+  },
+
+  restoredAt: {
+    type: Date,
   },
 });
 
