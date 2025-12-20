@@ -369,4 +369,9 @@ router.get("/details/:referralId", async (req, res) => {
 // Get logged-in user's referrer info
 router.get("/referrer-info", auth.verifyToken, referralController.getReferrerInfo);
 
+// Get comprehensive referral statistics for authenticated user
+// Supports both JWT and Firebase tokens
+// Optional query param: ?detailed=true to include referred users list
+router.get("/stats", auth.verifyAnyToken, referralController.getComprehensiveReferralStats);
+
 module.exports = router;

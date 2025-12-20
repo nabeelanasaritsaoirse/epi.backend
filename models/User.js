@@ -410,6 +410,7 @@ userSchema.index({ email: 1 });
 userSchema.index({ phoneNumber: 1 });
 userSchema.index({ firebaseUid: 1 });
 userSchema.index({ referralCode: 1 });
+userSchema.index({ referredBy: 1 }); // For efficient referral stats queries
 
 userSchema.pre('save', async function(next) {
   if (this.isNew && !this.referralCode) {

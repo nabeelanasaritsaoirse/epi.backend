@@ -600,3 +600,162 @@ exports.getReferrerInfo = async (req, res) => {
   }
 };
 
+/* ---------- getComprehensiveReferralStats ----------
+   Returns complete referral statistics including:
+   - Referral code and limit info
+   - Total/active/pending/completed referrals count
+   - Earnings and commission breakdown
+   - Purchase statistics
+   - Optional: List of referred users with details
+*/
+exports.getComprehensiveReferralStats = async (req, res) => {
+  try {
+    // Get user ID from authenticated user
+    const userId = req.user._id || req.user.id;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "User ID is required"
+      });
+    }
+
+    // Check if detailed user list is requested
+    const includeDetails = req.query.detailed === 'true';
+
+    // Fetch the current user
+    const user = await User.findById(userId).select(
+      'name email referralCode referralLimit'
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found"
+      });
+    }
+
+    // Get all referrals made by this user
+    const referrals = await Referral.find({ referrer: userId });
+
+    // Get all users referred by this user
+    const referredUsers = await User.find({ referredBy: userId })
+      .select('name email profilePicture createdAt')
+      .sort({ createdAt: -1 });
+
+    // Get commission and withdrawal data
+    const dailyCommissions = await DailyCommission.find({ referrer: userId });
+    const withdrawals = await CommissionWithdrawal.find({ user: userId });
+
+    // Calculate statistics
+    const totalReferrals = referredUsers.length;
+    const referralLimit = user.referralLimit || 50;
+    const remainingReferrals = Math.max(0, referralLimit - totalReferrals);
+    const referralLimitReached = totalReferrals >= referralLimit;
+
+    // Referral status breakdown
+    const activeReferrals = referrals.filter(r => r.status === 'ACTIVE').length;
+    const pendingReferrals = referrals.filter(r => r.status === 'PENDING').length;
+    const completedReferrals = referrals.filter(r => r.status === 'COMPLETED').length;
+    const cancelledReferrals = referrals.filter(r => r.status === 'CANCELLED').length;
+
+    // Earnings calculations
+    const totalEarnings = dailyCommissions.reduce((sum, c) => sum + (c.amount || 0), 0);
+    const totalCommission = referrals.reduce((sum, r) => sum + (r.totalCommission || 0), 0);
+    const totalWithdrawn = withdrawals
+      .filter(w => ['COMPLETED', 'PENDING'].includes(w.status))
+      .reduce((sum, w) => sum + (w.amount || 0), 0);
+    const availableBalance = totalEarnings - totalWithdrawn;
+
+    // Purchase statistics
+    const totalProducts = referrals.reduce((sum, r) =>
+      sum + (r.purchases ? r.purchases.length : 0), 0
+    );
+    const totalPurchaseValue = referrals.reduce((sum, r) =>
+      sum + (r.totalPurchaseValue || 0), 0
+    );
+
+    // Build referral link
+    const baseUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'https://yourapp.com';
+    const referralLink = `${baseUrl}/signup?referral=${user.referralCode}`;
+
+    // Build response data
+    const responseData = {
+      referralCode: user.referralCode,
+      referralLink,
+      totalReferrals,
+      referralLimit,
+      remainingReferrals,
+      referralLimitReached,
+      referralStats: {
+        activeReferrals,
+        pendingReferrals,
+        completedReferrals,
+        cancelledReferrals,
+      },
+      earnings: {
+        totalEarnings: Math.round(totalEarnings * 100) / 100,
+        totalCommission: Math.round(totalCommission * 100) / 100,
+        availableBalance: Math.round(availableBalance * 100) / 100,
+        totalWithdrawn: Math.round(totalWithdrawn * 100) / 100,
+      },
+      purchases: {
+        totalProducts,
+        totalPurchaseValue: Math.round(totalPurchaseValue * 100) / 100,
+      },
+    };
+
+    // If detailed view is requested, include referred users list
+    if (includeDetails) {
+      const referredUsersDetailed = await Promise.all(
+        referredUsers.map(async (refUser) => {
+          const referral = await Referral.findOne({
+            referrer: userId,
+            referredUser: refUser._id,
+          });
+
+          let totalProducts = 0;
+          let totalCommission = 0;
+          let status = 'PENDING';
+
+          if (referral) {
+            totalProducts = referral.purchases ? referral.purchases.length : 0;
+            totalCommission = referral.purchases
+              ? referral.purchases.reduce((sum, p) =>
+                  sum + ((p.commissionPerDay || 0) * (p.paidDays || 0)), 0
+                )
+              : 0;
+            status = referral.status;
+          }
+
+          return {
+            id: refUser._id,
+            name: refUser.name,
+            email: refUser.email,
+            profilePicture: refUser.profilePicture || '',
+            joinedAt: refUser.createdAt,
+            status,
+            totalProducts,
+            totalCommission: Math.round(totalCommission * 100) / 100,
+          };
+        })
+      );
+
+      responseData.referredUsers = referredUsersDetailed;
+    }
+
+    return res.json({
+      success: true,
+      data: responseData,
+      message: "Referral statistics retrieved successfully",
+    });
+
+  } catch (error) {
+    console.error("Error in getComprehensiveReferralStats:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
