@@ -27,9 +27,15 @@ async function getAllSubcategoryIds(categoryId) {
       return [categoryId];
     }
 
-    const category = await Category.findById(categoryId).select('subCategories');
+    const category = await Category.findById(categoryId).select(
+      "subCategories"
+    );
 
-    if (!category || !category.subCategories || category.subCategories.length === 0) {
+    if (
+      !category ||
+      !category.subCategories ||
+      category.subCategories.length === 0
+    ) {
       return [categoryId]; // Return only the category itself if no subcategories
     }
 
@@ -38,13 +44,15 @@ async function getAllSubcategoryIds(categoryId) {
     // Recursively get subcategories for each child
     for (const subCategoryId of category.subCategories) {
       const childIds = await getAllSubcategoryIds(subCategoryId);
-      allIds = allIds.concat(childIds.filter(id => id.toString() !== categoryId.toString()));
+      allIds = allIds.concat(
+        childIds.filter((id) => id.toString() !== categoryId.toString())
+      );
     }
 
     // Remove duplicates
-    return [...new Set(allIds.map(id => id.toString()))];
+    return [...new Set(allIds.map((id) => id.toString()))];
   } catch (error) {
-    console.error('Error in getAllSubcategoryIds:', error);
+    console.error("Error in getAllSubcategoryIds:", error);
     return [categoryId]; // Fallback to just the category ID
   }
 }
@@ -98,6 +106,7 @@ exports.createProduct = async (req, res) => {
     // Set default values for nested objects
     const productData = {
       ...req.body,
+
       availability: {
         isAvailable: true,
         stockQuantity: 0,
@@ -105,42 +114,44 @@ exports.createProduct = async (req, res) => {
         stockStatus: "in_stock",
         ...req.body.availability,
       },
+
       pricing: {
         currency: "USD",
         finalPrice:
           req.body.pricing?.salePrice || req.body.pricing?.regularPrice || 0,
         ...req.body.pricing,
       },
-      regionalPricing: req.body.regionalPricing || [],
-      regionalSeo: req.body.regionalSeo || [],
-      regionalAvailability: req.body.regionalAvailability || [
-        {
-          region: "global",
-          stockQuantity: req.body.availability?.stockQuantity || 0,
-          lowStockLevel: req.body.availability?.lowStockLevel || 10,
-          isAvailable:
-            req.body.availability?.isAvailable !== undefined
-              ? req.body.availability.isAvailable
-              : true,
-          stockStatus: req.body.availability?.stockStatus || "in_stock",
-        },
-      ],
+
+      // 🔥 FIX: Global products must NOT create fake "global" region rows
+      regionalPricing: req.body.isGlobalProduct
+        ? []
+        : req.body.regionalPricing || [],
+
+      regionalSeo: req.body.isGlobalProduct ? [] : req.body.regionalSeo || [],
+
+      regionalAvailability: req.body.isGlobalProduct
+        ? []
+        : req.body.regionalAvailability || [],
+
       relatedProducts: req.body.relatedProducts || [],
-      plans: req.body.plans || [], // Admin-created investment plans
+      plans: req.body.plans || [],
+
       status: req.body.status || "draft",
+      createdByEmail: req.user.email,
+      updatedByEmail: req.user.email,
+
       createdAt: new Date(),
       updatedAt: new Date(),
     };
+
     // Handle variants if provided
     productData.hasVariants = !!req.body.hasVariants;
     if (productData.hasVariants) {
       if (!Array.isArray(req.body.variants) || req.body.variants.length === 0) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: "variants array is required when hasVariants is true",
-          });
+        return res.status(400).json({
+          success: false,
+          message: "variants array is required when hasVariants is true",
+        });
       }
 
       // Normalize variants: ensure variantId and sku exist, validate price
@@ -167,13 +178,21 @@ exports.createProduct = async (req, res) => {
         return {
           variantId,
           sku,
-          attributes: v.attributes || {},
-          description: v.description || {},
+
+          attributes: v.attributes !== undefined ? v.attributes : {},
+
+          description: v.description !== undefined ? v.description : {},
+
           price: v.price,
-          salePrice: v.salePrice,
-          paymentPlan: v.paymentPlan || {},
-          stock: v.stock || 0,
-          images: v.images || [],
+
+          salePrice: v.salePrice !== undefined ? v.salePrice : undefined,
+
+          paymentPlan: v.paymentPlan !== undefined ? v.paymentPlan : {},
+
+          stock: v.stock !== undefined ? v.stock : 0, // ✅ allows 0 intentionally
+
+          images: v.images !== undefined ? v.images : [], // ✅ explicit, safe
+
           isActive: v.isActive !== undefined ? v.isActive : true,
         };
       });
@@ -231,7 +250,9 @@ exports.getAllProducts = async (req, res) => {
     // ===============================
     // ADMIN OVERRIDE (OPTION D FIX)
     // ===============================
-    const isAdmin = req.user && (req.user.role === "admin" || req.user.role === "super_admin");
+    const isAdmin =
+      req.user &&
+      (req.user.role === "admin" || req.user.role === "super_admin");
 
     if (!isAdmin) {
       // Apply soft delete filter for normal users
@@ -271,15 +292,15 @@ exports.getAllProducts = async (req, res) => {
       const categoryFilter = {
         $or: [
           { "category.mainCategoryId": { $in: allCategoryIds } },
-          { "category.subCategoryId": { $in: allCategoryIds } }
-        ]
+          { "category.subCategoryId": { $in: allCategoryIds } },
+        ],
       };
 
       if (filter.$or) {
         // If search filter exists, use $and to combine
         filter.$and = [
           { $or: filter.$or }, // Search filter
-          categoryFilter // Category filter
+          categoryFilter, // Category filter
         ];
         delete filter.$or;
       } else {
@@ -306,25 +327,25 @@ exports.getAllProducts = async (req, res) => {
             {
               // Products specifically available in user's region
               "regionalAvailability.region": userRegion,
-              "regionalAvailability.isAvailable": true
+              "regionalAvailability.isAvailable": true,
             },
             {
               // Products marked as "global" region
               "regionalAvailability.region": "global",
-              "regionalAvailability.isAvailable": true
+              "regionalAvailability.isAvailable": true,
             },
             {
               // Products with no regional restrictions (empty array)
-              regionalAvailability: { $exists: true, $size: 0 }
-            }
-          ]
+              regionalAvailability: { $exists: true, $size: 0 },
+            },
+          ],
         };
 
         // Merge with existing $or filter from search if present
         if (filter.$or) {
           filter.$and = [
             { $or: filter.$or }, // Search filter
-            regionFilter // Region filter
+            regionFilter, // Region filter
           ];
           delete filter.$or;
         } else {
@@ -368,7 +389,6 @@ exports.getAllProducts = async (req, res) => {
     });
   }
 };
-
 
 // Add this new endpoint for stats
 exports.getProductStats = async (req, res) => {
@@ -475,26 +495,37 @@ exports.updateProduct = async (req, res) => {
         .json({ success: false, message: "Product not found" });
     }
 
+    // Ensure variants array always exists
+    if (!Array.isArray(product.variants)) {
+      product.variants = [];
+    }
+
     // Update hasVariants
     if (req.body.hasVariants !== undefined) {
       product.hasVariants = !!req.body.hasVariants;
     }
 
-    // Handle variants
-    if (req.body.variants) {
-      if (!Array.isArray(req.body.variants)) {
-        return res
-          .status(400)
-          .json({ success: false, message: "variants must be an array" });
-      }
+    /* ============================================================
+       VARIANTS — SAFE MERGE (IMAGE SAFE)
+    ============================================================ */
+    if (Array.isArray(req.body.variants)) {
+      const updatedVariants = [];
 
-      const normalizedVariants = req.body.variants.map((v, idx) => {
+      for (let idx = 0; idx < req.body.variants.length; idx++) {
+        const v = req.body.variants[idx];
+
+        const existingVariant = product.variants.find(
+          (ev) => ev.variantId === v.variantId
+        );
+
         const timestamp = Date.now().toString().slice(-6);
         const random = Math.floor(Math.random() * 1000)
           .toString()
           .padStart(3, "0");
+
         const variantId =
           v.variantId ||
+          existingVariant?.variantId ||
           `VAR${timestamp}${random}${idx.toString().padStart(2, "0")}`;
 
         const skuBase =
@@ -502,7 +533,11 @@ exports.updateProduct = async (req, res) => {
           product.sku ||
           product.productId ||
           `PROD${timestamp}`;
-        const sku = v.sku || `${skuBase}-V${idx + 1}-${variantId.slice(-4)}`;
+
+        const sku =
+          v.sku ||
+          existingVariant?.sku ||
+          `${skuBase}-V${idx + 1}-${variantId.slice(-4)}`;
 
         if (v.price === undefined || v.price === null) {
           throw new Error(
@@ -510,24 +545,51 @@ exports.updateProduct = async (req, res) => {
           );
         }
 
-        return {
+        updatedVariants.push({
           variantId,
           sku,
-          attributes: v.attributes || {},
-          description: v.description || {},
-          price: v.price,
-          salePrice: v.salePrice,
-          paymentPlan: v.paymentPlan || {},
-          stock: v.stock || 0, // ✅ PRESERVE variant stock exactly as provided
-          images: v.images || [],
-          isActive: v.isActive !== undefined ? v.isActive : true,
-        };
-      });
 
-      product.variants = normalizedVariants;
+          attributes:
+            v.attributes !== undefined
+              ? v.attributes
+              : existingVariant?.attributes || {},
+
+          description:
+            v.description !== undefined
+              ? v.description
+              : existingVariant?.description || {},
+
+          price: v.price,
+
+          salePrice:
+            v.salePrice !== undefined
+              ? v.salePrice
+              : existingVariant?.salePrice,
+
+          paymentPlan:
+            v.paymentPlan !== undefined
+              ? v.paymentPlan
+              : existingVariant?.paymentPlan || {},
+
+          stock: v.stock !== undefined ? v.stock : existingVariant?.stock ?? 0,
+
+          // 🔥 IMAGE PRESERVATION (CRITICAL)
+          images:
+            v.images !== undefined ? v.images : existingVariant?.images || [],
+
+          isActive:
+            v.isActive !== undefined
+              ? v.isActive
+              : existingVariant?.isActive ?? true,
+        });
+      }
+
+      product.variants = updatedVariants;
     }
 
-    // Safe shallow merge for normal fields
+    /* ============================================================
+       SAFE SHALLOW MERGE — NON VARIANT FIELDS
+    ============================================================ */
     const updatableFields = [
       "name",
       "description",
@@ -548,6 +610,7 @@ exports.updateProduct = async (req, res) => {
       "warranty",
       "seo",
       "status",
+      "isGlobalProduct",
     ];
 
     updatableFields.forEach((field) => {
@@ -556,14 +619,12 @@ exports.updateProduct = async (req, res) => {
       }
     });
 
-    // ============================================================
-    // ✅ FIXED STOCK HANDLING — NEW LOGIC
-    // ============================================================
-    // Determine if stock update was requested by checking multiple possible field locations
+    /* ============================================================
+       STOCK HANDLING — UNCHANGED
+    ============================================================ */
     let stockUpdateRequested = false;
     let newStock = null;
 
-    // Priority order: availability.stockQuantity > stock > pricing.stock (legacy)
     if (
       req.body.availability &&
       req.body.availability.stockQuantity !== undefined
@@ -573,20 +634,14 @@ exports.updateProduct = async (req, res) => {
     } else if (req.body.stock !== undefined) {
       newStock = Number(req.body.stock);
       stockUpdateRequested = true;
-    } else if (
-      req.body.pricing &&
-      req.body.pricing.stock !== undefined
-    ) {
+    } else if (req.body.pricing && req.body.pricing.stock !== undefined) {
       newStock = Number(req.body.pricing.stock);
       stockUpdateRequested = true;
     }
 
-    // If stock update was requested, update both main availability and regional global
     if (stockUpdateRequested && !isNaN(newStock)) {
-      // Update main product availability
       product.availability.stockQuantity = newStock;
 
-      // ✅ Recalculate stockStatus based on new stockQuantity
       if (newStock <= 0) {
         product.availability.stockStatus = "out_of_stock";
       } else if (newStock <= (product.availability.lowStockLevel || 10)) {
@@ -595,7 +650,6 @@ exports.updateProduct = async (req, res) => {
         product.availability.stockStatus = "in_stock";
       }
 
-      // ✅ Sync to regional availability (global region only)
       if (Array.isArray(product.regionalAvailability)) {
         const globalRegion = product.regionalAvailability.find(
           (r) => r.region === "global"
@@ -605,15 +659,10 @@ exports.updateProduct = async (req, res) => {
           globalRegion.stockStatus = product.availability.stockStatus;
         }
       }
-
-      // ✅ NOTE: Do NOT overwrite variants[].stock from product-level stock
-      // Variant stock is independent and managed via req.body.variants
     }
-    // ============================================================
-    // ✅ END OF FIXED STOCK HANDLING
-    // ============================================================
 
     product.updatedAt = new Date();
+    product.updatedByEmail = req.user.email;
     await product.save();
 
     res.json({
@@ -663,7 +712,8 @@ exports.deleteProduct = async (req, res) => {
     // Soft delete the product
     product.isDeleted = true;
     product.deletedAt = new Date();
-    product.deletedBy = req.user?._id || null;
+    product.deletedByEmail = req.user.email;
+    product.updatedByEmail = req.user.email;
     await product.save();
 
     res.json({
@@ -703,7 +753,11 @@ exports.restoreProduct = async (req, res) => {
 
     product.isDeleted = false;
     product.deletedAt = null;
-    product.deletedBy = null;
+    product.deletedByEmail = null;
+
+    product.restoredAt = new Date();
+    product.restoredByEmail = req.user.email;
+    product.updatedByEmail = req.user.email;
     await product.save();
 
     res.json({
@@ -731,8 +785,8 @@ exports.getProductsByCategory = async (req, res) => {
     const filter = {
       $or: [
         { "category.mainCategoryId": { $in: allCategoryIds } },
-        { "category.subCategoryId": { $in: allCategoryIds } }
-      ]
+        { "category.subCategoryId": { $in: allCategoryIds } },
+      ],
     };
 
     if (region && region !== "all" && region !== "global") {
@@ -832,15 +886,15 @@ exports.getProductsByRegion = async (req, res) => {
       const categoryFilter = {
         $or: [
           { "category.mainCategoryId": { $in: allCategoryIds } },
-          { "category.subCategoryId": { $in: allCategoryIds } }
-        ]
+          { "category.subCategoryId": { $in: allCategoryIds } },
+        ],
       };
 
       if (filter.$or) {
         // If search filter exists, use $and to combine
         filter.$and = [
           { $or: filter.$or }, // Search filter
-          categoryFilter // Category filter
+          categoryFilter, // Category filter
         ];
         delete filter.$or;
       } else {
@@ -1475,15 +1529,15 @@ exports.searchProductsAdvanced = async (req, res) => {
       const categoryFilter = {
         $or: [
           { "category.mainCategoryId": { $in: allCategoryIds } },
-          { "category.subCategoryId": { $in: allCategoryIds } }
-        ]
+          { "category.subCategoryId": { $in: allCategoryIds } },
+        ],
       };
 
       if (filter.$or) {
         // If search filter exists, use $and to combine
         filter.$and = [
           { $or: filter.$or }, // Search filter
-          categoryFilter // Category filter
+          categoryFilter, // Category filter
         ];
         delete filter.$or;
       } else {
@@ -1882,15 +1936,15 @@ exports.getAllProductsForAdmin = async (req, res) => {
       const categoryFilter = {
         $or: [
           { "category.mainCategoryId": { $in: allCategoryIds } },
-          { "category.subCategoryId": { $in: allCategoryIds } }
-        ]
+          { "category.subCategoryId": { $in: allCategoryIds } },
+        ],
       };
 
       if (filter.$or) {
         // If search filter exists, use $and to combine
         filter.$and = [
           { $or: filter.$or }, // Search filter
-          categoryFilter // Category filter
+          categoryFilter, // Category filter
         ];
         delete filter.$or;
       } else {
@@ -1917,7 +1971,6 @@ exports.getAllProductsForAdmin = async (req, res) => {
     }
 
     const products = await Product.find(filter)
-      .populate("deletedBy", "name email")
       .sort({ createdAt: -1 })
       .limit(parseInt(limit))
       .skip((parseInt(page) - 1) * parseInt(limit));
@@ -1938,8 +1991,8 @@ exports.getAllProductsForAdmin = async (req, res) => {
         status: status || "all",
         category: category || "all",
         hasVariants: hasVariants || "all",
-        showDeleted: showDeleted === "true"
-      }
+        showDeleted: showDeleted === "true",
+      },
     });
   } catch (error) {
     res.status(500).json({
@@ -2304,64 +2357,71 @@ exports.reorderVariantImages = async (req, res) => {
 exports.exportProducts = async (req, res) => {
   try {
     const {
-      format = 'excel',
+      format = "excel",
       status,
       category,
       region,
       brand,
       hasVariants,
-      search
+      search,
     } = req.query;
 
     // Build filter (same as existing response format)
     const filter = { isDeleted: false };
 
     if (status) filter.status = status;
-    if (category) filter['category.mainCategoryId'] = category;
+    if (category) filter["category.mainCategoryId"] = category;
     if (brand) filter.brand = brand;
 
-    if (hasVariants === 'true') {
+    if (hasVariants === "true") {
       filter.hasVariants = true;
-    } else if (hasVariants === 'false') {
+    } else if (hasVariants === "false") {
       filter.hasVariants = false;
     }
 
     if (search) {
       filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } }
+        { name: { $regex: search, $options: "i" } },
+        { description: { $regex: search, $options: "i" } },
       ];
     }
 
-    if (region && region !== 'all' && region !== 'global') {
-      filter['regionalAvailability.region'] = region;
-      filter['regionalAvailability.isAvailable'] = true;
+    if (region && region !== "all" && region !== "global") {
+      filter["regionalAvailability.region"] = region;
+      filter["regionalAvailability.isAvailable"] = true;
     }
 
-    if (format === 'csv') {
+    if (format === "csv") {
       // Export as CSV
       const csvData = await exportProductsToCSV(filter);
 
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="products-${Date.now()}.csv"`);
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="products-${Date.now()}.csv"`
+      );
       res.send(csvData);
-
     } else {
       // Export as Excel (default)
       const workbook = await exportProductsToExcel(filter);
 
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('Content-Disposition', `attachment; filename="products-${Date.now()}.xlsx"`);
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      );
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="products-${Date.now()}.xlsx"`
+      );
 
       await workbook.xlsx.write(res);
       res.end();
     }
-
   } catch (error) {
-    console.error('Export error:', error);
+    console.error("Export error:", error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
