@@ -69,6 +69,9 @@ router.put('/:categoryId/toggle-featured', verifyToken, isAdmin, categoryControl
 // Delete category (soft delete)
 router.delete('/:categoryId', verifyToken, isAdmin, categoryController.deleteCategory);
 
+// Hard delete category (permanent deletion)
+router.delete('/:categoryId/hard', verifyToken, isAdmin, categoryController.hardDeleteCategory);
+
 // Bulk reorder categories
 router.put('/bulk/reorder', verifyToken, isAdmin, categoryController.reorderCategories);
 

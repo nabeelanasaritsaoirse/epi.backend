@@ -1153,3 +1153,67 @@ exports.exportCategories = async (req, res) => {
     });
   }
 };
+
+/**
+ * @desc    Hard delete category (permanently removes from database)
+ * @route   DELETE /api/categories/:categoryId/hard
+ * @access  Admin
+ */
+exports.hardDeleteCategory = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+    const { confirmDelete } = req.query;
+
+    // Safety check - require explicit confirmation
+    if (confirmDelete !== 'true') {
+      return res.status(400).json({
+        success: false,
+        message: 'Hard delete requires confirmDelete=true query parameter for safety',
+      });
+    }
+
+    const category = await Category.findById(categoryId);
+
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: 'Category not found',
+      });
+    }
+
+    // Check if category has subcategories
+    if (category.subCategories && category.subCategories.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot hard delete category with ${category.subCategories.length} subcategories. Delete subcategories first.`,
+        subcategoriesCount: category.subCategories.length,
+      });
+    }
+
+    // Remove from parent category's subCategories array if it has a parent
+    if (category.parentCategoryId) {
+      await Category.findByIdAndUpdate(category.parentCategoryId, {
+        $pull: { subCategories: categoryId },
+      });
+    }
+
+    // Permanently delete the category
+    await Category.findByIdAndDelete(categoryId);
+
+    res.status(200).json({
+      success: true,
+      message: 'Category permanently deleted from database',
+      deletedCategory: {
+        id: category._id,
+        name: category.name,
+        categoryId: category.categoryId,
+      },
+    });
+  } catch (error) {
+    console.error('Error hard deleting category:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};

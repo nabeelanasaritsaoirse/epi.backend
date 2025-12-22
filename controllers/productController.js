@@ -2425,3 +2425,93 @@ exports.exportProducts = async (req, res) => {
     });
   }
 };
+
+/**
+ * @desc    Hard delete product (permanently removes from database)
+ * @route   DELETE /api/products/:productId/hard
+ * @access  Admin
+ */
+exports.hardDeleteProduct = async (req, res) => {
+  try {
+    const id = req.params.productId;
+    const { confirmDelete } = req.query;
+
+    // Safety check - require explicit confirmation
+    if (confirmDelete !== 'true') {
+      return res.status(400).json({
+        success: false,
+        message: 'Hard delete requires confirmDelete=true query parameter for safety',
+      });
+    }
+
+    let product = await Product.findOne({ productId: id });
+    if (!product && mongoose.isValidObjectId(id)) {
+      product = await Product.findById(id);
+    }
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found',
+      });
+    }
+
+    // Delete all images from S3 if they exist
+    if (product.images && product.images.length > 0) {
+      for (const image of product.images) {
+        if (image.url) {
+          try {
+            await deleteImageFromS3(image.url);
+          } catch (error) {
+            console.error('Error deleting product image from S3:', error);
+            // Continue deletion even if S3 delete fails
+          }
+        }
+      }
+    }
+
+    // Delete variant images from S3 if they exist
+    if (product.variants && product.variants.length > 0) {
+      for (const variant of product.variants) {
+        if (variant.images && variant.images.length > 0) {
+          for (const image of variant.images) {
+            if (image.url) {
+              try {
+                await deleteImageFromS3(image.url);
+              } catch (error) {
+                console.error('Error deleting variant image from S3:', error);
+                // Continue deletion even if S3 delete fails
+              }
+            }
+          }
+        }
+      }
+    }
+
+    const deletedProduct = {
+      id: product._id,
+      productId: product.productId,
+      name: product.name,
+      sku: product.sku,
+    };
+
+    // Permanently delete the product
+    if (product.productId === id) {
+      await Product.deleteOne({ productId: id });
+    } else {
+      await Product.findByIdAndDelete(id);
+    }
+
+    res.json({
+      success: true,
+      message: 'Product permanently deleted from database',
+      deletedProduct,
+    });
+  } catch (error) {
+    console.error('Error hard deleting product:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
