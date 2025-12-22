@@ -407,6 +407,10 @@ productSchema.post("save", async function (doc) {
     if (doc.category && doc.category.mainCategoryId) {
       await updateCategoryProductCount(doc.category.mainCategoryId);
     }
+
+    // Sync featured lists when product is saved
+    const FeaturedList = require("./FeaturedList");
+    await FeaturedList.syncProductInAllLists(doc.productId);
   } catch (error) {
     console.error("Error in post-save hook:", error);
   }
@@ -418,6 +422,12 @@ productSchema.post("findOneAndUpdate", async function (doc) {
     if (doc && doc.category && doc.category.mainCategoryId) {
       await updateCategoryProductCount(doc.category.mainCategoryId);
     }
+
+    // Sync featured lists when product is updated
+    if (doc) {
+      const FeaturedList = require("./FeaturedList");
+      await FeaturedList.syncProductInAllLists(doc.productId);
+    }
   } catch (error) {
     console.error("Error in post-update hook:", error);
   }
@@ -428,6 +438,12 @@ productSchema.post("findOneAndDelete", async function (doc) {
   try {
     if (doc && doc.category && doc.category.mainCategoryId) {
       await updateCategoryProductCount(doc.category.mainCategoryId);
+    }
+
+    // Remove product from all featured lists when deleted
+    if (doc) {
+      const FeaturedList = require("./FeaturedList");
+      await FeaturedList.syncProductInAllLists(doc.productId);
     }
   } catch (error) {
     console.error("Error in post-delete hook:", error);
