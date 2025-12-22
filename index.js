@@ -42,6 +42,7 @@ const chatRoutes = require("./routes/chatRoutes");
 const adminChatRoutes = require("./routes/adminChatRoutes");
 const couponRoutes = require("./routes/couponRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
+const featuredListRoutes = require("./routes/featuredListRoutes");
 
 const app = express();
 
@@ -147,6 +148,9 @@ app.use("/api/cart", cartRoutes);
 app.use("/api/coupons", couponRoutes);
 app.use("/api/admin", dashboardRoutes);
 app.use("/api/admin/orders", require("./routes/adminOrders"));
+
+// FEATURED LISTS ROUTES
+app.use("/api/featured-lists", featuredListRoutes);
 
 // ADMIN MANAGEMENT ROUTES (Super admin only)
 app.use("/api/admin-auth", adminAuthRoutes);
