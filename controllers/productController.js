@@ -689,32 +689,32 @@ exports.deleteProduct = async (req, res) => {
   try {
     const id = req.params.productId;
 
-    let product = await Product.findOne({ productId: id });
-    if (!product && mongoose.isValidObjectId(id)) {
-      product = await Product.findById(id);
-    }
+    const query = mongoose.isValidObjectId(id)
+      ? { _id: id }
+      : { productId: id };
 
-    if (!product) {
+    const updated = await Product.findOneAndUpdate(
+      query,
+      {
+        $set: {
+          isDeleted: true,
+          deletedAt: new Date(),
+          deletedByEmail: req.user.email,
+          updatedByEmail: req.user.email,
+        },
+      },
+      {
+        new: true,
+        runValidators: false, // 🔥 THIS is the key
+      }
+    );
+
+    if (!updated) {
       return res.status(404).json({
         success: false,
         message: "Product not found",
       });
     }
-
-    // Check if already deleted
-    if (product.isDeleted) {
-      return res.status(400).json({
-        success: false,
-        message: "Product is already deleted",
-      });
-    }
-
-    // Soft delete the product
-    product.isDeleted = true;
-    product.deletedAt = new Date();
-    product.deletedByEmail = req.user.email;
-    product.updatedByEmail = req.user.email;
-    await product.save();
 
     res.json({
       success: true,
@@ -2437,10 +2437,11 @@ exports.hardDeleteProduct = async (req, res) => {
     const { confirmDelete } = req.query;
 
     // Safety check - require explicit confirmation
-    if (confirmDelete !== 'true') {
+    if (confirmDelete !== "true") {
       return res.status(400).json({
         success: false,
-        message: 'Hard delete requires confirmDelete=true query parameter for safety',
+        message:
+          "Hard delete requires confirmDelete=true query parameter for safety",
       });
     }
 
@@ -2452,7 +2453,7 @@ exports.hardDeleteProduct = async (req, res) => {
     if (!product) {
       return res.status(404).json({
         success: false,
-        message: 'Product not found',
+        message: "Product not found",
       });
     }
 
@@ -2463,7 +2464,7 @@ exports.hardDeleteProduct = async (req, res) => {
           try {
             await deleteImageFromS3(image.url);
           } catch (error) {
-            console.error('Error deleting product image from S3:', error);
+            console.error("Error deleting product image from S3:", error);
             // Continue deletion even if S3 delete fails
           }
         }
@@ -2479,7 +2480,7 @@ exports.hardDeleteProduct = async (req, res) => {
               try {
                 await deleteImageFromS3(image.url);
               } catch (error) {
-                console.error('Error deleting variant image from S3:', error);
+                console.error("Error deleting variant image from S3:", error);
                 // Continue deletion even if S3 delete fails
               }
             }
@@ -2504,11 +2505,11 @@ exports.hardDeleteProduct = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Product permanently deleted from database',
+      message: "Product permanently deleted from database",
       deletedProduct,
     });
   } catch (error) {
-    console.error('Error hard deleting product:', error);
+    console.error("Error hard deleting product:", error);
     res.status(500).json({
       success: false,
       message: error.message,

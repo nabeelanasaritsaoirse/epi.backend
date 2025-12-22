@@ -262,7 +262,9 @@ const productSchema = new mongoose.Schema({
 
   createdByEmail: {
     type: String,
-    required: true,
+    required: function () {
+      return this.isNew;
+    },
     index: true,
   },
 
@@ -286,9 +288,15 @@ const productSchema = new mongoose.Schema({
 });
 
 productSchema.pre("save", function (next) {
+  // Skip heavy logic for deletes/restores
+  if (this.isModified("isDeleted")) {
+    this.updatedAt = Date.now();
+    return next();
+  }
+
   this.updatedAt = Date.now();
 
-  // Auto-calculate totalAmount for each plan
+  // plans
   if (this.plans && this.plans.length > 0) {
     this.plans.forEach((plan) => {
       if (plan.days && plan.perDayAmount) {
@@ -297,18 +305,19 @@ productSchema.pre("save", function (next) {
     });
   }
 
+  // regional pricing
   if (this.regionalPricing && this.regionalPricing.length > 0) {
     this.regionalPricing.forEach((pricing) => {
       if (!pricing.finalPrice) {
-        if (pricing.salePrice && pricing.salePrice > 0) {
-          pricing.finalPrice = pricing.salePrice;
-        } else {
-          pricing.finalPrice = pricing.regularPrice;
-        }
+        pricing.finalPrice =
+          pricing.salePrice && pricing.salePrice > 0
+            ? pricing.salePrice
+            : pricing.regularPrice;
       }
     });
   }
 
+  // regional availability
   if (this.regionalAvailability && this.regionalAvailability.length > 0) {
     this.regionalAvailability.forEach((availability) => {
       if (!availability.stockStatus) {
@@ -323,14 +332,15 @@ productSchema.pre("save", function (next) {
     });
   }
 
+  // pricing
   if (this.pricing && !this.pricing.finalPrice) {
-    if (this.pricing.salePrice && this.pricing.salePrice > 0) {
-      this.pricing.finalPrice = this.pricing.salePrice;
-    } else {
-      this.pricing.finalPrice = this.pricing.regularPrice;
-    }
+    this.pricing.finalPrice =
+      this.pricing.salePrice && this.pricing.salePrice > 0
+        ? this.pricing.salePrice
+        : this.pricing.regularPrice;
   }
 
+  // availability
   if (this.availability && !this.availability.stockStatus) {
     if (this.availability.stockQuantity <= 0) {
       this.availability.stockStatus = "out_of_stock";
