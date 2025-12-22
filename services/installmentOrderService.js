@@ -142,7 +142,8 @@ async function createOrder(orderData) {
     });
 
     if (!coupon) throw new Error(`Coupon '${couponCode}' not found`);
-    if (!coupon.isActive) throw new Error(`Coupon '${couponCode}' is not active`);
+    if (!coupon.isActive)
+      throw new Error(`Coupon '${couponCode}' is not active`);
     if (new Date() > coupon.expiryDate)
       throw new Error(`Coupon '${couponCode}' has expired`);
 
@@ -423,7 +424,6 @@ async function createOrder(orderData) {
   }
 }
 
-
 /**
  * Get order by ID
  *
@@ -466,7 +466,18 @@ async function getUserOrders(userId, options = {}) {
  * @returns {Promise<Array>} Array of completed orders
  */
 async function getCompletedOrders(options = {}) {
-  return InstallmentOrder.getCompletedOrders(options);
+  const { deliveryStatus, limit = 50, skip = 0 } = options;
+
+  const query = { status: "COMPLETED" };
+  if (deliveryStatus) query.deliveryStatus = deliveryStatus;
+
+  return InstallmentOrder.find(query)
+    .sort({ completedAt: -1 })
+    .limit(limit)
+    .skip(skip)
+    .populate("user", "name email phoneNumber")
+    .populate("product", "name images pricing")
+    .populate("referrer", "name email");
 }
 
 /**
