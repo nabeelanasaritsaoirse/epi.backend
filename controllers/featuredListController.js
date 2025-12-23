@@ -277,8 +277,10 @@ exports.addProductToList = async (req, res) => {
 
     list.products.push({
       productId: product.productId,
+      productMongoId: product._id,
       order: newOrder,
       productName: product.name,
+      brand: product.brand || null,
       productImage: product.images?.[0]?.url || product.images?.[0] || null,
       price: product.pricing?.regularPrice || 0,
       finalPrice: product.pricing?.finalPrice || 0,
