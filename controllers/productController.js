@@ -1490,6 +1490,7 @@ exports.getProductsByProject = async (req, res) => {
 exports.searchProductsAdvanced = async (req, res) => {
   try {
     const {
+      q,
       query,
       region = "global",
       category,
@@ -1503,19 +1504,22 @@ exports.searchProductsAdvanced = async (req, res) => {
       limit = 10,
     } = req.query;
 
+    // Support both 'q' and 'query' parameters
+    const searchQuery = q || query;
+
     const filter = {
       isDeleted: false,
       status: { $in: ["active", "published"] }
     };
 
-    if (query) {
+    if (searchQuery) {
       filter.$or = [
-        { name: { $regex: query, $options: "i" } },
-        { "description.short": { $regex: query, $options: "i" } },
-        { "description.long": { $regex: query, $options: "i" } },
-        { "regionalSeo.metaTitle": { $regex: query, $options: "i" } },
-        { "regionalSeo.metaDescription": { $regex: query, $options: "i" } },
-        { "regionalSeo.keywords": { $in: [new RegExp(query, "i")] } },
+        { name: { $regex: searchQuery, $options: "i" } },
+        { "description.short": { $regex: searchQuery, $options: "i" } },
+        { "description.long": { $regex: searchQuery, $options: "i" } },
+        { "regionalSeo.metaTitle": { $regex: searchQuery, $options: "i" } },
+        { "regionalSeo.metaDescription": { $regex: searchQuery, $options: "i" } },
+        { "regionalSeo.keywords": { $in: [new RegExp(searchQuery, "i")] } },
       ];
     }
 
