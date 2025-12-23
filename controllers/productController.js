@@ -604,7 +604,6 @@ exports.updateProduct = async (req, res) => {
       "plans",
       "origin",
       "referralBonus",
-      "images",
       "project",
       "dimensions",
       "warranty",
