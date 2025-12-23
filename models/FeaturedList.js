@@ -6,6 +6,10 @@ const featuredProductSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    productMongoId: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: true,
+    },
     order: {
       type: Number,
       required: true,
@@ -15,6 +19,10 @@ const featuredProductSchema = new mongoose.Schema(
     productName: {
       type: String,
       required: true,
+    },
+    brand: {
+      type: String,
+      default: null,
     },
     productImage: {
       type: String,
@@ -157,7 +165,9 @@ featuredListSchema.methods.syncProduct = async function (productId) {
 
   const productInList = this.products.find((p) => p.productId === productId);
   if (productInList) {
+    productInList.productMongoId = product._id;
     productInList.productName = product.name;
+    productInList.brand = product.brand || null;
     productInList.productImage =
       product.images?.[0]?.url || product.images?.[0] || null;
     productInList.price = product.pricing?.regularPrice || 0;
@@ -191,7 +201,9 @@ featuredListSchema.statics.syncProductInAllLists = async function (productId) {
   for (const list of lists) {
     const productInList = list.products.find((p) => p.productId === productId);
     if (productInList) {
+      productInList.productMongoId = product._id;
       productInList.productName = product.name;
+      productInList.brand = product.brand || null;
       productInList.productImage =
         product.images?.[0]?.url || product.images?.[0] || null;
       productInList.price = product.pricing?.regularPrice || 0;
