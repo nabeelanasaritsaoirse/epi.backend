@@ -419,8 +419,14 @@ async function createOrder(orderData) {
         : null,
     };
   } catch (error) {
-    console.error("\n❌ Order creation failed!", error);
-    throw new TransactionFailedError(error.message);
+    console.error("\n❌ Order creation failed!");
+    console.error("Error name:", error.name);
+    console.error("Error message:", error.message);
+    console.error("Error stack:", error.stack);
+
+    // Provide more specific error message
+    const errorMessage = error.message || 'Database transaction failed';
+    throw new TransactionFailedError(errorMessage);
   }
 }
 

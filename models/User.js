@@ -107,6 +107,22 @@ const userSchema = new Schema({
       type: Number,
       default: 0
     },
+    holdBalance: {
+      type: Number,
+      default: 0
+    },
+    referralBonus: {
+      type: Number,
+      default: 0
+    },
+    investedAmount: {
+      type: Number,
+      default: 0
+    },
+    requiredInvestment: {
+      type: Number,
+      default: 0
+    },
     transactions: [{
       type: {
         type: String,
@@ -312,6 +328,10 @@ const userSchema = new Schema({
     default: 0
   },
   availableBalance: {
+    type: Number,
+    default: 0
+  },
+  totalBalance: {
     type: Number,
     default: 0
   },

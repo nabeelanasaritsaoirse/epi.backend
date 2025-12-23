@@ -181,7 +181,7 @@ router.post("/", verifyToken, async (req, res) => {
 
       await tx.save();
 
-      user.wallet.balance -= finalPrice;
+      user.wallet.balance = (user.wallet.balance || 0) - finalPrice;
       await user.save();
 
       order.paymentStatus = "completed";

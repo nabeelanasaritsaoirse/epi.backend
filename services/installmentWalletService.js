@@ -32,9 +32,9 @@ async function getWalletBalance(userId) {
   }
 
   return {
-    totalBalance: user.wallet.balance + user.wallet.holdBalance,
-    availableBalance: user.wallet.balance,
-    lockedBalance: user.wallet.holdBalance,
+    totalBalance: (user.wallet.balance || 0) + (user.wallet.holdBalance || 0),
+    availableBalance: user.wallet.balance || 0,
+    lockedBalance: user.wallet.holdBalance || 0,
     referralBonus: user.wallet.referralBonus || 0,
     investedAmount: user.wallet.investedAmount || 0
   };
@@ -55,8 +55,10 @@ async function getWalletBalance(userId) {
  * @throws {InsufficientWalletBalanceError} If insufficient balance
  */
 async function deductFromWallet(userId, amount, description, session, metadata = {}) {
-  // Get user with session lock
-  const user = await User.findById(userId).session(session);
+  // Get user with session lock (if session provided)
+  const user = session
+    ? await User.findById(userId).session(session)
+    : await User.findById(userId);
 
   if (!user) {
     throw new UserNotFoundError(userId);
@@ -69,9 +71,15 @@ async function deductFromWallet(userId, amount, description, session, metadata =
     throw new InsufficientWalletBalanceError(amount, availableBalance);
   }
 
-  // Deduct from wallet
-  user.wallet.balance -= amount;
-  await user.save({ session });
+  // Deduct from wallet (ensure field exists)
+  user.wallet.balance = (user.wallet.balance || 0) - amount;
+
+  // Save with or without session
+  if (session) {
+    await user.save({ session });
+  } else {
+    await user.save();
+  }
 
   // Create wallet transaction record
   const walletTransaction = new WalletTransaction({
@@ -86,7 +94,12 @@ async function deductFromWallet(userId, amount, description, session, metadata =
     }
   });
 
-  await walletTransaction.save({ session });
+  // Save transaction with or without session
+  if (session) {
+    await walletTransaction.save({ session });
+  } else {
+    await walletTransaction.save();
+  }
 
   return {
     user,
@@ -118,8 +131,10 @@ async function creditCommissionToWallet(
   paymentId,
   session
 ) {
-  // Get referrer with session lock
-  const referrer = await User.findById(referrerId).session(session);
+  // Get referrer with session lock (if session provided)
+  const referrer = session
+    ? await User.findById(referrerId).session(session)
+    : await User.findById(referrerId);
 
   if (!referrer) {
     throw new UserNotFoundError(referrerId);
@@ -128,12 +143,17 @@ async function creditCommissionToWallet(
   // Split commission: 90% available, 10% locked
   const { availableAmount, lockedAmount } = splitCommission(totalCommission);
 
-  // Credit to wallet
-  referrer.wallet.balance += availableAmount; // 90% available for withdrawal
-  referrer.wallet.holdBalance += lockedAmount; // 10% locked for investment
+  // Credit to wallet (ensure fields exist)
+  referrer.wallet.balance = (referrer.wallet.balance || 0) + availableAmount; // 90% available for withdrawal
+  referrer.wallet.holdBalance = (referrer.wallet.holdBalance || 0) + lockedAmount; // 10% locked for investment
   referrer.wallet.referralBonus = (referrer.wallet.referralBonus || 0) + totalCommission;
 
-  await referrer.save({ session });
+  // Save with or without session
+  if (session) {
+    await referrer.save({ session });
+  } else {
+    await referrer.save();
+  }
 
   // Create wallet transaction for available amount (90%)
   const walletTransaction = new WalletTransaction({
@@ -154,7 +174,12 @@ async function creditCommissionToWallet(
     }
   });
 
-  await walletTransaction.save({ session });
+  // Save transaction with or without session
+  if (session) {
+    await walletTransaction.save({ session });
+  } else {
+    await walletTransaction.save();
+  }
 
   // Create separate transaction record for locked amount (10%)
   const lockedTransaction = new WalletTransaction({
@@ -173,7 +198,12 @@ async function creditCommissionToWallet(
     }
   });
 
-  await lockedTransaction.save({ session });
+  // Save transaction with or without session
+  if (session) {
+    await lockedTransaction.save({ session });
+  } else {
+    await lockedTransaction.save();
+  }
 
   return {
     user: referrer,
@@ -207,15 +237,24 @@ async function addMoneyToWallet(
   session,
   metadata = {}
 ) {
-  const user = await User.findById(userId).session(session);
+  // Get user with session lock (if session provided)
+  const user = session
+    ? await User.findById(userId).session(session)
+    : await User.findById(userId);
 
   if (!user) {
     throw new UserNotFoundError(userId);
   }
 
-  // Add to available balance
-  user.wallet.balance += amount;
-  await user.save({ session });
+  // Add to available balance (ensure field exists)
+  user.wallet.balance = (user.wallet.balance || 0) + amount;
+
+  // Save with or without session
+  if (session) {
+    await user.save({ session });
+  } else {
+    await user.save();
+  }
 
   // Create transaction record
   const walletTransaction = new WalletTransaction({
@@ -230,7 +269,12 @@ async function addMoneyToWallet(
     }
   });
 
-  await walletTransaction.save({ session });
+  // Save transaction with or without session
+  if (session) {
+    await walletTransaction.save({ session });
+  } else {
+    await walletTransaction.save();
+  }
 
   return {
     user,
