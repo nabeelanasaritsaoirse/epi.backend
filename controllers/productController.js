@@ -1503,7 +1503,10 @@ exports.searchProductsAdvanced = async (req, res) => {
       limit = 10,
     } = req.query;
 
-    const filter = {};
+    const filter = {
+      isDeleted: false,
+      status: { $in: ["active", "published"] }
+    };
 
     if (query) {
       filter.$or = [
