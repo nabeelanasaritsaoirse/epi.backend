@@ -37,7 +37,7 @@ exports.createList = async (req, res) => {
       isActive: isActive !== undefined ? isActive : true,
       displayOrder: displayOrder || 0,
       products: [],
-      createdBy: req.user.userId,
+      createdBy: req.user._id,
       createdByEmail: req.user.email,
     });
 
@@ -171,7 +171,7 @@ exports.updateList = async (req, res) => {
     if (isActive !== undefined) list.isActive = isActive;
     if (displayOrder !== undefined) list.displayOrder = displayOrder;
 
-    list.updatedBy = req.user.userId;
+    list.updatedBy = req.user._id;
     list.updatedByEmail = req.user.email;
 
     await list.save();
@@ -209,7 +209,7 @@ exports.deleteList = async (req, res) => {
 
     list.isDeleted = true;
     list.deletedAt = Date.now();
-    list.deletedBy = req.user.userId;
+    list.deletedBy = req.user._id;
     list.deletedByEmail = req.user.email;
 
     await list.save();
@@ -285,7 +285,7 @@ exports.addProductToList = async (req, res) => {
       lastSynced: Date.now(),
     });
 
-    list.updatedBy = req.user.userId;
+    list.updatedBy = req.user._id;
     list.updatedByEmail = req.user.email;
 
     await list.save(); // This will auto-normalize orders
@@ -334,7 +334,7 @@ exports.removeProductFromList = async (req, res) => {
 
     list.products.splice(productIndex, 1);
 
-    list.updatedBy = req.user.userId;
+    list.updatedBy = req.user._id;
     list.updatedByEmail = req.user.email;
 
     await list.save(); // This will auto-normalize remaining orders
@@ -386,7 +386,7 @@ exports.reorderProducts = async (req, res) => {
       }
     });
 
-    list.updatedBy = req.user.userId;
+    list.updatedBy = req.user._id;
     list.updatedByEmail = req.user.email;
 
     await list.save(); // This will auto-normalize orders
@@ -431,7 +431,7 @@ exports.syncProductInList = async (req, res) => {
       });
     }
 
-    list.updatedBy = req.user.userId;
+    list.updatedBy = req.user._id;
     list.updatedByEmail = req.user.email;
 
     await list.save();
@@ -473,7 +473,7 @@ exports.syncAllProductsInList = async (req, res) => {
       await list.syncProduct(productId);
     }
 
-    list.updatedBy = req.user.userId;
+    list.updatedBy = req.user._id;
     list.updatedByEmail = req.user.email;
 
     await list.save();
