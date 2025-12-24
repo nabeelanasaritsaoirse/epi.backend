@@ -1,6 +1,7 @@
 // services/walletCalculator.js
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
+const WalletTransaction = require("../models/WalletTransaction");
 
 /**
  * Recalculate wallet fields for a user according to rules:
@@ -12,15 +13,17 @@ const Transaction = require("../models/Transaction");
  *     walletBalance = completedDeposits + refunds + withdrawableReferral - withdrawals - investmentAmount
  * - holdBalance = pendingDeposits + remainingRequiredInvestment
  *
+ * UPDATED: Now includes WalletTransaction model for installment order payments
  * The function does not create new transactions. It only computes totals
- * from Transaction documents and writes the calculated summary back into the User doc.
+ * from Transaction and WalletTransaction documents and writes the calculated summary back into the User doc.
  */
 module.exports = async function recalcWallet(userId) {
   const user = await User.findById(userId);
   if (!user) return null;
 
-  // Fetch all transactions for the user
+  // Fetch all transactions for the user from BOTH models
   const txns = await Transaction.find({ user: userId });
+  const walletTxns = await WalletTransaction.find({ user: userId });
 
   // Accumulators
   let completedDeposits = 0;
@@ -99,6 +102,50 @@ module.exports = async function recalcWallet(userId) {
 
       default:
         // ignore unknown types but safe-cast amounts if present
+        break;
+    }
+  }
+
+  // Process WalletTransaction records (from installment orders)
+  for (const wTx of walletTxns) {
+    const wType = (wTx.type || "").toString();
+    const wAmount = Math.abs(Number(wTx.amount || 0)); // Use absolute value
+
+    switch (wType) {
+      case 'withdrawal':
+        // Installment payment deduction (amount is negative in WalletTransaction)
+        if (wTx.status === 'completed') {
+          withdrawals += wAmount;
+        }
+        break;
+
+      case 'referral_bonus':
+        // Commission credit (90% portion)
+        if (wTx.status === 'completed') {
+          completedDeposits += wAmount;
+          commissionAmount += wAmount;
+        }
+        break;
+
+      case 'investment':
+        // Commission locked (10% portion)
+        if (wTx.status === 'completed') {
+          // This goes to holdBalance, handled by referral system
+          investmentAmount += wAmount;
+        }
+        break;
+
+      case 'deposit':
+      case 'bonus':
+        // Additional deposits via wallet
+        if (wTx.status === 'completed') {
+          completedDeposits += wAmount;
+          bonusAmount += wAmount;
+        }
+        break;
+
+      default:
+        // Ignore unknown types
         break;
     }
   }
