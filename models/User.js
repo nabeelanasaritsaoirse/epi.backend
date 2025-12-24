@@ -123,6 +123,17 @@ const userSchema = new Schema({
       type: Number,
       default: 0
     },
+    // NEW: Commission tracking for 10% in-app usage rule
+    commissionEarned: {
+      type: Number,
+      default: 0,
+      comment: 'Total commission earned from referrals (installment orders)'
+    },
+    commissionUsedInApp: {
+      type: Number,
+      default: 0,
+      comment: 'Amount of commission used for in-app purchases (installment orders)'
+    },
     transactions: [{
       type: {
         type: String,

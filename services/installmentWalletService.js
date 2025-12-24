@@ -74,6 +74,21 @@ async function deductFromWallet(userId, amount, description, session, metadata =
   // Deduct from wallet (ensure field exists)
   user.wallet.balance = (user.wallet.balance || 0) - amount;
 
+  // NEW: Track commission used in-app (if this is for installment order payment)
+  if (metadata && metadata.installmentNumber) {
+    // This is an installment payment, so track commission usage
+    const commissionEarned = user.wallet.commissionEarned || 0;
+    const commissionUsed = user.wallet.commissionUsedInApp || 0;
+
+    // Calculate how much of this payment is from commission balance
+    const commissionBalance = commissionEarned - commissionUsed;
+    const commissionUsedInThisPayment = Math.min(amount, commissionBalance);
+
+    if (commissionUsedInThisPayment > 0) {
+      user.wallet.commissionUsedInApp = commissionUsed + commissionUsedInThisPayment;
+    }
+  }
+
   // Save with or without session
   if (session) {
     await user.save({ session });
@@ -147,6 +162,9 @@ async function creditCommissionToWallet(
   referrer.wallet.balance = (referrer.wallet.balance || 0) + availableAmount; // 90% available for withdrawal
   referrer.wallet.holdBalance = (referrer.wallet.holdBalance || 0) + lockedAmount; // 10% locked for investment
   referrer.wallet.referralBonus = (referrer.wallet.referralBonus || 0) + totalCommission;
+
+  // NEW: Track commission earned for 10% in-app usage rule
+  referrer.wallet.commissionEarned = (referrer.wallet.commissionEarned || 0) + totalCommission;
 
   // Save with or without session
   if (session) {
