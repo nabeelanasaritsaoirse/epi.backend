@@ -165,6 +165,11 @@ async function processPayment(paymentData) {
     throw new PaymentAlreadyProcessedError(existingPayment.paymentId);
   }
 
+  // If payment exists but is PENDING (from order creation), update it instead of creating new
+  if (existingPayment && existingPayment.status === "PENDING") {
+    console.log(`✅ Found existing PENDING payment record, will update it instead of creating new`);
+  }
+
   // ========================================
   // 4. Verify Razorpay Signature (if Razorpay payment)
   // ========================================
@@ -211,24 +216,40 @@ async function processPayment(paymentData) {
     }
 
     // ========================================
-    // 7. Create Payment Record
+    // 7. Create or Update Payment Record
     // ========================================
-    const payment = new PaymentRecord({
-      order: order._id,
-      user: userId,
-      amount: paymentAmount,
-      installmentNumber,
-      paymentMethod,
-      razorpayOrderId: razorpayOrderId || null,
-      razorpayPaymentId: razorpayPaymentId || null,
-      razorpaySignature: razorpaySignature || null,
-      razorpayVerified: paymentMethod === "RAZORPAY" ? true : false,
-      walletTransactionId,
-      status: "COMPLETED",
-      idempotencyKey,
-      processedAt: new Date(),
-      completedAt: new Date(),
-    });
+    let payment;
+
+    if (existingPayment && existingPayment.status === "PENDING") {
+      // Update existing PENDING payment record
+      payment = existingPayment;
+      payment.razorpayPaymentId = razorpayPaymentId || null;
+      payment.razorpaySignature = razorpaySignature || null;
+      payment.razorpayVerified = paymentMethod === "RAZORPAY" ? true : false;
+      payment.walletTransactionId = walletTransactionId;
+      payment.status = "COMPLETED";
+      payment.processedAt = new Date();
+      payment.completedAt = new Date();
+      console.log(`✅ Updated existing PENDING payment to COMPLETED`);
+    } else {
+      // Create new payment record
+      payment = new PaymentRecord({
+        order: order._id,
+        user: userId,
+        amount: paymentAmount,
+        installmentNumber,
+        paymentMethod,
+        razorpayOrderId: razorpayOrderId || null,
+        razorpayPaymentId: razorpayPaymentId || null,
+        razorpaySignature: razorpaySignature || null,
+        razorpayVerified: paymentMethod === "RAZORPAY" ? true : false,
+        walletTransactionId,
+        status: "COMPLETED",
+        idempotencyKey,
+        processedAt: new Date(),
+        completedAt: new Date(),
+      });
+    }
 
     await payment.save(); // session disabled for local development
 
