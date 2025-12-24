@@ -77,11 +77,11 @@ const installmentOrderSchema = new mongoose.Schema(
     couponCode: { type: String, default: null, uppercase: true },
     couponDiscount: { type: Number, default: 0, min: 0 },
 
-    // ❌ FIXED ENUM — removed null from allowed values
+    // ✅ FIXED ENUM — made optional, no default value
     couponType: {
       type: String,
       enum: ["INSTANT", "REDUCE_DAYS", "MILESTONE_REWARD"],
-      default: null,
+      default: undefined,
     },
 
     originalPrice: { type: Number, default: null },
