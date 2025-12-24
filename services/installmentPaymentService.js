@@ -114,7 +114,7 @@ async function processPayment(paymentData) {
   }
 
   // Verify user owns this order
-  if (order.user.toString() !== userId) {
+  if (order.user.toString() !== userId.toString()) {
     throw new UnauthorizedOrderAccessError(orderId);
   }
 
@@ -407,7 +407,7 @@ async function createRazorpayOrderForPayment(orderId, userId) {
   }
 
   // Verify user owns this order
-  if (order.user.toString() !== userId) {
+  if (order.user.toString() !== userId.toString()) {
     throw new UnauthorizedOrderAccessError(orderId);
   }
 
@@ -466,7 +466,7 @@ async function getPaymentHistory(orderId, userId = null) {
     throw new OrderNotFoundError(orderId);
   }
 
-  if (userId && order.user.toString() !== userId) {
+  if (userId && order.user.toString() !== userId.toString()) {
     throw new UnauthorizedOrderAccessError(orderId);
   }
 
