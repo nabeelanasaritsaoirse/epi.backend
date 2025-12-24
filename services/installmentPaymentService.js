@@ -343,10 +343,12 @@ async function processPayment(paymentData) {
     // ========================================
     let commissionResult = null;
 
-    if (order.referrer && order.productCommissionPercentage > 0) {
+    if (order.referrer) {
+      // Always use 10% commission if referrer exists
+      const commissionPercentage = order.productCommissionPercentage || 10;
       const commissionAmount = calculateCommission(
         paymentAmount,
-        order.productCommissionPercentage
+        commissionPercentage
       );
 
       commissionResult = await creditCommissionToWallet(
@@ -360,7 +362,7 @@ async function processPayment(paymentData) {
       // Update payment record with commission details
       payment.commissionCalculated = true;
       payment.commissionAmount = commissionAmount;
-      payment.commissionPercentage = order.productCommissionPercentage;
+      payment.commissionPercentage = commissionPercentage;
       payment.commissionCreditedToReferrer = true;
       payment.commissionTransactionId = commissionResult.walletTransaction._id;
 
