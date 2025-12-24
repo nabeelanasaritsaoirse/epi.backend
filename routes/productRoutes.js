@@ -112,7 +112,7 @@ router.get("/:productId/plans", productController.getProductPlans);
 router.delete(
   "/:productId/hard",
   verifyToken,
-  isAdmin,
+  isSuperAdmin,
   productController.hardDeleteProduct
 );
 router.get("/:productId", productController.getProductById);
