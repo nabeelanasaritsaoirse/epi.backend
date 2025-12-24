@@ -55,6 +55,11 @@ async function getWalletBalance(userId) {
  * @throws {InsufficientWalletBalanceError} If insufficient balance
  */
 async function deductFromWallet(userId, amount, description, session, metadata = {}) {
+  // Validate amount is a valid number
+  if (!amount || isNaN(amount) || amount <= 0) {
+    throw new Error(`Invalid deduction amount: ${amount}. Amount must be a positive number.`);
+  }
+
   // Get user with session lock (if session provided)
   const user = session
     ? await User.findById(userId).session(session)
@@ -146,6 +151,11 @@ async function creditCommissionToWallet(
   paymentId,
   session
 ) {
+  // Validate commission is a valid number
+  if (!totalCommission || isNaN(totalCommission) || totalCommission <= 0) {
+    throw new Error(`Invalid commission amount: ${totalCommission}. Amount must be a positive number.`);
+  }
+
   // Get referrer with session lock (if session provided)
   const referrer = session
     ? await User.findById(referrerId).session(session)
@@ -255,6 +265,11 @@ async function addMoneyToWallet(
   session,
   metadata = {}
 ) {
+  // Validate amount is a valid number
+  if (!amount || isNaN(amount) || amount <= 0) {
+    throw new Error(`Invalid deposit amount: ${amount}. Amount must be a positive number.`);
+  }
+
   // Get user with session lock (if session provided)
   const user = session
     ? await User.findById(userId).session(session)

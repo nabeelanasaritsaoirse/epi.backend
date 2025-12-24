@@ -72,23 +72,44 @@ async function createOrder(orderData) {
     deliveryAddress,
   } = orderData;
 
+  // Validate inputs
   if (quantity < 1 || quantity > 10) {
     throw new Error("Quantity must be between 1 and 10");
+  }
+
+  if (!totalDays || isNaN(totalDays) || totalDays < 1) {
+    throw new Error(`Invalid totalDays: ${totalDays}. Must be a positive number.`);
   }
 
   console.log("\n========================================");
   console.log("🔍 DEBUG: Service - createOrder called");
   console.log("========================================");
+  console.log(`🔍 DEBUG: Input - productId: ${productId}, variantId: ${variantId}, quantity: ${quantity}, totalDays: ${totalDays}, paymentMethod: ${paymentMethod}`);
 
   const user = await User.findById(userId);
   if (!user) throw new UserNotFoundError(userId);
 
+  console.log(`🔍 DEBUG: Looking for product with ID: ${productId}`);
+
   let product;
   if (mongoose.Types.ObjectId.isValid(productId) && productId.length === 24) {
+    console.log(`🔍 DEBUG: Trying to find product by MongoDB _id: ${productId}`);
     product = await Product.findById(productId);
+    if (product) {
+      console.log(`✅ Found product by _id: ${product.name} (productId: ${product.productId})`);
+    }
   }
-  if (!product) product = await Product.findOne({ productId });
-  if (!product) throw new ProductNotFoundError(productId);
+  if (!product) {
+    console.log(`🔍 DEBUG: Trying to find product by custom productId field: ${productId}`);
+    product = await Product.findOne({ productId });
+    if (product) {
+      console.log(`✅ Found product by productId: ${product.name} (_id: ${product._id})`);
+    }
+  }
+  if (!product) {
+    console.error(`❌ Product not found with ID: ${productId}`);
+    throw new ProductNotFoundError(productId);
+  }
 
   if (
     product.availability?.stockStatus === "out_of_stock" ||
@@ -101,19 +122,25 @@ async function createOrder(orderData) {
   let pricePerUnit =
     product.pricing?.finalPrice || product.pricing?.regularPrice || 0;
 
+  console.log(`🔍 DEBUG: Base product price: ${pricePerUnit}`);
+
   let variantDetails = null;
   if (variantId && product.variants && product.variants.length > 0) {
+    console.log(`🔍 DEBUG: Looking for variant: ${variantId}`);
     selectedVariant = product.variants.find((v) => v.variantId === variantId);
 
     if (!selectedVariant) {
+      console.error(`❌ Variant not found: ${variantId}`);
       throw new Error(`Variant with ID ${variantId} not found`);
     }
 
     if (!selectedVariant.isActive) {
+      console.error(`❌ Variant not active: ${variantId}`);
       throw new Error(`Variant ${variantId} is not available`);
     }
 
     pricePerUnit = selectedVariant.salePrice || selectedVariant.price;
+    console.log(`✅ Found variant. Price: ${pricePerUnit}`);
 
     variantDetails = {
       sku: selectedVariant.sku,
@@ -123,6 +150,14 @@ async function createOrder(orderData) {
         selectedVariant.description?.short || selectedVariant.description?.long,
     };
   }
+
+  // Validate price is valid
+  if (!pricePerUnit || isNaN(pricePerUnit) || pricePerUnit <= 0) {
+    console.error(`❌ Invalid price: ${pricePerUnit}`);
+    throw new Error(`Invalid product price: ${pricePerUnit}. Product may not have proper pricing configured.`);
+  }
+
+  console.log(`🔍 DEBUG: Final pricePerUnit: ${pricePerUnit}, quantity: ${quantity}`);
 
   const totalProductPrice = calculateTotalProductPrice(pricePerUnit, quantity);
   let productPrice = totalProductPrice;
@@ -199,16 +234,27 @@ async function createOrder(orderData) {
   // ---------------------------------------------------
   // 🔧 FIX FOR INSTANT COUPON (DAILY AMOUNT RECALC)
   // ---------------------------------------------------
+  // Calculate daily amount if not provided, or recalculate for INSTANT coupon
   let finalDailyAmount = dailyAmount;
 
   if (couponType === "INSTANT") {
+    // For INSTANT coupons, recalculate based on discounted price
     finalDailyAmount = Math.ceil(productPrice / totalDays);
     console.log(`🔧 FIXED DAILY AMOUNT (INSTANT): ${finalDailyAmount}`);
+  } else if (!finalDailyAmount) {
+    // If no daily amount provided and no INSTANT coupon, calculate it
+    finalDailyAmount = calculateDailyAmount(productPrice, totalDays);
+    console.log(`🔧 CALCULATED DAILY AMOUNT: ${finalDailyAmount}`);
   }
 
   // Replace old logic with corrected logic
   const calculatedDailyAmount = finalDailyAmount;
   // ---------------------------------------------------
+
+  // Validate that calculatedDailyAmount is a valid number
+  if (!calculatedDailyAmount || isNaN(calculatedDailyAmount) || calculatedDailyAmount <= 0) {
+    throw new Error("Invalid daily payment amount calculated. Please check your input.");
+  }
 
   if (calculatedDailyAmount < 50) {
     throw new Error("Daily payment amount must be at least ₹50");
