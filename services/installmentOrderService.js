@@ -339,7 +339,7 @@ async function createOrder(orderData) {
 
       couponCode: appliedCouponCode || null,
       couponDiscount,
-      couponType,
+      ...(couponType && { couponType }), // Only include couponType if it exists
       originalPrice: couponDiscount > 0 ? originalPrice : null,
       milestonePaymentsRequired,
       milestoneFreeDays,
