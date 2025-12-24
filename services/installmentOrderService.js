@@ -23,6 +23,7 @@ const {
   validateInstallmentDuration,
   getMaxAllowedDays,
   generateOrderId,
+  generateIdempotencyKey, // For first payment idempotency
   calculateTotalProductPrice, // ⭐ NEW
   applyInstantCoupon, // ⭐ NEW
   calculateCouponDaysReduction, // ⭐ NEW
@@ -273,11 +274,12 @@ async function createOrder(orderData) {
   );
 
   let referrer = null;
-  let commissionPercentage = 10;
+  let commissionPercentage = 10; // Default 10% commission for all products
 
   if (user.referredBy) {
     referrer = await User.findById(user.referredBy);
-    commissionPercentage = product.referralBonus?.value || 10;
+    // Always use 10% commission regardless of product settings
+    commissionPercentage = 10;
   }
 
   const productSnapshot = {
@@ -368,6 +370,13 @@ async function createOrder(orderData) {
     const order = new InstallmentOrder(orderDataForModel);
     await order.save();
 
+    // Generate idempotency key for first payment to prevent duplicates
+    const firstPaymentIdempotencyKey = generateIdempotencyKey(
+      order._id.toString(),
+      userId,
+      1 // First installment
+    );
+
     const paymentData = {
       order: order._id,
       user: userId,
@@ -377,6 +386,7 @@ async function createOrder(orderData) {
       razorpayOrderId: razorpayOrder?.id || null,
       status: firstPaymentStatus,
       walletTransactionId,
+      idempotencyKey: firstPaymentIdempotencyKey, // Add idempotency key
       processedAt: paymentMethod === "WALLET" ? new Date() : null,
       completedAt: paymentMethod === "WALLET" ? new Date() : null,
     };
