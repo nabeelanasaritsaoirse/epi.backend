@@ -146,6 +146,10 @@ module.exports = async function recalcWallet(userId) {
   user.wallet.investedAmount = Number(parseFloat(investmentAmount).toFixed(2));
   user.wallet.requiredInvestment = Number(parseFloat(remainingRequiredInvestment).toFixed(2));
 
+  // Preserve commission tracking fields (these are updated separately in installment system)
+  if (user.wallet.commissionEarned === undefined) user.wallet.commissionEarned = 0;
+  if (user.wallet.commissionUsedInApp === undefined) user.wallet.commissionUsedInApp = 0;
+
   user.availableBalance = Number(parseFloat(availableBalance).toFixed(2));
   user.totalBalance = Number(parseFloat(totalBalance).toFixed(2));
   user.totalEarnings = Number(parseFloat(totalEarnings).toFixed(2));

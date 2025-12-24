@@ -33,6 +33,14 @@ router.get('/', verifyToken, async (req, res) => {
       availableBalance: updatedUser.availableBalance,
       totalEarnings: updatedUser.totalEarnings,
 
+      // NEW: Commission tracking for installment orders
+      commissionEarned: updatedUser.wallet.commissionEarned || 0,
+      commissionUsedInApp: updatedUser.wallet.commissionUsedInApp || 0,
+      commissionWithdrawable: Math.max(0,
+        (updatedUser.wallet.commissionEarned || 0) -
+        Math.ceil((updatedUser.wallet.commissionEarned || 0) * 0.1 - (updatedUser.wallet.commissionUsedInApp || 0))
+      ),
+
       transactions
     });
   } catch (err) {
@@ -154,6 +162,25 @@ router.post('/withdraw', verifyToken, async (req, res) => {
 
     if (user.availableBalance < amount)
       return res.status(400).json({ success: false, message: "Insufficient withdrawable balance" });
+
+    // NEW: Check 10% in-app usage rule for commission
+    const commissionEarned = user.wallet.commissionEarned || 0;
+    const commissionUsedInApp = user.wallet.commissionUsedInApp || 0;
+    const requiredUsage = commissionEarned * 0.1; // 10% must be used in-app
+
+    if (commissionEarned > 0 && commissionUsedInApp < requiredUsage) {
+      const remainingRequired = Math.ceil(requiredUsage - commissionUsedInApp);
+      return res.status(400).json({
+        success: false,
+        message: `You must use at least 10% of your commission (₹${remainingRequired}) for in-app purchases before withdrawing. Total commission earned: ₹${commissionEarned}, Used in-app: ₹${commissionUsedInApp}`,
+        details: {
+          commissionEarned,
+          commissionUsedInApp,
+          requiredUsage: Math.ceil(requiredUsage),
+          remainingRequired
+        }
+      });
+    }
 
     // Create withdrawal transaction with pending status
     const tx = new Transaction({

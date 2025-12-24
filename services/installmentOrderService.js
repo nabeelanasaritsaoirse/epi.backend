@@ -349,26 +349,43 @@ async function createOrder(orderData) {
 
     await order.save();
 
-    if (paymentMethod === "WALLET" && referrer && commissionPercentage > 0) {
+    // ========================================
+    // 🔧 FIX: Process commission for BOTH Wallet and Razorpay first payment
+    // ========================================
+    if (referrer && commissionPercentage > 0) {
       const commissionAmount =
         (calculatedDailyAmount * commissionPercentage) / 100;
 
-      const commissionResult = await creditCommissionToWallet(
-        referrer._id,
-        commissionAmount,
-        order._id.toString(),
-        firstPayment._id.toString(),
-        null
-      );
+      // Only credit commission immediately for WALLET payments
+      // For RAZORPAY, commission will be credited when payment is verified
+      if (paymentMethod === "WALLET") {
+        const commissionResult = await creditCommissionToWallet(
+          referrer._id,
+          commissionAmount,
+          order._id.toString(),
+          firstPayment._id.toString(),
+          null
+        );
 
-      await firstPayment.recordCommission(
-        commissionAmount,
-        commissionPercentage,
-        commissionResult.walletTransaction._id
-      );
+        await firstPayment.recordCommission(
+          commissionAmount,
+          commissionPercentage,
+          commissionResult.walletTransaction._id
+        );
 
-      order.totalCommissionPaid = commissionAmount;
-      await order.save();
+        order.totalCommissionPaid = commissionAmount;
+        await order.save();
+
+        console.log(`✅ Commission credited immediately for WALLET payment: ₹${commissionAmount}`);
+      } else if (paymentMethod === "RAZORPAY") {
+        // Store commission details in payment record for later processing
+        firstPayment.commissionAmount = commissionAmount;
+        firstPayment.commissionPercentage = commissionPercentage;
+        firstPayment.commissionCalculated = false; // Will be set to true when payment is verified
+        await firstPayment.save();
+
+        console.log(`⏳ Commission will be credited after RAZORPAY payment verification: ₹${commissionAmount}`);
+      }
     }
 
     return {

@@ -127,8 +127,9 @@ async function processPayment(paymentData) {
     throw new InvalidOrderStatusError(order.status, "ACTIVE");
   }
 
-  if (order.status !== "ACTIVE") {
-    throw new InvalidOrderStatusError(order.status, "ACTIVE");
+  // Allow PENDING status for first payment (when transitioning from PENDING to ACTIVE)
+  if (order.status !== "ACTIVE" && order.status !== "PENDING") {
+    throw new InvalidOrderStatusError(order.status, "ACTIVE or PENDING");
   }
 
   // Check if already fully paid (money-wise)
@@ -345,7 +346,17 @@ async function processPayment(paymentData) {
       await payment.save(); // session disabled for local development
 
       // Update order total commission
-      order.totalCommissionPaid += commissionAmount;
+      order.totalCommissionPaid = (order.totalCommissionPaid || 0) + commissionAmount;
+
+      console.log(`✅ Commission credited: ₹${commissionAmount} (Installment #${installmentNumber})`);
+    }
+
+    // ========================================
+    // 🔧 FIX: Activate order if this was first payment (PENDING -> ACTIVE)
+    // ========================================
+    if (order.status === "PENDING" && installmentNumber === 1) {
+      order.status = "ACTIVE";
+      console.log(`✅ Order activated: ${order.orderId} (First payment completed)`);
     }
 
     // ⭐ Always update lastPaymentDate AFTER a successful payment

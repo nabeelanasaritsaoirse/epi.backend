@@ -543,10 +543,14 @@ exports.getAllListsPublic = async (req, res) => {
           });
         }
 
-        // Limit products per list
-        filteredProducts = filteredProducts
-          .sort((a, b) => a.order - b.order)
-          .slice(0, parseInt(limit));
+        // Sort products by order
+        filteredProducts.sort((a, b) => a.order - b.order);
+
+        // Store total count before limiting
+        const totalCount = filteredProducts.length;
+
+        // Limit products per list for response
+        const limitedProducts = filteredProducts.slice(0, parseInt(limit));
 
         return {
           listId: list.listId,
@@ -554,8 +558,8 @@ exports.getAllListsPublic = async (req, res) => {
           slug: list.slug,
           description: list.description,
           displayOrder: list.displayOrder,
-          products: filteredProducts,
-          totalProducts: filteredProducts.length,
+          products: limitedProducts,
+          totalProducts: totalCount,
         };
       })
     );
