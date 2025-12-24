@@ -36,10 +36,17 @@ router.get('/', verifyToken, async (req, res) => {
       // NEW: Commission tracking for installment orders
       commissionEarned: updatedUser.wallet.commissionEarned || 0,
       commissionUsedInApp: updatedUser.wallet.commissionUsedInApp || 0,
-      commissionWithdrawable: Math.max(0,
-        (updatedUser.wallet.commissionEarned || 0) -
-        Math.ceil((updatedUser.wallet.commissionEarned || 0) * 0.1 - (updatedUser.wallet.commissionUsedInApp || 0))
-      ),
+      commissionWithdrawable: (() => {
+        const earned = updatedUser.wallet.commissionEarned || 0;
+        const used = updatedUser.wallet.commissionUsedInApp || 0;
+        const requiredInAppUsage = earned * 0.1; // 10% must be used in-app
+
+        // User can only withdraw if they've used at least 10% in-app
+        if (used >= requiredInAppUsage) {
+          return Math.max(0, earned - used);
+        }
+        return 0;
+      })(),
 
       transactions
     });

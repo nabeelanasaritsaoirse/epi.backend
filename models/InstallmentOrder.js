@@ -291,4 +291,19 @@ installmentOrderSchema.methods.getSummary = function () {
   };
 };
 
+/** STATIC METHODS **/
+installmentOrderSchema.statics.getByUser = async function (userId, options = {}) {
+  const { status, limit = 50, skip = 0 } = options;
+
+  const query = { user: userId };
+  if (status) query.status = status;
+
+  return this.find(query)
+    .populate("product", "name images pricing availability")
+    .populate("referrer", "name email")
+    .sort({ createdAt: -1 })
+    .limit(parseInt(limit))
+    .skip(parseInt(skip));
+};
+
 module.exports = mongoose.model("InstallmentOrder", installmentOrderSchema);
