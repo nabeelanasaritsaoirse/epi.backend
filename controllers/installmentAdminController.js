@@ -237,13 +237,91 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     }
   ]);
 
+  // Calculate date ranges
+  const now = new Date();
+  const startOfToday = new Date(now.setHours(0, 0, 0, 0));
+  const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay())); // Start of this week (Sunday)
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  // Get revenue for this month
+  const monthRevenue = await PaymentRecord.aggregate([
+    {
+      $match: {
+        status: 'COMPLETED',
+        createdAt: { $gte: startOfMonth }
+      }
+    },
+    {
+      $group: {
+        _id: null,
+        amount: { $sum: '$amount' }
+      }
+    }
+  ]);
+
+  // Get revenue for this week
+  const weekRevenue = await PaymentRecord.aggregate([
+    {
+      $match: {
+        status: 'COMPLETED',
+        createdAt: { $gte: startOfWeek }
+      }
+    },
+    {
+      $group: {
+        _id: null,
+        amount: { $sum: '$amount' }
+      }
+    }
+  ]);
+
+  // Get revenue for today
+  const todayRevenue = await PaymentRecord.aggregate([
+    {
+      $match: {
+        status: 'COMPLETED',
+        createdAt: { $gte: startOfToday }
+      }
+    },
+    {
+      $group: {
+        _id: null,
+        amount: { $sum: '$amount' }
+      }
+    }
+  ]);
+
+  // Get payment counts and totals
+  const paymentTotals = await PaymentRecord.aggregate([
+    {
+      $match: { status: 'COMPLETED' }
+    },
+    {
+      $group: {
+        _id: null,
+        total: { $sum: 1 },
+        totalAmount: { $sum: '$amount' }
+      }
+    }
+  ]);
+
   // Get active orders count
   const activeOrdersCount = await InstallmentOrder.countDocuments({
     status: 'ACTIVE'
   });
 
-  // Get pending approval count
-  const pendingApprovalCount = await InstallmentOrder.countDocuments({
+  // Get completed orders count
+  const completedOrdersCount = await InstallmentOrder.countDocuments({
+    status: 'COMPLETED'
+  });
+
+  // Get cancelled orders count
+  const cancelledOrdersCount = await InstallmentOrder.countDocuments({
+    status: 'CANCELLED'
+  });
+
+  // Get pending delivery count
+  const pendingDeliveryCount = await InstallmentOrder.countDocuments({
     status: 'COMPLETED',
     deliveryStatus: 'PENDING'
   });
@@ -251,35 +329,24 @@ const getDashboardStats = asyncHandler(async (req, res) => {
   const stats = {
     orders: {
       total: statusCounts.reduce((sum, s) => sum + s.count, 0),
-      byStatus: statusCounts.reduce((obj, s) => {
-        obj[s._id] = s.count;
-        return obj;
-      }, {}),
       active: activeOrdersCount,
-      pendingApproval: pendingApprovalCount
-    },
-    deliveryStatus: deliveryStatusCounts.reduce((obj, s) => {
-      obj[s._id] = s.count;
-      return obj;
-    }, {}),
-    revenue: revenueStats[0] || {
-      totalRevenue: 0,
-      totalCommission: 0,
-      totalPayments: 0
+      completed: completedOrdersCount,
+      cancelled: cancelledOrdersCount,
+      pendingDelivery: pendingDeliveryCount
     },
     payments: {
-      byMethod: paymentStats.reduce((obj, s) => {
-        obj[s._id] = {
-          count: s.count,
-          totalAmount: s.totalAmount,
-          totalCommission: s.totalCommission
-        };
-        return obj;
-      }, {})
+      total: paymentTotals[0]?.total || 0,
+      totalAmount: paymentTotals[0]?.totalAmount || 0,
+      todayAmount: todayRevenue[0]?.amount || 0
+    },
+    revenue: {
+      total: revenueStats[0]?.totalRevenue || 0,
+      thisMonth: monthRevenue[0]?.amount || 0,
+      thisWeek: weekRevenue[0]?.amount || 0
     }
   };
 
-  successResponse(res, { stats }, 'Dashboard statistics retrieved successfully');
+  successResponse(res, stats, 'Dashboard statistics retrieved successfully');
 });
 
 /**
