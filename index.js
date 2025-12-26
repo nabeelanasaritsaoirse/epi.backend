@@ -43,6 +43,7 @@ const adminChatRoutes = require("./routes/adminChatRoutes");
 const couponRoutes = require("./routes/couponRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const featuredListRoutes = require("./routes/featuredListRoutes");
+const adminReferralRoutes = require("./routes/adminReferralRoutes");
 
 const app = express();
 
@@ -155,6 +156,9 @@ app.use("/api/featured-lists", featuredListRoutes);
 // ADMIN MANAGEMENT ROUTES (Super admin only)
 app.use("/api/admin-auth", adminAuthRoutes);
 app.use("/api/admin-mgmt", adminManagementRoutes);
+
+// ADMIN REFERRAL ROUTES
+app.use("/api/admin/referrals", adminReferralRoutes);
 
 // HEALTH CHECK
 app.use("/api/health-check", healthCheckRoutes);
