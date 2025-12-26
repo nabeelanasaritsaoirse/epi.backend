@@ -390,6 +390,8 @@ exports.getMissedPaymentDays = async (referralId) => {
 /* ---------- getReferralList (Screen 1) ---------- */
 exports.getReferralList = async (referrerId) => {
   try {
+    const InstallmentOrder = require('../models/InstallmentOrder');
+
     // Get ALL users who were referred by this referrer (using User.referredBy)
     const referredUsers = await User.find({ referredBy: referrerId })
       .select('name email profilePicture createdAt')
@@ -397,27 +399,64 @@ exports.getReferralList = async (referrerId) => {
 
     // For each referred user, get their referral data (if exists)
     const referralList = await Promise.all(referredUsers.map(async (user) => {
+      // Get legacy referral data
       const referral = await Referral.findOne({
         referrer: referrerId,
         referredUser: user._id
       }).populate('purchases.product', 'productId name');
 
+      // Get installment orders data (NEW)
+      const installmentOrders = await InstallmentOrder.find({
+        referrer: referrerId,
+        user: user._id
+      }).populate('product', 'name images productId');
+
       let totalProducts = 0;
       let totalCommission = 0;
       let productList = [];
 
+      // Include legacy referral data
       if (referral && referral.purchases && referral.purchases.length > 0) {
-        totalProducts = referral.purchases.length;
-        totalCommission = referral.purchases.reduce((sum, p) => sum + ((p.commissionPerDay || 0) * (p.paidDays || 0)), 0);
+        totalProducts += referral.purchases.length;
+        totalCommission += referral.purchases.reduce((sum, p) => sum + ((p.commissionPerDay || 0) * (p.paidDays || 0)), 0);
 
         productList = referral.purchases.map((p) => ({
           productName: p.productSnapshot?.productName || (p.product ? p.product.name : null),
           productId: p.productSnapshot?.productId || (p.product ? p.product.productId : null),
+          productImage: null, // Legacy doesn't have images
           pendingStatus: (p.pendingDays || 0) > 0 ? "PENDING" : p.status,
           totalAmount: p.amount,
+          earnedCommission: (p.commissionPerDay || 0) * (p.paidDays || 0),
           dateOfPurchase: p.date,
+          source: 'legacy'
         }));
       }
+
+      // Include installment orders data (NEW)
+      if (installmentOrders && installmentOrders.length > 0) {
+        totalProducts += installmentOrders.length;
+
+        const installmentProducts = installmentOrders.map((order) => {
+          const commissionEarned = order.totalCommissionPaid || 0;
+          totalCommission += commissionEarned;
+
+          return {
+            productName: order.productName,
+            productId: order.product?.productId || null,
+            productImage: order.product?.images?.[0] || null,
+            pendingStatus: order.status,
+            totalAmount: order.productPrice,
+            earnedCommission: commissionEarned,
+            dateOfPurchase: order.createdAt,
+            source: 'installment'
+          };
+        });
+
+        productList = [...productList, ...installmentProducts];
+      }
+
+      // Sort products by date (newest first)
+      productList.sort((a, b) => new Date(b.dateOfPurchase) - new Date(a.dateOfPurchase));
 
       return {
         _id: referral?._id || user._id,
