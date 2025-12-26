@@ -442,6 +442,34 @@ async function createOrder(orderData) {
 
         console.log(`⏳ Commission will be credited after RAZORPAY payment verification: ₹${commissionAmount}`);
       }
+
+      // ========================================
+      // 🆕 INTEGRATE REFERRAL TRACKING SYSTEM
+      // ========================================
+      try {
+        const referralController = require("../controllers/referralController");
+
+        const installmentDetails = {
+          productId: product._id,
+          orderId: order._id,
+          totalAmount: productPrice,
+          dailyAmount: calculatedDailyAmount,
+          days: totalDays,
+          commissionPercentage: commissionPercentage,
+          name: `${product.name} - ${totalDays} days installment`,
+        };
+
+        await referralController.processReferral(
+          referrer._id,
+          userId,
+          installmentDetails
+        );
+
+        console.log(`✅ Referral tracking updated successfully for referrer: ${referrer._id}`);
+      } catch (referralError) {
+        // Log error but don't fail the order creation
+        console.error("⚠️ Failed to update referral tracking:", referralError.message);
+      }
     }
 
     return {
