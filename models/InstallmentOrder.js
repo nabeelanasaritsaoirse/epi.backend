@@ -15,11 +15,13 @@ const paymentScheduleItemSchema = new mongoose.Schema(
     amount: { type: Number, required: true, min: 0 },
     status: {
       type: String,
-      enum: ["PENDING", "PAID", "SKIPPED", "FREE"],
+      enum: ["PENDING", "PAID", "COMPLETED", "SKIPPED", "FREE"],
       default: "PENDING",
     },
     isCouponBenefit: { type: Boolean, default: false },
     paidDate: { type: Date, default: null },
+    paidAt: { type: Date, default: null },
+    transactionId: { type: String, default: null },
     paymentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "PaymentRecord",
@@ -184,6 +186,15 @@ const installmentOrderSchema = new mongoose.Schema(
     cancellationReason: { type: String, default: "" },
 
     completedAt: { type: Date, default: null },
+
+    /** ADMIN TRACKING **/
+    createdByAdmin: { type: Boolean, default: false },
+    createdByAdminId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    createdByAdminEmail: { type: String, default: null },
   },
   { timestamps: true }
 );
