@@ -541,6 +541,263 @@ const adjustPaymentDates = asyncHandler(async (req, res) => {
   }, 'Payment dates adjusted successfully');
 });
 
+/**
+ * @route   POST /api/installments/admin/orders/create-for-user
+ * @desc    Admin creates installment order on behalf of a user
+ * @access  Private (Admin only)
+ *
+ * @body {
+ *   userId: string (required) - User's MongoDB ID
+ *   productId: string (required) - Product ID
+ *   totalDays: number (required) - Number of days for installment
+ *   shippingAddress: object (required) - Shipping address
+ *   paymentMethod?: string (optional) - 'WALLET' or 'RAZORPAY', default: 'WALLET'
+ *   couponCode?: string (optional) - Coupon code to apply
+ *   variantId?: string (optional) - Product variant ID
+ *   autoPayFirstInstallment?: boolean (optional) - Auto mark first payment as done (default: true)
+ * }
+ *
+ * @returns {
+ *   success: true,
+ *   message: string,
+ *   data: { order: object, firstPayment: object }
+ * }
+ */
+const createOrderForUser = asyncHandler(async (req, res) => {
+  const {
+    userId,
+    productId,
+    totalDays,
+    shippingAddress,
+    paymentMethod = 'WALLET',
+    couponCode,
+    variantId,
+    autoPayFirstInstallment = true
+  } = req.body;
+
+  const adminId = req.user._id;
+  const adminEmail = req.user.email;
+
+  // Validation
+  if (!userId || !productId || !totalDays || !shippingAddress) {
+    return res.status(400).json({
+      success: false,
+      message: 'Missing required fields: userId, productId, totalDays, shippingAddress'
+    });
+  }
+
+  console.log(`[Admin] ${adminEmail} creating order for user ${userId}`);
+
+  // Prepare order data
+  const orderData = {
+    userId,
+    productId,
+    totalDays,
+    shippingAddress,
+    paymentMethod,
+    couponCode,
+    variantId,
+    createdByAdmin: true,
+    createdByAdminId: adminId,
+    createdByAdminEmail: adminEmail
+  };
+
+  // Create order using the service
+  const result = await orderService.createOrder(orderData);
+
+  // If admin wants to auto-mark first payment as done
+  if (autoPayFirstInstallment && result.firstPayment) {
+    try {
+      // Mark first payment as completed
+      const firstPayment = result.firstPayment;
+      await paymentService.markPaymentAsCompleted(
+        firstPayment._id,
+        {
+          method: 'ADMIN_MARKED',
+          transactionId: `ADMIN_${Date.now()}`,
+          note: `Marked as paid by admin ${adminEmail}`,
+          markedBy: adminId
+        }
+      );
+
+      console.log(`[Admin] First payment marked as completed by ${adminEmail}`);
+    } catch (error) {
+      console.error('[Admin] Error marking first payment as completed:', error);
+      // Continue anyway, order is created
+    }
+  }
+
+  successResponse(res, {
+    order: result.order,
+    firstPayment: result.firstPayment,
+    note: autoPayFirstInstallment ? 'Order created and first payment marked as completed' : 'Order created successfully'
+  }, 'Order created successfully on behalf of user', 201);
+});
+
+/**
+ * @route   POST /api/installments/admin/payments/:paymentId/mark-paid
+ * @desc    Admin marks a payment as paid
+ * @access  Private (Admin only)
+ *
+ * @body {
+ *   transactionId?: string (optional) - Transaction reference
+ *   note?: string (optional) - Admin note
+ *   paymentMethod?: string (optional) - Payment method used
+ * }
+ *
+ * @returns {
+ *   success: true,
+ *   message: string,
+ *   data: { payment: object }
+ * }
+ */
+const markPaymentAsPaid = asyncHandler(async (req, res) => {
+  const { paymentId } = req.params;
+  const { transactionId, note, paymentMethod = 'ADMIN_MARKED' } = req.body;
+
+  const adminId = req.user._id;
+  const adminEmail = req.user.email;
+
+  console.log(`[Admin] ${adminEmail} marking payment ${paymentId} as paid`);
+
+  // Mark payment as completed
+  const payment = await paymentService.markPaymentAsCompleted(
+    paymentId,
+    {
+      method: paymentMethod,
+      transactionId: transactionId || `ADMIN_${Date.now()}`,
+      note: note || `Marked as paid by admin ${adminEmail}`,
+      markedBy: adminId,
+      markedByEmail: adminEmail
+    }
+  );
+
+  successResponse(res, { payment }, 'Payment marked as paid successfully');
+});
+
+/**
+ * @route   POST /api/installments/admin/orders/:orderId/mark-all-paid
+ * @desc    Admin marks all pending payments for an order as paid
+ * @access  Private (Admin only)
+ *
+ * @body {
+ *   note?: string (optional) - Admin note
+ * }
+ *
+ * @returns {
+ *   success: true,
+ *   message: string,
+ *   data: { order: object, paymentsMarked: number }
+ * }
+ */
+const markAllPaymentsAsPaid = asyncHandler(async (req, res) => {
+  const { orderId } = req.params;
+  const { note } = req.body;
+
+  const adminId = req.user._id;
+  const adminEmail = req.user.email;
+
+  console.log(`[Admin] ${adminEmail} marking all payments as paid for order ${orderId}`);
+
+  // Get order
+  const order = await InstallmentOrder.findById(orderId);
+  if (!order) {
+    return res.status(404).json({
+      success: false,
+      message: 'Order not found'
+    });
+  }
+
+  // Get all pending payments
+  const pendingPayments = await PaymentRecord.find({
+    order: orderId,
+    status: 'PENDING'
+  });
+
+  let markedCount = 0;
+
+  // Mark each pending payment as completed
+  for (const payment of pendingPayments) {
+    try {
+      await paymentService.markPaymentAsCompleted(
+        payment._id,
+        {
+          method: 'ADMIN_MARKED',
+          transactionId: `ADMIN_BULK_${Date.now()}_${markedCount}`,
+          note: note || `Bulk marked as paid by admin ${adminEmail}`,
+          markedBy: adminId,
+          markedByEmail: adminEmail
+        }
+      );
+      markedCount++;
+    } catch (error) {
+      console.error(`[Admin] Error marking payment ${payment._id}:`, error);
+    }
+  }
+
+  // Refresh order
+  const updatedOrder = await InstallmentOrder.findById(orderId)
+    .populate('user', 'name email phoneNumber')
+    .populate('product', 'name images pricing');
+
+  successResponse(res, {
+    order: updatedOrder,
+    paymentsMarked: markedCount,
+    totalPending: pendingPayments.length
+  }, `Successfully marked ${markedCount} payment(s) as paid`);
+});
+
+/**
+ * @route   POST /api/installments/admin/payments/:paymentId/cancel
+ * @desc    Admin cancels/reverses a payment
+ * @access  Private (Admin only)
+ *
+ * @body {
+ *   reason: string (required) - Reason for cancellation
+ * }
+ *
+ * @returns {
+ *   success: true,
+ *   message: string,
+ *   data: { payment: object }
+ * }
+ */
+const cancelPayment = asyncHandler(async (req, res) => {
+  const { paymentId } = req.params;
+  const { reason } = req.body;
+
+  const adminId = req.user._id;
+  const adminEmail = req.user.email;
+
+  if (!reason) {
+    return res.status(400).json({
+      success: false,
+      message: 'Cancellation reason is required'
+    });
+  }
+
+  console.log(`[Admin] ${adminEmail} cancelling payment ${paymentId}`);
+
+  // Get payment
+  const payment = await PaymentRecord.findById(paymentId);
+  if (!payment) {
+    return res.status(404).json({
+      success: false,
+      message: 'Payment not found'
+    });
+  }
+
+  // Update payment status
+  payment.status = 'CANCELLED';
+  payment.cancelledBy = adminId;
+  payment.cancelledByEmail = adminEmail;
+  payment.cancellationReason = reason;
+  payment.cancelledAt = new Date();
+  await payment.save();
+
+  successResponse(res, { payment }, 'Payment cancelled successfully');
+});
+
 module.exports = {
   getCompletedOrders,
   approveDelivery,
@@ -551,5 +808,9 @@ module.exports = {
   getPendingApprovalOrders,
   addAdminNotes,
   getAllPayments,
-  adjustPaymentDates
+  adjustPaymentDates,
+  createOrderForUser,
+  markPaymentAsPaid,
+  markAllPaymentsAsPaid,
+  cancelPayment
 };

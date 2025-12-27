@@ -782,6 +782,7 @@ exports.getProductsByCategory = async (req, res) => {
 
     // Support hierarchical category filtering
     const filter = {
+      isDeleted: false, // 🔥 FIX: Hide deleted products from users
       $or: [
         { "category.mainCategoryId": { $in: allCategoryIds } },
         { "category.subCategoryId": { $in: allCategoryIds } },
@@ -822,6 +823,7 @@ exports.getLowStockProducts = async (req, res) => {
     const { region = "global" } = req.query;
 
     const filter = {
+      isDeleted: false, // 🔥 FIX: Hide deleted products from users
       "availability.stockStatus": "low_stock",
       "availability.isAvailable": true,
     };
@@ -865,6 +867,7 @@ exports.getProductsByRegion = async (req, res) => {
 
     // Build filter object
     const filter = {
+      isDeleted: false, // 🔥 FIX: Hide deleted products from users
       "regionalAvailability.region": region,
       "regionalAvailability.isAvailable": true,
     };
@@ -1440,7 +1443,10 @@ exports.getProductsByProject = async (req, res) => {
     const { projectId } = req.params;
     const { page = 1, limit = 10, region = "global" } = req.query;
 
-    const filter = { "project.projectId": projectId };
+    const filter = {
+      isDeleted: false, // 🔥 FIX: Hide deleted products from users
+      "project.projectId": projectId
+    };
 
     if (region && region !== "all" && region !== "global") {
       filter["regionalAvailability.region"] = region;
@@ -1455,6 +1461,7 @@ exports.getProductsByProject = async (req, res) => {
     const total = await Product.countDocuments(filter);
 
     const projectProducts = await Product.find({
+      isDeleted: false, // 🔥 FIX: Hide deleted products from users
       "project.projectId": projectId,
     });
     const regions = [
@@ -2252,6 +2259,7 @@ exports.getProductsByCategoryId = async (req, res) => {
 
     // 🔥 THIS IS THE CRITICAL FIX
     const filter = {
+      isDeleted: false, // 🔥 FIX: Hide deleted products from users
       "category.mainCategoryIdCategoryId": categoryId, // ← CHANGED FROM 'category.mainCategoryId'
     };
 

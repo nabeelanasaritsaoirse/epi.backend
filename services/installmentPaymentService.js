@@ -997,6 +997,127 @@ async function processSelectedDailyPayments(data) {
   }
 }
 
+/**
+ * Admin: Mark a payment as completed
+ *
+ * This function allows admins to manually mark a payment as completed.
+ * Used when payments are made offline or need manual intervention.
+ *
+ * @param {string} paymentId - Payment record ID
+ * @param {Object} adminData - Admin action data
+ * @param {string} adminData.method - Payment method (e.g., 'ADMIN_MARKED', 'CASH', etc.)
+ * @param {string} adminData.transactionId - Transaction reference ID
+ * @param {string} [adminData.note] - Admin note
+ * @param {string} [adminData.markedBy] - Admin user ID
+ * @param {string} [adminData.markedByEmail] - Admin email
+ * @returns {Promise<Object>} Updated payment record
+ */
+async function markPaymentAsCompleted(paymentId, adminData) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    console.log(`[Admin] Marking payment ${paymentId} as completed`);
+
+    // Get payment record
+    const payment = await PaymentRecord.findById(paymentId).session(session);
+    if (!payment) {
+      throw new Error(`Payment ${paymentId} not found`);
+    }
+
+    // Don't re-process completed payments
+    if (payment.status === 'COMPLETED') {
+      console.log(`[Admin] Payment ${paymentId} already completed, skipping`);
+      await session.commitTransaction();
+      return payment;
+    }
+
+    // Get the order
+    const order = await InstallmentOrder.findById(payment.order).session(session);
+    if (!order) {
+      throw new Error(`Order ${payment.order} not found`);
+    }
+
+    // Update payment record
+    payment.status = 'COMPLETED';
+    payment.paymentMethod = adminData.method || 'ADMIN_MARKED';
+    payment.transactionId = adminData.transactionId;
+    payment.paidAt = new Date();
+    payment.adminMarked = true;
+    payment.markedBy = adminData.markedBy;
+    payment.markedByEmail = adminData.markedByEmail;
+    payment.adminNote = adminData.note;
+
+    // Calculate commission if this is first payment via Razorpay
+    if (payment.installmentNumber === 1 && order.firstPaymentMethod === 'RAZORPAY' && order.referrer) {
+      const commissionData = calculateCommission(
+        payment.amount,
+        order.commissionPercentage || order.productCommissionPercentage || 10
+      );
+
+      payment.commissionCalculated = true;
+      payment.commissionAmount = commissionData.commissionAmount;
+      payment.commissionPercentage = commissionData.commissionPercentage;
+
+      // Credit commission to referrer
+      try {
+        await creditCommissionToWallet(
+          order.referrer,
+          commissionData.commissionAmount,
+          order._id,
+          payment._id,
+          session
+        );
+
+        payment.commissionCreditedToReferrer = true;
+        order.totalCommissionPaid = (order.totalCommissionPaid || 0) + commissionData.commissionAmount;
+
+        console.log(`[Admin] Commission credited: ₹${commissionData.commissionAmount} to referrer ${order.referrer}`);
+      } catch (commError) {
+        console.error('[Admin] Commission credit failed:', commError);
+        payment.commissionCreditError = commError.message;
+      }
+    }
+
+    await payment.save({ session });
+
+    // Update order's payment schedule
+    const scheduleIndex = order.paymentSchedule.findIndex(
+      (p) => p.installmentNumber === payment.installmentNumber
+    );
+
+    if (scheduleIndex !== -1) {
+      order.paymentSchedule[scheduleIndex].status = 'COMPLETED';
+      order.paymentSchedule[scheduleIndex].paidAt = new Date();
+      order.paymentSchedule[scheduleIndex].transactionId = adminData.transactionId;
+    }
+
+    // Update order totals
+    order.paidInstallments = (order.paidInstallments || 0) + 1;
+    order.totalPaidAmount = (order.totalPaidAmount || 0) + payment.amount;
+
+    // Check if order is fully paid
+    if (isOrderFullyPaid(order)) {
+      order.status = 'COMPLETED';
+      order.completedAt = new Date();
+      console.log(`[Admin] Order ${order.orderId} marked as COMPLETED`);
+    }
+
+    await order.save({ session });
+
+    await session.commitTransaction();
+    console.log(`[Admin] Payment ${payment.paymentId} marked as completed successfully`);
+
+    return payment;
+  } catch (error) {
+    await session.abortTransaction();
+    console.error('[Admin] Error marking payment as completed:', error);
+    throw error;
+  } finally {
+    session.endSession();
+  }
+}
+
 module.exports = {
   processPayment,
   createRazorpayOrderForPayment,
@@ -1008,4 +1129,5 @@ module.exports = {
   getDailyPendingPayments,
   createCombinedRazorpayOrder, // ⭐ NEW
   processSelectedDailyPayments, // ⭐ NEW
+  markPaymentAsCompleted, // ⭐ ADMIN
 };
