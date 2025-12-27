@@ -613,6 +613,15 @@ async function getDailyPendingPayments(userId) {
     // Check if user can actually pay today (hasn't already paid today)
     const canPay = order.canPayToday();
 
+    // Skip this order if payment already done today
+    if (!canPay) {
+      console.log('getDailyPendingPayments - Skipping order (already paid today):', {
+        orderId: order.orderId,
+        lastPaymentDate: order.lastPaymentDate ? order.lastPaymentDate.toISOString() : 'null'
+      });
+      continue;
+    }
+
     order.paymentSchedule.forEach((inst) => {
       if (
         inst.status === "PENDING" &&
@@ -635,7 +644,7 @@ async function getDailyPendingPayments(userId) {
           installmentNumber: inst.installmentNumber,
           amount: order.dailyPaymentAmount,
           dueDate: inst.dueDate,
-          canPayToday: canPay, // Add this flag for debugging
+          canPayToday: canPay, // Always true here now
         });
       }
     });
