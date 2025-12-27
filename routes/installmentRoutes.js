@@ -391,4 +391,56 @@ router.post(
   adminController.adjustPaymentDates
 );
 
+/**
+ * @route   POST /api/installments/admin/orders/create-for-user
+ * @desc    Admin creates installment order on behalf of a user
+ * @access  Private (Admin)
+ */
+router.post(
+  "/admin/orders/create-for-user",
+  verifyToken,
+  isAdmin,
+  sanitizeInput,
+  adminController.createOrderForUser
+);
+
+/**
+ * @route   POST /api/installments/admin/payments/:paymentId/mark-paid
+ * @desc    Admin marks a payment as paid
+ * @access  Private (Admin)
+ */
+router.post(
+  "/admin/payments/:paymentId/mark-paid",
+  verifyToken,
+  isAdmin,
+  sanitizeInput,
+  adminController.markPaymentAsPaid
+);
+
+/**
+ * @route   POST /api/installments/admin/orders/:orderId/mark-all-paid
+ * @desc    Admin marks all pending payments for an order as paid
+ * @access  Private (Admin)
+ */
+router.post(
+  "/admin/orders/:orderId/mark-all-paid",
+  verifyToken,
+  isAdmin,
+  sanitizeInput,
+  adminController.markAllPaymentsAsPaid
+);
+
+/**
+ * @route   POST /api/installments/admin/payments/:paymentId/cancel
+ * @desc    Admin cancels/reverses a payment
+ * @access  Private (Admin)
+ */
+router.post(
+  "/admin/payments/:paymentId/cancel",
+  verifyToken,
+  isAdmin,
+  sanitizeInput,
+  adminController.cancelPayment
+);
+
 module.exports = router;
