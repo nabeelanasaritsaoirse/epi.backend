@@ -524,4 +524,115 @@ router.get(
   adminController.getOrderMetadata
 );
 
+/**
+ * @route   GET /api/installments/admin/analytics/users
+ * @desc    Get user analytics - top users, overdue users, retention
+ * @access  Private (Admin)
+ *
+ * @query {
+ *   limit?: number (default: 10),
+ *   period?: 'week' | 'month' | 'all' (default: all)
+ * }
+ */
+router.get(
+  "/admin/analytics/users",
+  verifyToken,
+  isAdmin,
+  adminController.getUserAnalytics
+);
+
+/**
+ * @route   GET /api/installments/admin/analytics/products
+ * @desc    Get product performance analytics
+ * @access  Private (Admin)
+ *
+ * @query {
+ *   limit?: number (default: 10),
+ *   period?: 'week' | 'month' | 'all' (default: all)
+ * }
+ */
+router.get(
+  "/admin/analytics/products",
+  verifyToken,
+  isAdmin,
+  adminController.getProductAnalytics
+);
+
+/**
+ * @route   GET /api/installments/admin/analytics/commissions
+ * @desc    Get commission analytics - top referrers, trends
+ * @access  Private (Admin)
+ *
+ * @query {
+ *   limit?: number (default: 10),
+ *   period?: 'week' | 'month' | 'all' (default: all)
+ * }
+ */
+router.get(
+  "/admin/analytics/commissions",
+  verifyToken,
+  isAdmin,
+  adminController.getCommissionAnalytics
+);
+
+/**
+ * @route   GET /api/installments/admin/analytics/payment-methods
+ * @desc    Get payment method analytics - Razorpay vs Wallet, success rates
+ * @access  Private (Admin)
+ *
+ * @query {
+ *   period?: 'week' | 'month' | 'all' (default: all)
+ * }
+ */
+router.get(
+  "/admin/analytics/payment-methods",
+  verifyToken,
+  isAdmin,
+  adminController.getPaymentMethodAnalytics
+);
+
+/**
+ * @route   GET /api/installments/admin/analytics/trends
+ * @desc    Get daily/weekly trends - orders, payments, revenue
+ * @access  Private (Admin)
+ *
+ * @query {
+ *   days?: number (default: 30, max: 90)
+ * }
+ */
+router.get(
+  "/admin/analytics/trends",
+  verifyToken,
+  isAdmin,
+  adminController.getTrends
+);
+
+/**
+ * @route   GET /api/installments/admin/analytics/overdue
+ * @desc    Get detailed overdue analysis
+ * @access  Private (Admin)
+ */
+router.get(
+  "/admin/analytics/overdue",
+  verifyToken,
+  isAdmin,
+  adminController.getOverdueAnalysis
+);
+
+/**
+ * @route   GET /api/installments/admin/analytics/forecast
+ * @desc    Get revenue and completion forecast
+ * @access  Private (Admin)
+ *
+ * @query {
+ *   days?: number (default: 30, max: 90)
+ * }
+ */
+router.get(
+  "/admin/analytics/forecast",
+  verifyToken,
+  isAdmin,
+  adminController.getForecast
+);
+
 module.exports = router;
