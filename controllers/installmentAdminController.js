@@ -1217,6 +1217,408 @@ const getOrderMetadata = asyncHandler(async (req, res) => {
   }, 'Order metadata retrieved successfully');
 });
 
+// ============================================
+// ANALYTICS APIs - Extended (7 New APIs)
+// ============================================
+
+/**
+ * @route   GET /api/installments/admin/analytics/users
+ * @desc    Get user analytics - top users, overdue users, new users
+ * @access  Private (Admin only)
+ */
+const getUserAnalytics = asyncHandler(async (req, res) => {
+  const { limit = 10, period = 'all' } = req.query;
+  const actualLimit = Math.min(parseInt(limit), 50);
+
+  let dateFilter = {};
+  const now = new Date();
+  if (period === 'week') {
+    dateFilter = { createdAt: { $gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) } };
+  } else if (period === 'month') {
+    dateFilter = { createdAt: { $gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) } };
+  }
+
+  // Top users by total payments
+  const topUsersByPayments = await PaymentRecord.aggregate([
+    { $match: { status: 'COMPLETED', ...dateFilter } },
+    { $group: { _id: '$user', totalPaid: { $sum: '$amount' }, paymentCount: { $sum: 1 } } },
+    { $sort: { totalPaid: -1 } },
+    { $limit: actualLimit },
+    { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'userDetails' } },
+    { $unwind: '$userDetails' },
+    { $project: { userId: '$_id', name: '$userDetails.name', email: '$userDetails.email', phoneNumber: '$userDetails.phoneNumber', totalPaid: 1, paymentCount: 1 } }
+  ]);
+
+  // Users with most overdue orders
+  const allOrders = await InstallmentOrder.find({ status: 'ACTIVE' }).populate('user', 'name email phoneNumber').lean();
+  const overdueByUser = {};
+  for (const order of allOrders) {
+    const metadata = deriveOrderMetadata(order);
+    if (metadata.completionBucket === 'overdue' && order.user) {
+      const oderId = order.user._id.toString();
+      if (!overdueByUser[oderId]) {
+        overdueByUser[oderId] = { userId: order.user._id, name: order.user.name, email: order.user.email, phoneNumber: order.user.phoneNumber, overdueOrders: 0, totalOverdueAmount: 0 };
+      }
+      overdueByUser[oderId].overdueOrders++;
+      overdueByUser[oderId].totalOverdueAmount += metadata.remainingAmount;
+    }
+  }
+  const usersWithOverdue = Object.values(overdueByUser).sort((a, b) => b.overdueOrders - a.overdueOrders).slice(0, actualLimit);
+
+  // User retention stats
+  const totalUniqueUsers = await InstallmentOrder.distinct('user');
+  const usersWithMultipleOrders = await InstallmentOrder.aggregate([
+    { $group: { _id: '$user', count: { $sum: 1 } } },
+    { $match: { count: { $gt: 1 } } },
+    { $count: 'total' }
+  ]);
+
+  successResponse(res, {
+    topUsersByPayments,
+    usersWithOverdue,
+    summary: {
+      totalUniqueUsers: totalUniqueUsers.length,
+      usersWithMultipleOrders: usersWithMultipleOrders[0]?.total || 0,
+      retentionRate: totalUniqueUsers.length > 0 ? Math.round((usersWithMultipleOrders[0]?.total || 0) / totalUniqueUsers.length * 100) : 0
+    }
+  }, 'User analytics retrieved successfully');
+});
+
+/**
+ * @route   GET /api/installments/admin/analytics/products
+ * @desc    Get product performance analytics
+ * @access  Private (Admin only)
+ */
+const getProductAnalytics = asyncHandler(async (req, res) => {
+  const { limit = 10, period = 'all' } = req.query;
+  const actualLimit = Math.min(parseInt(limit), 50);
+
+  let dateFilter = {};
+  const now = new Date();
+  if (period === 'week') {
+    dateFilter = { createdAt: { $gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) } };
+  } else if (period === 'month') {
+    dateFilter = { createdAt: { $gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) } };
+  }
+
+  // Best selling products by order count
+  const bestSellingByCount = await InstallmentOrder.aggregate([
+    { $match: dateFilter },
+    { $group: { _id: '$product', orderCount: { $sum: 1 }, totalRevenue: { $sum: '$totalPaidAmount' }, totalValue: { $sum: '$productPrice' } } },
+    { $sort: { orderCount: -1 } },
+    { $limit: actualLimit },
+    { $lookup: { from: 'products', localField: '_id', foreignField: '_id', as: 'productDetails' } },
+    { $unwind: { path: '$productDetails', preserveNullAndEmptyArrays: true } },
+    { $project: { productId: '$_id', name: { $ifNull: ['$productDetails.name', 'Unknown Product'] }, orderCount: 1, totalRevenue: 1, totalValue: 1, image: { $arrayElemAt: ['$productDetails.images.url', 0] } } }
+  ]);
+
+  // Products by revenue
+  const bestSellingByRevenue = await InstallmentOrder.aggregate([
+    { $match: dateFilter },
+    { $group: { _id: '$product', orderCount: { $sum: 1 }, totalRevenue: { $sum: '$totalPaidAmount' }, totalValue: { $sum: '$productPrice' } } },
+    { $sort: { totalRevenue: -1 } },
+    { $limit: actualLimit },
+    { $lookup: { from: 'products', localField: '_id', foreignField: '_id', as: 'productDetails' } },
+    { $unwind: { path: '$productDetails', preserveNullAndEmptyArrays: true } },
+    { $project: { productId: '$_id', name: { $ifNull: ['$productDetails.name', 'Unknown Product'] }, orderCount: 1, totalRevenue: 1, totalValue: 1 } }
+  ]);
+
+  // Products with overdue analysis
+  const allOrders = await InstallmentOrder.find(dateFilter).populate('product', 'name').lean();
+  const productIssues = {};
+  for (const order of allOrders) {
+    const metadata = deriveOrderMetadata(order);
+    const productId = order.product?._id?.toString() || 'unknown';
+    const productName = order.product?.name || order.productName || 'Unknown';
+    if (!productIssues[productId]) {
+      productIssues[productId] = { productId, name: productName, overdueCount: 0, cancelledCount: 0, completedCount: 0, totalOrders: 0 };
+    }
+    productIssues[productId].totalOrders++;
+    if (metadata.completionBucket === 'overdue') productIssues[productId].overdueCount++;
+    if (order.status === 'CANCELLED') productIssues[productId].cancelledCount++;
+    if (order.status === 'COMPLETED') productIssues[productId].completedCount++;
+  }
+
+  const productsWithIssues = Object.values(productIssues)
+    .map(p => ({ ...p, completionRate: p.totalOrders > 0 ? Math.round(p.completedCount / p.totalOrders * 100) : 0, overdueRate: p.totalOrders > 0 ? Math.round(p.overdueCount / p.totalOrders * 100) : 0 }))
+    .sort((a, b) => b.overdueCount - a.overdueCount)
+    .slice(0, actualLimit);
+
+  successResponse(res, {
+    bestSellingByCount,
+    bestSellingByRevenue,
+    productsWithIssues,
+    summary: { totalProducts: Object.keys(productIssues).length, totalOrders: allOrders.length }
+  }, 'Product analytics retrieved successfully');
+});
+
+/**
+ * @route   GET /api/installments/admin/analytics/commissions
+ * @desc    Get commission analytics
+ * @access  Private (Admin only)
+ */
+const getCommissionAnalytics = asyncHandler(async (req, res) => {
+  const { limit = 10, period = 'all' } = req.query;
+  const actualLimit = Math.min(parseInt(limit), 50);
+
+  let dateFilter = {};
+  const now = new Date();
+  if (period === 'week') {
+    dateFilter = { completedAt: { $gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) } };
+  } else if (period === 'month') {
+    dateFilter = { completedAt: { $gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) } };
+  }
+
+  // Total commission stats
+  const totalCommissionStats = await PaymentRecord.aggregate([
+    { $match: { status: 'COMPLETED', commissionCalculated: true, ...dateFilter } },
+    { $group: { _id: null, totalCommissionPaid: { $sum: '$commissionAmount' }, totalPaymentsWithCommission: { $sum: 1 }, avgCommissionPerPayment: { $avg: '$commissionAmount' } } }
+  ]);
+
+  // Top referrers
+  const topReferrers = await PaymentRecord.aggregate([
+    { $match: { status: 'COMPLETED', commissionCalculated: true, commissionAmount: { $gt: 0 }, ...dateFilter } },
+    { $lookup: { from: 'installmentorders', localField: 'order', foreignField: '_id', as: 'orderDetails' } },
+    { $unwind: '$orderDetails' },
+    { $match: { 'orderDetails.referrer': { $ne: null } } },
+    { $group: { _id: '$orderDetails.referrer', totalCommission: { $sum: '$commissionAmount' }, referralCount: { $sum: 1 } } },
+    { $sort: { totalCommission: -1 } },
+    { $limit: actualLimit },
+    { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'referrerDetails' } },
+    { $unwind: '$referrerDetails' },
+    { $project: { referrerId: '$_id', name: '$referrerDetails.name', email: '$referrerDetails.email', totalCommission: 1, referralCount: 1 } }
+  ]);
+
+  // Commission trends (last 30 days)
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const commissionTrends = await PaymentRecord.aggregate([
+    { $match: { status: 'COMPLETED', commissionCalculated: true, completedAt: { $gte: thirtyDaysAgo } } },
+    { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$completedAt' } }, dailyCommission: { $sum: '$commissionAmount' }, paymentCount: { $sum: 1 } } },
+    { $sort: { _id: 1 } }
+  ]);
+
+  // Referral stats
+  const ordersWithReferrers = await InstallmentOrder.countDocuments({ referrer: { $ne: null } });
+  const totalOrders = await InstallmentOrder.countDocuments({});
+
+  successResponse(res, {
+    totalStats: totalCommissionStats[0] || { totalCommissionPaid: 0, totalPaymentsWithCommission: 0, avgCommissionPerPayment: 0 },
+    topReferrers,
+    commissionTrends,
+    referralStats: { ordersWithReferrers, ordersWithoutReferrers: totalOrders - ordersWithReferrers, referralRate: totalOrders > 0 ? Math.round(ordersWithReferrers / totalOrders * 100) : 0 }
+  }, 'Commission analytics retrieved successfully');
+});
+
+/**
+ * @route   GET /api/installments/admin/analytics/payment-methods
+ * @desc    Get payment method analytics
+ * @access  Private (Admin only)
+ */
+const getPaymentMethodAnalytics = asyncHandler(async (req, res) => {
+  const { period = 'all' } = req.query;
+
+  let dateFilter = {};
+  const now = new Date();
+  if (period === 'week') {
+    dateFilter = { createdAt: { $gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) } };
+  } else if (period === 'month') {
+    dateFilter = { createdAt: { $gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) } };
+  }
+
+  // Payment method breakdown
+  const paymentMethodBreakdown = await PaymentRecord.aggregate([
+    { $match: { status: 'COMPLETED', ...dateFilter } },
+    { $group: { _id: '$paymentMethod', count: { $sum: 1 }, totalAmount: { $sum: '$amount' } } },
+    { $sort: { count: -1 } }
+  ]);
+
+  // Admin marked payments
+  const adminMarkedStats = await PaymentRecord.aggregate([
+    { $match: { adminMarked: true, ...dateFilter } },
+    { $group: { _id: null, count: { $sum: 1 }, totalAmount: { $sum: '$amount' } } }
+  ]);
+
+  // Failed payments stats
+  const failedPaymentStats = await PaymentRecord.aggregate([
+    { $match: { status: 'FAILED', ...dateFilter } },
+    { $group: { _id: null, totalFailed: { $sum: 1 }, avgRetryCount: { $avg: '$retryCount' } } }
+  ]);
+
+  // Status breakdown
+  const statusBreakdown = await PaymentRecord.aggregate([
+    { $match: dateFilter },
+    { $group: { _id: '$status', count: { $sum: 1 }, totalAmount: { $sum: '$amount' } } },
+    { $sort: { count: -1 } }
+  ]);
+
+  const totalPayments = statusBreakdown.reduce((sum, s) => sum + s.count, 0);
+  const completedPayments = statusBreakdown.find(s => s._id === 'COMPLETED')?.count || 0;
+  const failedPayments = statusBreakdown.find(s => s._id === 'FAILED')?.count || 0;
+  const razorpayTotal = paymentMethodBreakdown.find(p => p._id === 'RAZORPAY') || { count: 0, totalAmount: 0 };
+  const walletTotal = paymentMethodBreakdown.find(p => p._id === 'WALLET') || { count: 0, totalAmount: 0 };
+
+  successResponse(res, {
+    paymentMethodBreakdown,
+    statusBreakdown,
+    adminMarkedStats: adminMarkedStats[0] || { count: 0, totalAmount: 0 },
+    failedPaymentStats: failedPaymentStats[0] || { totalFailed: 0, avgRetryCount: 0 },
+    comparison: { razorpay: razorpayTotal, wallet: walletTotal, razorpayPercentage: totalPayments > 0 ? Math.round(razorpayTotal.count / totalPayments * 100) : 0, walletPercentage: totalPayments > 0 ? Math.round(walletTotal.count / totalPayments * 100) : 0 },
+    rates: { successRate: totalPayments > 0 ? Math.round(completedPayments / totalPayments * 100) : 0, failureRate: totalPayments > 0 ? Math.round(failedPayments / totalPayments * 100) : 0, totalPayments }
+  }, 'Payment method analytics retrieved successfully');
+});
+
+/**
+ * @route   GET /api/installments/admin/analytics/trends
+ * @desc    Get daily/weekly trends
+ * @access  Private (Admin only)
+ */
+const getTrends = asyncHandler(async (req, res) => {
+  const { days = 30 } = req.query;
+  const actualDays = Math.min(parseInt(days), 90);
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - actualDays);
+  startDate.setHours(0, 0, 0, 0);
+
+  // Orders per day
+  const ordersPerDay = await InstallmentOrder.aggregate([
+    { $match: { createdAt: { $gte: startDate } } },
+    { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, orderCount: { $sum: 1 }, totalValue: { $sum: '$productPrice' } } },
+    { $sort: { _id: 1 } }
+  ]);
+
+  // Payments per day
+  const paymentsPerDay = await PaymentRecord.aggregate([
+    { $match: { createdAt: { $gte: startDate } } },
+    { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, totalPayments: { $sum: 1 }, completedPayments: { $sum: { $cond: [{ $eq: ['$status', 'COMPLETED'] }, 1, 0] } }, totalAmount: { $sum: { $cond: [{ $eq: ['$status', 'COMPLETED'] }, '$amount', 0] } } } },
+    { $sort: { _id: 1 } }
+  ]);
+
+  // Weekly trends
+  const weeklyTrends = await InstallmentOrder.aggregate([
+    { $match: { createdAt: { $gte: startDate } } },
+    { $group: { _id: { year: { $isoWeekYear: '$createdAt' }, week: { $isoWeek: '$createdAt' } }, orderCount: { $sum: 1 }, totalValue: { $sum: '$productPrice' }, avgValue: { $avg: '$productPrice' } } },
+    { $sort: { '_id.year': 1, '_id.week': 1 } }
+  ]);
+
+  successResponse(res, {
+    ordersPerDay,
+    paymentsPerDay,
+    weeklyTrends: weeklyTrends.map(w => ({ week: `${w._id.year}-W${w._id.week}`, orderCount: w.orderCount, totalValue: w.totalValue, avgValue: Math.round(w.avgValue) })),
+    summary: { totalDays: actualDays, totalOrders: ordersPerDay.reduce((sum, d) => sum + d.orderCount, 0), totalRevenue: paymentsPerDay.reduce((sum, d) => sum + d.totalAmount, 0) }
+  }, 'Trends retrieved successfully');
+});
+
+/**
+ * @route   GET /api/installments/admin/analytics/overdue
+ * @desc    Get detailed overdue analysis
+ * @access  Private (Admin only)
+ */
+const getOverdueAnalysis = asyncHandler(async (req, res) => {
+  const allActiveOrders = await InstallmentOrder.find({ status: 'ACTIVE' }).populate('user', 'name email phoneNumber').populate('product', 'name').lean();
+
+  const overdueOrders = [];
+  let totalOverdueAmount = 0;
+  let totalDaysOverdue = 0;
+
+  const overdueByDays = { '1-3': { count: 0, amount: 0 }, '4-7': { count: 0, amount: 0 }, '8-14': { count: 0, amount: 0 }, '15-30': { count: 0, amount: 0 }, '30+': { count: 0, amount: 0 } };
+  const usersWithMultipleOverdue = {};
+
+  for (const order of allActiveOrders) {
+    const metadata = deriveOrderMetadata(order);
+    if (metadata.completionBucket === 'overdue') {
+      const daysOverdue = Math.abs(metadata.daysToComplete);
+      totalOverdueAmount += metadata.remainingAmount;
+      totalDaysOverdue += daysOverdue;
+
+      overdueOrders.push({ orderId: order.orderId, _id: order._id, user: order.user, product: order.product?.name || order.productName, remainingAmount: metadata.remainingAmount, daysOverdue, progressPercentage: metadata.progressPercentage, lastDueDate: metadata.lastDueDate });
+
+      let bucket = daysOverdue <= 3 ? '1-3' : daysOverdue <= 7 ? '4-7' : daysOverdue <= 14 ? '8-14' : daysOverdue <= 30 ? '15-30' : '30+';
+      overdueByDays[bucket].count++;
+      overdueByDays[bucket].amount += metadata.remainingAmount;
+
+      if (order.user) {
+        const oderId = order.user._id.toString();
+        if (!usersWithMultipleOverdue[oderId]) {
+          usersWithMultipleOverdue[oderId] = { user: order.user, overdueCount: 0, totalOverdueAmount: 0 };
+        }
+        usersWithMultipleOverdue[oderId].overdueCount++;
+        usersWithMultipleOverdue[oderId].totalOverdueAmount += metadata.remainingAmount;
+      }
+    }
+  }
+
+  overdueOrders.sort((a, b) => b.daysOverdue - a.daysOverdue);
+  const multipleOverdueUsers = Object.values(usersWithMultipleOverdue).filter(u => u.overdueCount > 1).sort((a, b) => b.overdueCount - a.overdueCount).slice(0, 20);
+
+  successResponse(res, {
+    summary: { totalOverdueOrders: overdueOrders.length, totalOverdueAmount, avgDaysOverdue: overdueOrders.length > 0 ? Math.round(totalDaysOverdue / overdueOrders.length) : 0, avgOverdueAmount: overdueOrders.length > 0 ? Math.round(totalOverdueAmount / overdueOrders.length) : 0 },
+    overdueByDays,
+    topOverdueOrders: overdueOrders.slice(0, 20),
+    usersWithMultipleOverdue: multipleOverdueUsers
+  }, 'Overdue analysis retrieved successfully');
+});
+
+/**
+ * @route   GET /api/installments/admin/analytics/forecast
+ * @desc    Get revenue and completion forecast
+ * @access  Private (Admin only)
+ */
+const getForecast = asyncHandler(async (req, res) => {
+  const { days = 30 } = req.query;
+  const actualDays = Math.min(parseInt(days), 90);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const endDate = new Date(today);
+  endDate.setDate(endDate.getDate() + actualDays);
+
+  const activeOrders = await InstallmentOrder.find({ status: 'ACTIVE' }).populate('user', 'name email').populate('product', 'name').lean();
+
+  const expectedRevenueByDay = {};
+  const ordersCompletingSoon = [];
+
+  for (const order of activeOrders) {
+    const metadata = deriveOrderMetadata(order);
+
+    if (metadata.lastDueDate) {
+      const lastDue = new Date(metadata.lastDueDate);
+      if (lastDue >= today && lastDue <= endDate) {
+        ordersCompletingSoon.push({ orderId: order.orderId, _id: order._id, user: order.user, product: order.product?.name || order.productName, completionDate: metadata.lastDueDate, daysToComplete: metadata.daysToComplete, remainingAmount: metadata.remainingAmount, progressPercentage: metadata.progressPercentage });
+      }
+    }
+
+    for (const payment of order.paymentSchedule) {
+      if (payment.status === 'PENDING' && payment.amount > 0) {
+        const dueDate = new Date(payment.dueDate);
+        if (dueDate >= today && dueDate <= endDate) {
+          const dateKey = dueDate.toISOString().split('T')[0];
+          if (!expectedRevenueByDay[dateKey]) {
+            expectedRevenueByDay[dateKey] = { expected: 0, paymentCount: 0 };
+          }
+          expectedRevenueByDay[dateKey].expected += payment.amount;
+          expectedRevenueByDay[dateKey].paymentCount++;
+        }
+      }
+    }
+  }
+
+  const revenueForecast = Object.entries(expectedRevenueByDay).map(([date, data]) => ({ date, ...data })).sort((a, b) => a.date.localeCompare(b.date));
+  const totalExpectedRevenue = revenueForecast.reduce((sum, d) => sum + d.expected, 0);
+  const totalExpectedPayments = revenueForecast.reduce((sum, d) => sum + d.paymentCount, 0);
+
+  ordersCompletingSoon.sort((a, b) => a.daysToComplete - b.daysToComplete);
+
+  const next7Days = new Date(today);
+  next7Days.setDate(next7Days.getDate() + 7);
+  const upcomingDuePayments = revenueForecast.filter(d => new Date(d.date) <= next7Days).reduce((sum, d) => sum + d.expected, 0);
+
+  successResponse(res, {
+    summary: { forecastDays: actualDays, totalExpectedRevenue, totalExpectedPayments, avgDailyExpected: Math.round(totalExpectedRevenue / actualDays), ordersCompletingInPeriod: ordersCompletingSoon.length, upcomingDuePayments7Days: upcomingDuePayments },
+    dailyForecast: revenueForecast,
+    ordersCompletingSoon: ordersCompletingSoon.slice(0, 20)
+  }, 'Forecast retrieved successfully');
+});
+
 module.exports = {
   getCompletedOrders,
   approveDelivery,
@@ -1232,9 +1634,17 @@ module.exports = {
   markPaymentAsPaid,
   markAllPaymentsAsPaid,
   cancelPayment,
-  // Analytics APIs
+  // Analytics APIs - Core
   getOrdersWithMetadata,
   getCompletionBucketsSummary,
   getRevenueByDateRange,
-  getOrderMetadata
+  getOrderMetadata,
+  // Analytics APIs - Extended (7 New)
+  getUserAnalytics,
+  getProductAnalytics,
+  getCommissionAnalytics,
+  getPaymentMethodAnalytics,
+  getTrends,
+  getOverdueAnalysis,
+  getForecast
 };
