@@ -457,4 +457,71 @@ router.post(
   adminController.cancelPayment
 );
 
+// ============================================
+// ADMIN ROUTES - Analytics APIs
+// ============================================
+
+/**
+ * @route   GET /api/installments/admin/analytics/orders
+ * @desc    Get orders with derived completion metadata
+ * @access  Private (Admin)
+ *
+ * @query {
+ *   status?: 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED',
+ *   completionBucket?: 'overdue' | 'due-today' | '1-7-days' | '8-30-days' | '30+-days' | 'completed' | 'cancelled',
+ *   limit?: number (default: 50),
+ *   page?: number (default: 1),
+ *   sortBy?: 'daysToComplete' | 'progressPercentage' | 'remainingAmount' | 'createdAt',
+ *   sortOrder?: 'asc' | 'desc'
+ * }
+ */
+router.get(
+  "/admin/analytics/orders",
+  verifyToken,
+  isAdmin,
+  adminController.getOrdersWithMetadata
+);
+
+/**
+ * @route   GET /api/installments/admin/analytics/completion-buckets
+ * @desc    Get aggregated completion bucket summary
+ * @access  Private (Admin)
+ */
+router.get(
+  "/admin/analytics/completion-buckets",
+  verifyToken,
+  isAdmin,
+  adminController.getCompletionBucketsSummary
+);
+
+/**
+ * @route   GET /api/installments/admin/analytics/revenue
+ * @desc    Get revenue by date range
+ * @access  Private (Admin)
+ *
+ * @query {
+ *   startDate: string (required) - ISO date (YYYY-MM-DD),
+ *   endDate: string (required) - ISO date (YYYY-MM-DD),
+ *   groupBy?: 'day' | 'week' | 'month' (default: day)
+ * }
+ */
+router.get(
+  "/admin/analytics/revenue",
+  verifyToken,
+  isAdmin,
+  adminController.getRevenueByDateRange
+);
+
+/**
+ * @route   GET /api/installments/admin/analytics/orders/:orderId/metadata
+ * @desc    Get derived metadata for a single order
+ * @access  Private (Admin)
+ */
+router.get(
+  "/admin/analytics/orders/:orderId/metadata",
+  verifyToken,
+  isAdmin,
+  adminController.getOrderMetadata
+);
+
 module.exports = router;
