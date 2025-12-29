@@ -707,23 +707,22 @@ async function getOrderStats(userId = null) {
 /**
  * Get overall investment status for a user
  *
- * Aggregates all NON-CANCELLED installment orders:
- * - Total amount of all products
- * - Total paid
- * - Total remaining
- * - Total days & paid days
- * - Overall progress %
- * - Status breakdown
+ * Aggregates only ACTIVE installment orders:
+ * - ACTIVE = First payment done + Installments still pending (order chalu hai)
+ * - PENDING orders excluded (first payment not done yet)
+ * - COMPLETED orders excluded (all payments done)
+ * - CANCELLED orders excluded
  */
 async function getOverallInvestmentStatus(userId) {
   const userObjectId = new mongoose.Types.ObjectId(userId);
 
-  // Aggregate totals across all NON-CANCELLED orders
+  // Aggregate totals across only ACTIVE orders
+  // ACTIVE = first payment done + installments chal rahe hain
   const [totals] = await InstallmentOrder.aggregate([
     {
       $match: {
         user: userObjectId,
-        status: { $ne: "CANCELLED" },
+        status: "ACTIVE", // Sirf ACTIVE orders (chalu orders)
       },
     },
     {
@@ -739,7 +738,7 @@ async function getOverallInvestmentStatus(userId) {
     },
   ]);
 
-  // If user has no orders at all
+  // If user has no ACTIVE orders
   if (!totals) {
     return {
       totalOrders: 0,
@@ -755,26 +754,10 @@ async function getOverallInvestmentStatus(userId) {
     };
   }
 
-  // Status breakdown (ACTIVE, COMPLETED, PENDING, etc.)
-  const statusStats = await InstallmentOrder.aggregate([
-    {
-      $match: {
-        user: userObjectId,
-        status: { $ne: "CANCELLED" },
-      },
-    },
-    {
-      $group: {
-        _id: "$status",
-        count: { $sum: 1 },
-      },
-    },
-  ]);
-
-  const statusBreakdown = {};
-  statusStats.forEach((s) => {
-    statusBreakdown[s._id] = s.count;
-  });
+  // Status breakdown (sirf ACTIVE orders ka count)
+  const statusBreakdown = {
+    ACTIVE: totals.totalOrders,
+  };
 
   // Compute overall progress and remaining days
   const {
@@ -792,12 +775,12 @@ async function getOverallInvestmentStatus(userId) {
       ? Math.round((totalPaidAmount / totalAmount) * 100 * 100) / 100 // 2 decimal %
       : 0;
 
-  // Find the next nearest pending installment due date across all ACTIVE/PENDING orders
+  // Find the next nearest pending installment due date across only ACTIVE orders
   const [nextDue] = await InstallmentOrder.aggregate([
     {
       $match: {
         user: userObjectId,
-        status: { $in: ["PENDING", "ACTIVE"] },
+        status: "ACTIVE", // Sirf ACTIVE orders
       },
     },
     { $unwind: "$paymentSchedule" },
