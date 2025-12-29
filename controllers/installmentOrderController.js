@@ -530,6 +530,49 @@ const getOverallInvestmentStatus = asyncHandler(async (req, res) => {
 });
 
 /**
+ * @route   POST /api/installment-orders/verify-first-payment
+ * @desc    Verify first Razorpay payment and activate the order
+ * @access  Private
+ *
+ * @body {
+ *   orderId: string (required) - The order ID (MongoDB _id or orderId)
+ *   razorpayOrderId: string (required) - Razorpay order ID
+ *   razorpayPaymentId: string (required) - Razorpay payment ID
+ *   razorpaySignature: string (required) - Razorpay signature for verification
+ * }
+ *
+ * @returns { success, order, payment, message }
+ */
+const verifyFirstPayment = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const { orderId, razorpayOrderId, razorpayPaymentId, razorpaySignature } = req.body;
+
+  // Validate required fields
+  if (!orderId || !razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+    return res.status(400).json({
+      success: false,
+      message: "orderId, razorpayOrderId, razorpayPaymentId, and razorpaySignature are required",
+    });
+  }
+
+  console.log('🔍 DEBUG: verifyFirstPayment called');
+  console.log('🔍 DEBUG: Order ID:', orderId);
+  console.log('🔍 DEBUG: Razorpay Order ID:', razorpayOrderId);
+
+  const result = await orderService.verifyFirstPayment({
+    orderId,
+    userId,
+    razorpayOrderId,
+    razorpayPaymentId,
+    razorpaySignature,
+  });
+
+  console.log('✅ First payment verified successfully!');
+
+  successResponse(res, result, result.message, 200);
+});
+
+/**
  * @route   GET /api/installments/dashboard/overview
  * @desc    Get comprehensive dashboard overview for user
  * @access  Private
@@ -682,6 +725,7 @@ module.exports = {
   validateCoupon,
   getInvestmentStatus,
   getOverallInvestmentStatus,
+  verifyFirstPayment,
   getDashboardOverview
 };
 

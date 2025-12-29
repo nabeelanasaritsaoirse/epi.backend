@@ -44,6 +44,20 @@ router.post(
 );
 
 /**
+ * @route   POST /api/installment-orders/verify-first-payment
+ * @desc    Verify first Razorpay payment and activate the order
+ * @access  Private
+ *
+ * Frontend should call this after Razorpay payment success callback
+ */
+router.post(
+  "/orders/verify-first-payment",
+  verifyToken,
+  sanitizeInput,
+  orderController.verifyFirstPayment
+);
+
+/**
  * @route   GET /api/installment-orders
  * @desc    Get user's orders
  * @access  Private

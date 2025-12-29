@@ -266,11 +266,13 @@ router.get("/friend/:referredUserId", async (req, res) => {
 });
 
 /* ---------- Product details (Screen 3) ---------- */
+// Supports optional ?orderId= query param for InstallmentOrder lookup
 router.get("/product/:referredUserId/:productId", async (req, res) => {
   try {
     const result = await referralController.getReferralProductDetails(
       req.params.referredUserId,
-      req.params.productId
+      req.params.productId,
+      req.query.orderId || null
     );
     res.json(result);
   } catch (error) {
