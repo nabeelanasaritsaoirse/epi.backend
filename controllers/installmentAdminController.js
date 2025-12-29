@@ -798,6 +798,425 @@ const cancelPayment = asyncHandler(async (req, res) => {
   successResponse(res, { payment }, 'Payment cancelled successfully');
 });
 
+// ============================================
+// ANALYTICS APIs - Derived Order Completion Metadata
+// ============================================
+
+/**
+ * Helper function to calculate completion bucket
+ * @param {Date} lastDueDate - Last due date of the order
+ * @param {string} status - Order status
+ * @returns {string} Completion bucket category
+ */
+const getCompletionBucket = (lastDueDate, status) => {
+  if (status === 'COMPLETED') return 'completed';
+  if (status === 'CANCELLED') return 'cancelled';
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const dueDate = new Date(lastDueDate);
+  dueDate.setHours(0, 0, 0, 0);
+
+  const diffTime = dueDate.getTime() - today.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 0) return 'overdue';
+  if (diffDays === 0) return 'due-today';
+  if (diffDays <= 7) return '1-7-days';
+  if (diffDays <= 30) return '8-30-days';
+  return '30+-days';
+};
+
+/**
+ * Helper function to derive order completion metadata
+ * @param {Object} order - InstallmentOrder document
+ * @returns {Object} Derived metadata
+ */
+const deriveOrderMetadata = (order) => {
+  const pendingInstallments = order.paymentSchedule.filter(p => p.status === 'PENDING');
+  const remainingInstallments = pendingInstallments.length;
+
+  // Get last due date (last item in payment schedule)
+  const lastDueDate = order.paymentSchedule.length > 0
+    ? order.paymentSchedule[order.paymentSchedule.length - 1].dueDate
+    : null;
+
+  // Calculate days to complete
+  let daysToComplete = null;
+  if (lastDueDate && order.status !== 'COMPLETED' && order.status !== 'CANCELLED') {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dueDate = new Date(lastDueDate);
+    dueDate.setHours(0, 0, 0, 0);
+    daysToComplete = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  }
+
+  // Calculate progress percentage
+  const progressPercentage = order.productPrice > 0
+    ? Math.round((order.totalPaidAmount / order.productPrice) * 100)
+    : 0;
+
+  // Get completion bucket
+  const completionBucket = getCompletionBucket(lastDueDate, order.status);
+
+  // Calculate remaining amount
+  const remainingAmount = order.productPrice - order.totalPaidAmount;
+
+  return {
+    remainingInstallments,
+    lastDueDate,
+    daysToComplete,
+    completionBucket,
+    progressPercentage,
+    remainingAmount,
+    paidInstallments: order.paidInstallments || 0,
+    totalInstallments: order.paymentSchedule.length
+  };
+};
+
+/**
+ * @route   GET /api/installments/admin/analytics/orders
+ * @desc    Get orders with derived completion metadata
+ * @access  Private (Admin only)
+ *
+ * @query {
+ *   status?: 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED',
+ *   completionBucket?: 'overdue' | 'due-today' | '1-7-days' | '8-30-days' | '30+-days' | 'completed' | 'cancelled',
+ *   limit?: number (default: 50, max: 100),
+ *   page?: number (default: 1),
+ *   sortBy?: 'daysToComplete' | 'progressPercentage' | 'remainingAmount' | 'createdAt' (default: createdAt),
+ *   sortOrder?: 'asc' | 'desc' (default: desc)
+ * }
+ *
+ * @returns {
+ *   success: true,
+ *   message: string,
+ *   data: {
+ *     orders: array (with derived metadata),
+ *     totalCount: number,
+ *     page: number,
+ *     hasMore: boolean
+ *   }
+ * }
+ */
+const getOrdersWithMetadata = asyncHandler(async (req, res) => {
+  const {
+    status,
+    completionBucket,
+    limit = 50,
+    page = 1,
+    sortBy = 'createdAt',
+    sortOrder = 'desc'
+  } = req.query;
+
+  const actualLimit = Math.min(parseInt(limit), 100);
+  const actualPage = parseInt(page);
+  const skip = (actualPage - 1) * actualLimit;
+
+  // Build query
+  const query = {};
+  if (status) query.status = status;
+
+  // Get orders
+  let orders = await InstallmentOrder.find(query)
+    .sort({ [sortBy === 'createdAt' ? 'createdAt' : 'createdAt']: sortOrder === 'asc' ? 1 : -1 })
+    .populate('user', 'name email phoneNumber')
+    .populate('product', 'name images pricing')
+    .populate('referrer', 'name email')
+    .lean();
+
+  // Add derived metadata to each order
+  orders = orders.map(order => ({
+    ...order,
+    metadata: deriveOrderMetadata(order)
+  }));
+
+  // Filter by completion bucket if specified
+  if (completionBucket) {
+    orders = orders.filter(order => order.metadata.completionBucket === completionBucket);
+  }
+
+  // Sort by derived fields if needed
+  if (sortBy === 'daysToComplete') {
+    orders.sort((a, b) => {
+      const aVal = a.metadata.daysToComplete ?? Infinity;
+      const bVal = b.metadata.daysToComplete ?? Infinity;
+      return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
+    });
+  } else if (sortBy === 'progressPercentage') {
+    orders.sort((a, b) => {
+      return sortOrder === 'asc'
+        ? a.metadata.progressPercentage - b.metadata.progressPercentage
+        : b.metadata.progressPercentage - a.metadata.progressPercentage;
+    });
+  } else if (sortBy === 'remainingAmount') {
+    orders.sort((a, b) => {
+      return sortOrder === 'asc'
+        ? a.metadata.remainingAmount - b.metadata.remainingAmount
+        : b.metadata.remainingAmount - a.metadata.remainingAmount;
+    });
+  }
+
+  const totalCount = orders.length;
+
+  // Apply pagination after filtering
+  const paginatedOrders = orders.slice(skip, skip + actualLimit);
+
+  successResponse(res, {
+    orders: paginatedOrders,
+    totalCount,
+    page: actualPage,
+    limit: actualLimit,
+    hasMore: skip + paginatedOrders.length < totalCount
+  }, 'Orders with metadata retrieved successfully');
+});
+
+/**
+ * @route   GET /api/installments/admin/analytics/completion-buckets
+ * @desc    Get aggregated completion bucket summary
+ * @access  Private (Admin only)
+ *
+ * @returns {
+ *   success: true,
+ *   message: string,
+ *   data: {
+ *     buckets: {
+ *       overdue: { count, totalRemainingAmount },
+ *       'due-today': { count, totalRemainingAmount },
+ *       '1-7-days': { count, totalRemainingAmount },
+ *       '8-30-days': { count, totalRemainingAmount },
+ *       '30+-days': { count, totalRemainingAmount },
+ *       completed: { count, totalRevenue },
+ *       cancelled: { count }
+ *     },
+ *     summary: { totalActive, totalCompleted, totalCancelled }
+ *   }
+ * }
+ */
+const getCompletionBucketsSummary = asyncHandler(async (req, res) => {
+  // Get all orders
+  const orders = await InstallmentOrder.find({}).lean();
+
+  // Initialize buckets
+  const buckets = {
+    'overdue': { count: 0, totalRemainingAmount: 0, orderIds: [] },
+    'due-today': { count: 0, totalRemainingAmount: 0, orderIds: [] },
+    '1-7-days': { count: 0, totalRemainingAmount: 0, orderIds: [] },
+    '8-30-days': { count: 0, totalRemainingAmount: 0, orderIds: [] },
+    '30+-days': { count: 0, totalRemainingAmount: 0, orderIds: [] },
+    'completed': { count: 0, totalRevenue: 0 },
+    'cancelled': { count: 0 }
+  };
+
+  // Process each order
+  for (const order of orders) {
+    const metadata = deriveOrderMetadata(order);
+    const bucket = metadata.completionBucket;
+
+    if (buckets[bucket]) {
+      buckets[bucket].count++;
+
+      if (bucket === 'completed') {
+        buckets[bucket].totalRevenue += order.totalPaidAmount || 0;
+      } else if (bucket !== 'cancelled') {
+        buckets[bucket].totalRemainingAmount += metadata.remainingAmount || 0;
+      }
+    }
+  }
+
+  // Remove orderIds from response (only used for debugging)
+  Object.keys(buckets).forEach(key => {
+    delete buckets[key].orderIds;
+  });
+
+  const summary = {
+    totalActive: buckets['overdue'].count + buckets['due-today'].count +
+                 buckets['1-7-days'].count + buckets['8-30-days'].count +
+                 buckets['30+-days'].count,
+    totalCompleted: buckets['completed'].count,
+    totalCancelled: buckets['cancelled'].count,
+    totalOrders: orders.length
+  };
+
+  successResponse(res, {
+    buckets,
+    summary
+  }, 'Completion buckets summary retrieved successfully');
+});
+
+/**
+ * @route   GET /api/installments/admin/analytics/revenue
+ * @desc    Get revenue by date range
+ * @access  Private (Admin only)
+ *
+ * @query {
+ *   startDate: string (required) - ISO date string,
+ *   endDate: string (required) - ISO date string,
+ *   groupBy?: 'day' | 'week' | 'month' (default: day)
+ * }
+ *
+ * @returns {
+ *   success: true,
+ *   message: string,
+ *   data: {
+ *     totalRevenue: number,
+ *     totalPayments: number,
+ *     averagePayment: number,
+ *     revenueByPeriod: array
+ *   }
+ * }
+ */
+const getRevenueByDateRange = asyncHandler(async (req, res) => {
+  const { startDate, endDate, groupBy = 'day' } = req.query;
+
+  if (!startDate || !endDate) {
+    return res.status(400).json({
+      success: false,
+      message: 'startDate and endDate are required'
+    });
+  }
+
+  const start = new Date(startDate);
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(endDate);
+  end.setHours(23, 59, 59, 999);
+
+  // Validate dates
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid date format. Use ISO date string (YYYY-MM-DD)'
+    });
+  }
+
+  // Build aggregation pipeline based on groupBy
+  let dateFormat;
+  switch (groupBy) {
+    case 'week':
+      dateFormat = { $isoWeek: '$completedAt' };
+      break;
+    case 'month':
+      dateFormat = { $month: '$completedAt' };
+      break;
+    default: // day
+      dateFormat = { $dateToString: { format: '%Y-%m-%d', date: '$completedAt' } };
+  }
+
+  // Get revenue grouped by period
+  const revenueByPeriod = await PaymentRecord.aggregate([
+    {
+      $match: {
+        status: 'COMPLETED',
+        completedAt: { $gte: start, $lte: end }
+      }
+    },
+    {
+      $group: {
+        _id: groupBy === 'day'
+          ? { $dateToString: { format: '%Y-%m-%d', date: '$completedAt' } }
+          : groupBy === 'week'
+            ? { year: { $isoWeekYear: '$completedAt' }, week: { $isoWeek: '$completedAt' } }
+            : { year: { $year: '$completedAt' }, month: { $month: '$completedAt' } },
+        revenue: { $sum: '$amount' },
+        paymentCount: { $sum: 1 },
+        commissionPaid: { $sum: '$commissionAmount' }
+      }
+    },
+    { $sort: { _id: 1 } }
+  ]);
+
+  // Get totals
+  const totals = await PaymentRecord.aggregate([
+    {
+      $match: {
+        status: 'COMPLETED',
+        completedAt: { $gte: start, $lte: end }
+      }
+    },
+    {
+      $group: {
+        _id: null,
+        totalRevenue: { $sum: '$amount' },
+        totalPayments: { $sum: 1 },
+        totalCommission: { $sum: '$commissionAmount' }
+      }
+    }
+  ]);
+
+  const totalData = totals[0] || { totalRevenue: 0, totalPayments: 0, totalCommission: 0 };
+  const averagePayment = totalData.totalPayments > 0
+    ? Math.round(totalData.totalRevenue / totalData.totalPayments)
+    : 0;
+
+  // Format revenue by period for better readability
+  const formattedRevenueByPeriod = revenueByPeriod.map(item => {
+    let period;
+    if (groupBy === 'day') {
+      period = item._id;
+    } else if (groupBy === 'week') {
+      period = `${item._id.year}-W${item._id.week}`;
+    } else {
+      period = `${item._id.year}-${String(item._id.month).padStart(2, '0')}`;
+    }
+
+    return {
+      period,
+      revenue: item.revenue,
+      paymentCount: item.paymentCount,
+      commissionPaid: item.commissionPaid || 0
+    };
+  });
+
+  successResponse(res, {
+    dateRange: { startDate: start, endDate: end },
+    groupBy,
+    totalRevenue: totalData.totalRevenue,
+    totalPayments: totalData.totalPayments,
+    totalCommission: totalData.totalCommission,
+    averagePayment,
+    revenueByPeriod: formattedRevenueByPeriod
+  }, 'Revenue data retrieved successfully');
+});
+
+/**
+ * @route   GET /api/installments/admin/analytics/orders/:orderId/metadata
+ * @desc    Get derived metadata for a single order
+ * @access  Private (Admin only)
+ *
+ * @returns {
+ *   success: true,
+ *   message: string,
+ *   data: { order, metadata }
+ * }
+ */
+const getOrderMetadata = asyncHandler(async (req, res) => {
+  const { orderId } = req.params;
+
+  const order = await InstallmentOrder.findOne({
+    $or: [{ _id: orderId }, { orderId }]
+  })
+  .populate('user', 'name email phoneNumber')
+  .populate('product', 'name images pricing')
+  .populate('referrer', 'name email')
+  .lean();
+
+  if (!order) {
+    return res.status(404).json({
+      success: false,
+      message: 'Order not found'
+    });
+  }
+
+  const metadata = deriveOrderMetadata(order);
+
+  successResponse(res, {
+    order,
+    metadata
+  }, 'Order metadata retrieved successfully');
+});
+
 module.exports = {
   getCompletedOrders,
   approveDelivery,
@@ -812,5 +1231,10 @@ module.exports = {
   createOrderForUser,
   markPaymentAsPaid,
   markAllPaymentsAsPaid,
-  cancelPayment
+  cancelPayment,
+  // Analytics APIs
+  getOrdersWithMetadata,
+  getCompletionBucketsSummary,
+  getRevenueByDateRange,
+  getOrderMetadata
 };
