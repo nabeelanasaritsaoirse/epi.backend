@@ -479,44 +479,86 @@ exports.getReferralList = async (referrerId) => {
 };
 
 /* ---------- getReferredUserDetails (Screen 2) ---------- */
-exports.getReferredUserDetails = async (referredUserId) => {
+exports.getReferredUserDetails = async (referredUserId, referrerId = null) => {
   try {
-    const referredUser = await User.findById(referredUserId).select('name email profilePicture');
+    const InstallmentOrder = require('../models/InstallmentOrder');
+
+    const referredUser = await User.findById(referredUserId).select('name email profilePicture referredBy');
     if (!referredUser) throw new Error('Referred user not found');
 
+    // Use the referrerId passed in, or fall back to referredUser.referredBy
+    const actualReferrerId = referrerId || referredUser.referredBy;
+
+    let totalProducts = 0;
+    let totalCommission = 0;
+    let products = [];
+
+    // Get legacy referral data
     const referral = await Referral.findOne({ referredUser: referredUserId }).populate('purchases.product', 'productId name pricing');
 
-    if (!referral) {
-      return {
-        success: true,
-        friendDetails: {
-          _id: referredUser._id,
-          name: referredUser.name,
-          email: referredUser.email,
-          profilePicture: referredUser.profilePicture,
-          totalProducts: 0,
-          totalCommission: 0,
-          products: [],
-        },
-      };
+    if (referral && referral.purchases && referral.purchases.length > 0) {
+      totalProducts += referral.purchases.length;
+      totalCommission += referral.purchases.reduce((c, p) => c + ((p.commissionPerDay || 0) * (p.paidDays || 0)), 0);
+
+      products = referral.purchases.map((p) => {
+        return {
+          productId: p.productSnapshot?.productId || (p.product ? p.product.productId : null),
+          productName: p.productSnapshot?.productName || (p.product ? p.product.name : null),
+          productImage: null,
+          pendingStatus: (p.pendingDays || 0) > 0 ? "PENDING" : p.status,
+          totalAmount: p.amount,
+          dateOfPurchase: p.date,
+          days: p.days,
+          commissionPerDay: p.commissionPerDay || ((p.dailyAmount || referral.dailyAmount || 0) * (p.commissionPercentage || referral.commissionPercentage || 0) / 100),
+          paidDays: p.paidDays || 0,
+          pendingDays: p.pendingDays || 0,
+          source: 'legacy'
+        };
+      });
     }
 
-    const totalProducts = referral.purchases.length;
-    const totalCommission = referral.purchases.reduce((c, p) => c + ((p.commissionPerDay || 0) * (p.paidDays || 0)), 0);
+    // Get InstallmentOrder data (if referrer is known)
+    if (actualReferrerId) {
+      const installmentOrders = await InstallmentOrder.find({
+        referrer: actualReferrerId,
+        user: referredUserId
+      }).populate('product', 'name images productId');
 
-    const products = referral.purchases.map((p) => {
-      return {
-        productId: p.productSnapshot?.productId || (p.product ? p.product.productId : null),
-        productName: p.productSnapshot?.productName || (p.product ? p.product.name : null),
-        pendingStatus: (p.pendingDays || 0) > 0 ? "PENDING" : p.status,
-        totalAmount: p.amount,
-        dateOfPurchase: p.date,
-        days: p.days,
-        commissionPerDay: p.commissionPerDay || ((p.dailyAmount || referral.dailyAmount || 0) * (p.commissionPercentage || referral.commissionPercentage || 0) / 100),
-        paidDays: p.paidDays || 0,
-        pendingDays: p.pendingDays || 0
-      };
-    });
+      if (installmentOrders && installmentOrders.length > 0) {
+        totalProducts += installmentOrders.length;
+
+        const installmentProducts = installmentOrders.map((order) => {
+          const paidInstallments = order.paidInstallments || 0;
+          const totalDays = order.totalDays || 0;
+          const dailyAmount = order.dailyPaymentAmount || 0;
+          const commissionPct = order.productCommissionPercentage || order.commissionPercentage || 10;
+          const commissionPerDay = (dailyAmount * commissionPct) / 100;
+          const commissionEarned = order.totalCommissionPaid || 0;
+
+          totalCommission += commissionEarned;
+
+          return {
+            productId: order.product?.productId || null,
+            productName: order.productName,
+            productImage: order.product?.images?.[0] || null,
+            pendingStatus: order.status,
+            totalAmount: order.productPrice,
+            dateOfPurchase: order.createdAt,
+            days: totalDays,
+            commissionPerDay: commissionPerDay,
+            paidDays: paidInstallments,
+            pendingDays: Math.max(0, totalDays - paidInstallments),
+            source: 'installment',
+            orderId: order.orderId
+          };
+        });
+
+        products = [...products, ...installmentProducts];
+      }
+    }
+
+    // Sort products by date (newest first)
+    products.sort((a, b) => new Date(b.dateOfPurchase) - new Date(a.dateOfPurchase));
 
     return {
       success: true,
@@ -537,8 +579,69 @@ exports.getReferredUserDetails = async (referredUserId) => {
 
 /* ---------- getReferralProductDetails (Screen 3) ---------- */
 
-exports.getReferralProductDetails = async (referredUserId, productId) => {
+exports.getReferralProductDetails = async (referredUserId, productId, orderId = null) => {
   try {
+    const InstallmentOrder = require('../models/InstallmentOrder');
+
+    // First check if it's an InstallmentOrder (by orderId or productId)
+    let installmentOrder = null;
+
+    if (orderId) {
+      installmentOrder = await InstallmentOrder.findOne({
+        user: referredUserId,
+        orderId: orderId
+      }).populate('product', 'productId name images pricing');
+    }
+
+    if (!installmentOrder && productId) {
+      // Try to find by product's productId
+      const Product = require('../models/Product');
+      const product = await Product.findOne({ productId: productId }).select('_id');
+
+      if (product) {
+        installmentOrder = await InstallmentOrder.findOne({
+          user: referredUserId,
+          product: product._id
+        }).populate('product', 'productId name images pricing');
+      }
+    }
+
+    // If found in InstallmentOrder, return that data
+    if (installmentOrder) {
+      const paidInstallments = installmentOrder.paidInstallments || 0;
+      const totalDays = installmentOrder.totalDays || 0;
+      const dailyAmount = installmentOrder.dailyPaymentAmount || 0;
+      const commissionPct = installmentOrder.productCommissionPercentage || installmentOrder.commissionPercentage || 10;
+      const commissionPerDay = (dailyAmount * commissionPct) / 100;
+      const totalCommission = commissionPerDay * totalDays;
+      const earnedCommission = installmentOrder.totalCommissionPaid || 0;
+      const pendingDays = Math.max(0, totalDays - paidInstallments);
+      const pendingInvestmentAmount = pendingDays * commissionPerDay;
+
+      return {
+        success: true,
+        productDetails: {
+          productName: installmentOrder.productName,
+          productId: installmentOrder.product?.productId || productId,
+          productImage: installmentOrder.product?.images?.[0] || null,
+          dateOfPurchase: installmentOrder.createdAt,
+          totalPrice: installmentOrder.productPrice,
+          commissionPerDay,
+          totalCommission,
+          earnedCommission,
+          pendingDays,
+          pendingInvestmentAmount,
+          status: installmentOrder.status,
+          dailySip: dailyAmount,
+          paidDays: paidInstallments,
+          totalDays: totalDays,
+          orderId: installmentOrder.orderId,
+          source: 'installment'
+        },
+      };
+    }
+
+    // Fall back to legacy Referral data
     const referral = await Referral.findOne({ referredUser: referredUserId })
       .populate("purchases.product", "productId name pricing");
 
@@ -577,19 +680,19 @@ exports.getReferralProductDetails = async (referredUserId, productId) => {
         productId:
           purchase.productSnapshot?.productId ||
           (purchase.product ? purchase.product.productId : null),
+        productImage: null,
         dateOfPurchase: purchase.date,
         totalPrice: purchase.amount,
-
-        // EXISTING
         commissionPerDay,
         totalCommission,
         earnedCommission,
         pendingDays,
         pendingInvestmentAmount,
         status: purchase.status,
-
-        // ✅ NEW FIELD — DAILY SIP AMOUNT
-        dailySip: purchase.dailyAmount || referral.dailyAmount || 0
+        dailySip: purchase.dailyAmount || referral.dailyAmount || 0,
+        paidDays: purchase.paidDays || 0,
+        totalDays: purchase.days || 0,
+        source: 'legacy'
       },
     };
   } catch (error) {

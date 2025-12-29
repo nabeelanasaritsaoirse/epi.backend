@@ -836,6 +836,168 @@ async function getOverallInvestmentStatus(userId) {
   };
 }
 
+/**
+ * Verify first payment for Razorpay orders
+ *
+ * This function is called after user completes Razorpay payment.
+ * It verifies the payment signature and activates the order.
+ *
+ * @param {Object} data - Payment verification data
+ * @param {string} data.orderId - InstallmentOrder ID (MongoDB _id or orderId)
+ * @param {string} data.userId - User ID
+ * @param {string} data.razorpayOrderId - Razorpay order ID
+ * @param {string} data.razorpayPaymentId - Razorpay payment ID
+ * @param {string} data.razorpaySignature - Razorpay signature
+ * @returns {Promise<Object>} { order, payment, message }
+ */
+async function verifyFirstPayment(data) {
+  const {
+    orderId,
+    userId,
+    razorpayOrderId,
+    razorpayPaymentId,
+    razorpaySignature,
+  } = data;
+
+  // 1. Find the order
+  const order = await getOrderById(orderId, userId);
+
+  if (!order) {
+    throw new Error("Order not found");
+  }
+
+  // 2. Check if order is in PENDING status
+  if (order.status !== "PENDING") {
+    throw new Error(`Order is already ${order.status}. First payment was already processed.`);
+  }
+
+  // 3. Find the first payment record
+  const firstPayment = await PaymentRecord.findOne({
+    order: order._id,
+    installmentNumber: 1,
+    status: "PENDING",
+  });
+
+  if (!firstPayment) {
+    throw new Error("First payment record not found or already processed");
+  }
+
+  // 4. Verify Razorpay payment ID matches
+  if (firstPayment.razorpayOrderId !== razorpayOrderId) {
+    throw new Error("Razorpay order ID mismatch");
+  }
+
+  // 5. Verify Razorpay signature
+  const crypto = require("crypto");
+  const expectedSignature = crypto
+    .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+    .update(`${razorpayOrderId}|${razorpayPaymentId}`)
+    .digest("hex");
+
+  if (expectedSignature !== razorpaySignature) {
+    throw new Error("Invalid payment signature. Payment verification failed.");
+  }
+
+  // 6. Payment verified! Update payment record
+  firstPayment.status = "COMPLETED";
+  firstPayment.razorpayPaymentId = razorpayPaymentId;
+  firstPayment.razorpaySignature = razorpaySignature;
+  firstPayment.processedAt = new Date();
+  firstPayment.completedAt = new Date();
+  await firstPayment.save();
+
+  // 7. Update order status to ACTIVE
+  order.status = "ACTIVE";
+  order.paidInstallments = 1;
+  order.totalPaidAmount = order.dailyPaymentAmount;
+  order.remainingAmount = order.productPrice - order.dailyPaymentAmount;
+  order.firstPaymentCompletedAt = new Date();
+  order.lastPaymentDate = new Date();
+
+  // Update first installment in payment schedule
+  order.paymentSchedule[0].status = "PAID";
+  order.paymentSchedule[0].paidDate = new Date();
+  order.paymentSchedule[0].paymentId = firstPayment._id;
+
+  await order.save();
+
+  // 8. Process commission if referrer exists
+  if (order.referrer && order.commissionPercentage > 0) {
+    const commissionAmount = (order.dailyPaymentAmount * order.commissionPercentage) / 100;
+
+    try {
+      const commissionResult = await creditCommissionToWallet(
+        order.referrer,
+        commissionAmount,
+        order._id.toString(),
+        firstPayment._id.toString(),
+        null
+      );
+
+      await firstPayment.recordCommission(
+        commissionAmount,
+        order.commissionPercentage,
+        commissionResult.walletTransaction._id
+      );
+
+      order.totalCommissionPaid = commissionAmount;
+      await order.save();
+
+      console.log(`✅ Commission credited for verified first payment: ₹${commissionAmount}`);
+    } catch (commissionError) {
+      console.error("⚠️ Failed to credit commission:", commissionError.message);
+    }
+
+    // Process referral tracking
+    try {
+      const referralController = require("../controllers/referralController");
+      const product = await Product.findById(order.product);
+
+      const installmentDetails = {
+        productId: order.product,
+        orderId: order._id,
+        totalAmount: order.productPrice,
+        dailyAmount: order.dailyPaymentAmount,
+        days: order.totalDays,
+        commissionPercentage: order.commissionPercentage,
+        name: `${product?.name || order.productName} - ${order.totalDays} days installment`,
+      };
+
+      await referralController.processReferral(
+        order.referrer,
+        userId,
+        installmentDetails
+      );
+
+      console.log(`✅ Referral tracking updated for verified payment`);
+    } catch (referralError) {
+      console.error("⚠️ Failed to update referral tracking:", referralError.message);
+    }
+  }
+
+  return {
+    success: true,
+    order: {
+      orderId: order.orderId,
+      _id: order._id,
+      status: order.status,
+      productName: order.productName,
+      dailyPaymentAmount: order.dailyPaymentAmount,
+      totalDays: order.totalDays,
+      paidInstallments: order.paidInstallments,
+      totalPaidAmount: order.totalPaidAmount,
+      remainingAmount: order.remainingAmount,
+    },
+    payment: {
+      paymentId: firstPayment._id,
+      amount: firstPayment.amount,
+      status: firstPayment.status,
+      completedAt: firstPayment.completedAt,
+    },
+    message: "First payment verified successfully. Order is now ACTIVE.",
+  };
+}
+
 module.exports = {
   createOrder,
   getOrderById,
@@ -846,4 +1008,5 @@ module.exports = {
   updateDeliveryStatus,
   getOrderStats,
   getOverallInvestmentStatus,
+  verifyFirstPayment,
 };
