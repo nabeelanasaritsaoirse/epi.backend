@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 
 const { verifyToken, isAdmin } = require("../middlewares/auth");
-const { uploadSingle } = require("../middlewares/uploadMiddleware");
+const { uploadSingle } = require("../middlewares/uploadMiddleware"); // now fields()
 const { uploadSingleFileToS3 } = require("../services/awsUploadService");
 
 const {
@@ -16,24 +16,17 @@ const {
 
 /* ============================================================
    📌 USER — Upload KYC Image (SELFIE / AADHAAR / PAN etc.)
-   Method: PUT
-   Route:  /api/kyc/upload
-
-   Body (form-data):
-     - image OR file (file)
-     - type: selfie | aadhaar | pan | voter_id | driving_license
-     - side: front | back
 ============================================================ */
 router.put(
   "/upload",
   verifyToken,
-  uploadSingle, // multer middleware (req.files)
+  uploadSingle, // now correctly populates req.files.image or req.files.file
   async (req, res) => {
     try {
       const userId = req.user.id;
       const { type, side } = req.body;
 
-      // Extract file from either "image" or "file"
+      // 🔥 FIX: correct extraction from multer.fields()
       const uploadedFile =
         (req.files?.image && req.files.image[0]) ||
         (req.files?.file && req.files.file[0]) ||
@@ -118,6 +111,5 @@ router.get("/status", verifyToken, getKycStatus);
 router.get("/admin/all", verifyToken, isAdmin, getAllKyc);
 router.patch("/admin/approve/:id", verifyToken, isAdmin, adminApprove);
 router.patch("/admin/reject/:id", verifyToken, isAdmin, adminReject);
-
 
 module.exports = router;
