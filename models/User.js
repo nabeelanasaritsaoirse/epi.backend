@@ -26,8 +26,12 @@ const userSchema = new Schema({
   },
   firebaseUid: {
     type: String,
-    required: true,
+    required: function() {
+      // firebaseUid is required for regular users, optional for password-based admins
+      return this.role === 'user';
+    },
     unique: true,
+    sparse: true, // Allow null values for admins
     index: true
   },
   phoneNumber: {
@@ -102,6 +106,33 @@ const userSchema = new Schema({
     balance: {
       type: Number,
       default: 0
+    },
+    holdBalance: {
+      type: Number,
+      default: 0
+    },
+    referralBonus: {
+      type: Number,
+      default: 0
+    },
+    investedAmount: {
+      type: Number,
+      default: 0
+    },
+    requiredInvestment: {
+      type: Number,
+      default: 0
+    },
+    // NEW: Commission tracking for 10% in-app usage rule
+    commissionEarned: {
+      type: Number,
+      default: 0,
+      comment: 'Total commission earned from referrals (installment orders)'
+    },
+    commissionUsedInApp: {
+      type: Number,
+      default: 0,
+      comment: 'Amount of commission used for in-app purchases (installment orders)'
     },
     transactions: [{
       type: {
@@ -266,9 +297,39 @@ const userSchema = new Schema({
   }],
   role: {
     type: String,
-    enum: ['user', 'admin'],
+    enum: ['user', 'admin', 'super_admin'],
     default: 'user'
   },
+
+  // Admin-specific fields for password-based login (not Firebase)
+  password: {
+    type: String,
+    default: null,
+    // Only required for admin/super_admin users who login with password
+    // Regular users use Firebase authentication
+  },
+
+  // Module access control for sub-admins
+  moduleAccess: [{
+    type: String,
+    // Array of module IDs that admin can access
+    // e.g., ['dashboard', 'products', 'orders', 'categories']
+    // Super admin gets all modules automatically
+  }],
+
+  // Track who created this admin (for sub-admins)
+  createdBy: {
+    type: Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+
+  // Last login timestamp
+  lastLogin: {
+    type: Date,
+    default: null
+  },
+
   isActive: {
     type: Boolean,
     default: true
@@ -278,6 +339,10 @@ const userSchema = new Schema({
     default: 0
   },
   availableBalance: {
+    type: Number,
+    default: 0
+  },
+  totalBalance: {
     type: Number,
     default: 0
   },
@@ -376,6 +441,7 @@ userSchema.index({ email: 1 });
 userSchema.index({ phoneNumber: 1 });
 userSchema.index({ firebaseUid: 1 });
 userSchema.index({ referralCode: 1 });
+userSchema.index({ referredBy: 1 }); // For efficient referral stats queries
 
 userSchema.pre('save', async function(next) {
   if (this.isNew && !this.referralCode) {

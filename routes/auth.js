@@ -92,6 +92,20 @@ router.post("/login", async (req, res) => {
       }
     }
 
+    // If an existing user is found and the Firebase token contains a phone number,
+    // ensure the user's phoneNumber is set/kept in sync. Do a minimal atomic save.
+    if (user && decodedToken.phone_number && ( !user.phoneNumber || user.phoneNumber !== decodedToken.phone_number )) {
+      try {
+        user.phoneNumber = decodedToken.phone_number.trim();
+        // Save only this change; skip full validation to avoid breaking other fields
+        await user.save({ validateBeforeSave: false });
+        console.log('Updated existing user phoneNumber from token for user:', user._id);
+      } catch (phoneSaveError) {
+        console.error('Failed to update phoneNumber for existing user:', phoneSaveError);
+        // Do not fail the login flow on phone update error; continue normally
+      }
+    }
+
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -701,31 +715,58 @@ router.post("/admin-login", async (req, res) => {
 
     console.log('Admin credentials verified successfully');
 
-    // Check if admin user exists in database
-    let adminUser = await User.findOne({ email: ADMIN_EMAIL, role: 'admin' });
+    const crypto = require('crypto');
+    const bcrypt = require('bcryptjs');
 
-    // If admin doesn't exist, create one
+    // Check if ANY admin user exists with this email (could be old 'admin' role)
+    let adminUser = await User.findOne({ email: ADMIN_EMAIL });
+
+    // If admin doesn't exist, create new super admin
     if (!adminUser) {
-      console.log('Admin user not found in database. Creating admin user...');
+      console.log('Admin user not found in database. Creating super admin...');
 
       // Generate a unique firebaseUid for admin
-      const crypto = require('crypto');
-      const adminFirebaseUid = 'admin_' + crypto.randomBytes(8).toString('hex');
+      const adminFirebaseUid = 'super_admin_' + crypto.randomBytes(8).toString('hex');
+
+      // Hash the admin password
+      const hashedPassword = await bcrypt.hash(ADMIN_PASSWORD, 10);
 
       adminUser = new User({
-        name: 'Admin',
+        name: 'Super Admin',
         email: ADMIN_EMAIL,
         firebaseUid: adminFirebaseUid,
-        role: 'admin',
+        password: hashedPassword,
+        role: 'super_admin',
         profilePicture: '',
         phoneNumber: '',
         isActive: true
       });
 
       await adminUser.save();
-      console.log('Admin user created successfully. User ID:', adminUser._id);
+      console.log('Super admin user created successfully. User ID:', adminUser._id);
     } else {
       console.log('Admin user found. User ID:', adminUser._id);
+
+      // Update existing admin to super_admin with password if needed
+      let needsUpdate = false;
+
+      if (adminUser.role !== 'super_admin') {
+        console.log('Upgrading admin role to super_admin');
+        adminUser.role = 'super_admin';
+        needsUpdate = true;
+      }
+
+      // Always sync password with ENV on successful login
+      // This ensures if ENV password changes, DB gets updated automatically
+      console.log('Syncing admin password with ENV configuration');
+      const hashedPassword = await bcrypt.hash(ADMIN_PASSWORD, 10);
+      adminUser.password = hashedPassword;
+      needsUpdate = true;
+
+      if (needsUpdate) {
+        await adminUser.save();
+        console.log('Admin user updated successfully (password synced with ENV)');
+      }
     }
 
     // Generate JWT tokens
@@ -742,6 +783,8 @@ router.post("/admin-login", async (req, res) => {
         email: adminUser.email,
         role: adminUser.role,
         profilePicture: adminUser.profilePicture,
+        isSuperAdmin: adminUser.role === 'super_admin',
+        modules: [],
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken
       }
@@ -760,7 +803,7 @@ router.post("/admin-login", async (req, res) => {
 
       try {
         const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@epi.com';
-        const adminUser = await User.findOne({ email: ADMIN_EMAIL, role: 'admin' });
+        const adminUser = await User.findOne({ email: ADMIN_EMAIL, role: 'super_admin' });
 
         if (adminUser) {
           const tokens = generateTokens(adminUser._id.toString(), adminUser.role);

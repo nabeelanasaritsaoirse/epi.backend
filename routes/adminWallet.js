@@ -1,65 +1,93 @@
 const express = require("express");
 const router = express.Router();
+const mongoose = require("mongoose"); // ✅ ADDED: Missing import
 
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
 const recalcWallet = require("../services/walletCalculator");
 const { verifyToken, isAdmin } = require("../middlewares/auth");
 
+/* ============================================================
+   UNIFIED USER SEARCH HELPER
+   Supports: email, phone, name, referralCode, userId
+   Returns: User document or null (never throws)
+============================================================ */
+async function findAdminWalletUser({ email, phone, name, referral, userId }) {
+  try {
+    const orConditions = [];
+
+    // Email search
+    if (email) {
+      orConditions.push({ email });
+    }
+
+    // Phone search (supports multiple formats automatically)
+    if (phone) {
+      orConditions.push({
+        phoneNumber: { $in: [phone, `+91${phone}`, `91${phone}`] }
+      });
+    }
+
+    // Name search (case-insensitive contains)
+    if (name) {
+      orConditions.push({ name: new RegExp(name, "i") });
+    }
+
+    // Referral code search
+    if (referral) {
+      orConditions.push({ referralCode: referral });
+    }
+
+    // UserId search
+    if (userId && mongoose.isValidObjectId(userId)) {
+      orConditions.push({ _id: userId });
+    }
+
+    // If no conditions provided, return null
+    if (orConditions.length === 0) {
+      return null;
+    }
+
+    // Find user matching ANY of the above
+    const user = await User.findOne({ $or: orConditions });
+    return user || null;
+  } catch (error) {
+    console.error("findAdminWalletUser error:", error);
+    return null;
+  }
+}
+
 /* ---------------------------------------------------
-   Fetch Wallet by Email / Phone
+   Fetch Wallet by Email / Phone / Name / Referral / UserId
 ----------------------------------------------------*/
 router.get("/", verifyToken, isAdmin, async (req, res) => {
   console.log("QUERY RECEIVED:", req.query);
   try {
-    const { email, phone } = req.query;
+    const { email, phone, name, referral, userId } = req.query;
 
-    if (!email && !phone) {
+    // At least one search field must exist
+    if (!email && !phone && !name && !referral && !userId) {
       return res.status(400).json({
         success: false,
-        message: "Email or phone required",
+        message: "Provide at least one: email, phone, name, referral, or userId"
       });
     }
 
-    // 🔥 FIXED PHONE SEARCH — supports:
-    // 1) 9876543210
-    // 2) +919876543210
-    // 3) 919876543210
-    let phoneQuery = {};
-    if (phone) {
-      phoneQuery = {
-        phoneNumber: {
-          $in: [phone, `+91${phone}`, `91${phone}`],
-        },
-      };
-    }
-
-    // Build $or conditions only for provided criteria
-    const orConditions = [];
-    if (email) orConditions.push({ email });
-    if (phone) orConditions.push(phoneQuery);
-    if (orConditions.length === 0) {
-      return res.status(400).json({ success: false, message: "Email or phone required" });
-    }
-    const user = await User.findOne({ $or: orConditions });
+    const user = await findAdminWalletUser({ email, phone, name, referral, userId });
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: "User not found",
+        message: "User not found"
       });
     }
 
-    // RECALCULATE WALLET
+    // Recalculate wallet
     await recalcWallet(String(user._id));
 
-    // GET FRESH USER DATA
     const refreshed = await User.findById(user._id);
-
-    // TRANSACTIONS
-    const txns = await Transaction.find({ user: user._id }).sort({
-      createdAt: -1,
-    });
+    const txns = await Transaction.find({ user: user._id })
+      .sort({ createdAt: -1 });
 
     return res.json({
       success: true,
@@ -69,6 +97,7 @@ router.get("/", verifyToken, isAdmin, async (req, res) => {
         name: refreshed.name,
         email: refreshed.email,
         phoneNumber: refreshed.phoneNumber,
+        referralCode: refreshed.referralCode
       },
 
       availableBalance: refreshed.availableBalance ?? refreshed.wallet.balance,
@@ -79,53 +108,53 @@ router.get("/", verifyToken, isAdmin, async (req, res) => {
       investedAmount: refreshed.wallet.investedAmount ?? 0,
       requiredInvestment: refreshed.wallet.requiredInvestment ?? 0,
 
-      transactions: txns,
+      transactions: txns
     });
+
   } catch (err) {
     console.error("Admin wallet GET error:", err);
     return res.status(500).json({
       success: false,
-      message: "Server error",
+      message: "Server error"
     });
   }
 });
+
 
 /* ---------------------------------------------------
    CREDIT MONEY (Admin Manual Add)
 ----------------------------------------------------*/
 router.post("/credit", verifyToken, isAdmin, async (req, res) => {
   try {
-    const { email, phone, amount, description } = req.body;
+    const { email, phone, name, referral, userId, amount, description } = req.body;
 
-    if (!email && !phone) {
-      return res.json({ success: false, message: "Email or phone required" });
+    // At least one search field must exist
+    if (!email && !phone && !name && !referral && !userId) {
+      return res.status(400).json({
+        success: false,
+        message: "Provide at least one: email, phone, name, referral, or userId"
+      });
     }
 
-    let phoneQuery = {};
-    if (phone) {
-      phoneQuery = {
-        phoneNumber: {
-          $in: [phone, `+91${phone}`, `91${phone}`],
-        },
-      };
+    // Validate amount
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Amount must be a positive number"
+      });
     }
 
-    // Build $or conditions only for provided criteria
-    const orConditions = [];
-    if (email) orConditions.push({ email });
-    if (phone) orConditions.push(phoneQuery);
-    if (orConditions.length === 0) {
-      return res.status(400).json({ success: false, message: "Email or phone required" });
-    }
-    const user = await User.findOne({ $or: orConditions });
+    // ✅ Use unified search helper
+    const user = await findAdminWalletUser({ email, phone, name, referral, userId });
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: "User not found",
+        message: "User not found"
       });
     }
 
+    // Create transaction
     await Transaction.create({
       user: user._id,
       type: "bonus",
@@ -135,6 +164,7 @@ router.post("/credit", verifyToken, isAdmin, async (req, res) => {
       description: description || "Admin credit",
     });
 
+    // Recalculate wallet
     await recalcWallet(user._id);
 
     return res.json({ success: true, message: "Amount credited" });
@@ -152,37 +182,35 @@ router.post("/credit", verifyToken, isAdmin, async (req, res) => {
 ----------------------------------------------------*/
 router.post("/debit", verifyToken, isAdmin, async (req, res) => {
   try {
-    const { email, phone, amount, description } = req.body;
+    const { email, phone, name, referral, userId, amount, description } = req.body;
 
-    if (!email && !phone) {
-      return res.json({ success: false, message: "Email or phone required" });
+    // At least one search field must exist
+    if (!email && !phone && !name && !referral && !userId) {
+      return res.status(400).json({
+        success: false,
+        message: "Provide at least one: email, phone, name, referral, or userId"
+      });
     }
 
-    let phoneQuery = {};
-    if (phone) {
-      phoneQuery = {
-        phoneNumber: {
-          $in: [phone, `+91${phone}`, `91${phone}`],
-        },
-      };
+    // Validate amount
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Amount must be a positive number"
+      });
     }
 
-    // Build $or conditions only for provided criteria
-    const orConditions = [];
-    if (email) orConditions.push({ email });
-    if (phone) orConditions.push(phoneQuery);
-    if (orConditions.length === 0) {
-      return res.status(400).json({ success: false, message: "Email or phone required" });
-    }
-    const user = await User.findOne({ $or: orConditions });
+    // ✅ Use unified search helper
+    const user = await findAdminWalletUser({ email, phone, name, referral, userId });
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: "User not found",
+        message: "User not found"
       });
     }
 
+    // Create transaction
     await Transaction.create({
       user: user._id,
       type: "withdrawal",
@@ -192,6 +220,7 @@ router.post("/debit", verifyToken, isAdmin, async (req, res) => {
       description: description || "Admin debit",
     });
 
+    // Recalculate wallet
     await recalcWallet(user._id);
 
     return res.json({ success: true, message: "Amount deducted" });
@@ -209,50 +238,41 @@ router.post("/debit", verifyToken, isAdmin, async (req, res) => {
 ----------------------------------------------------*/
 router.post("/unlock", verifyToken, isAdmin, async (req, res) => {
   try {
-    const { email, phone } = req.body;
+    const { email, phone, name, referral, userId } = req.body;
 
-    if (!email && !phone) {
-      return res.json({ success: false, message: "Email or phone required" });
+    // At least one search field must exist
+    if (!email && !phone && !name && !referral && !userId) {
+      return res.status(400).json({
+        success: false,
+        message: "Provide at least one: email, phone, name, referral, or userId"
+      });
     }
 
-    let phoneQuery = {};
-    if (phone) {
-      phoneQuery = {
-        phoneNumber: {
-          $in: [phone, `+91${phone}`, `91${phone}`],
-        },
-      };
-    }
-
-    // Build $or conditions only for provided criteria
-    const orConditions = [];
-    if (email) orConditions.push({ email });
-    if (phone) orConditions.push(phoneQuery);
-    if (orConditions.length === 0) {
-      return res.status(400).json({ success: false, message: "Email or phone required" });
-    }
-    const user = await User.findOne({ $or: orConditions });
+    // ✅ Use unified search helper
+    const user = await findAdminWalletUser({ email, phone, name, referral, userId });
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: "User not found",
+        message: "User not found"
       });
     }
 
     const unlocked = user.wallet.holdBalance;
 
     if (unlocked <= 0) {
-      return res.json({
+      return res.status(400).json({
         success: false,
-        message: "No hold balance to unlock",
+        message: "No hold balance to unlock"
       });
     }
 
+    // Update wallet
     user.wallet.balance += unlocked;
     user.wallet.holdBalance = 0;
     await user.save();
 
+    // Create transaction
     await Transaction.create({
       user: user._id,
       type: "bonus",
@@ -262,11 +282,12 @@ router.post("/unlock", verifyToken, isAdmin, async (req, res) => {
       description: "Admin unlock referral hold",
     });
 
+    // Recalculate wallet
     await recalcWallet(user._id);
 
     return res.json({
       success: true,
-      message: "Referral unlocked",
+      message: "Referral unlocked"
     });
   } catch (err) {
     console.error("Admin unlock error:", err);

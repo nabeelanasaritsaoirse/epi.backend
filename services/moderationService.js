@@ -394,24 +394,22 @@ async function getChatAnalytics(startDate, endDate) {
     dateFilter.$lte = new Date(endDate);
   }
 
+  // Build query object conditionally
+  const hasDateFilter = startDate || endDate;
+  const queryFilter = hasDateFilter ? { createdAt: dateFilter } : {};
+
   // Total conversations
-  const totalConversations = await Conversation.countDocuments(
-    startDate || endDate ? { createdAt: dateFilter } : {}
-  );
+  const totalConversations = await Conversation.countDocuments(queryFilter);
 
   // Active conversations (with messages in date range)
-  const activeConversations = await Message.distinct('conversationId', {
-    createdAt: dateFilter
-  });
+  const activeConversations = await Message.distinct('conversationId', queryFilter);
 
   // Total messages
-  const totalMessages = await Message.countDocuments({
-    createdAt: dateFilter
-  });
+  const totalMessages = await Message.countDocuments(queryFilter);
 
   // Messages by type
   const messagesByType = await Message.aggregate([
-    { $match: { createdAt: dateFilter } },
+    { $match: hasDateFilter ? { createdAt: dateFilter } : {} },
     { $group: { _id: '$messageType', count: { $sum: 1 } } }
   ]);
 
@@ -421,23 +419,25 @@ async function getChatAnalytics(startDate, endDate) {
   });
 
   // Report statistics
-  const totalReports = await MessageReport.countDocuments({
-    createdAt: dateFilter
-  });
+  const totalReports = await MessageReport.countDocuments(
+    hasDateFilter ? { createdAt: dateFilter } : {}
+  );
 
-  const pendingReports = await MessageReport.countDocuments({
-    createdAt: dateFilter,
-    status: 'PENDING'
-  });
+  const pendingReports = await MessageReport.countDocuments(
+    hasDateFilter
+      ? { createdAt: dateFilter, status: 'PENDING' }
+      : { status: 'PENDING' }
+  );
 
-  const actionedReports = await MessageReport.countDocuments({
-    createdAt: dateFilter,
-    status: { $in: ['ACTIONED', 'DISMISSED'] }
-  });
+  const actionedReports = await MessageReport.countDocuments(
+    hasDateFilter
+      ? { createdAt: dateFilter, status: { $in: ['ACTIONED', 'DISMISSED'] } }
+      : { status: { $in: ['ACTIONED', 'DISMISSED'] } }
+  );
 
   // Top active users (by message count)
   const topActiveUsers = await Message.aggregate([
-    { $match: { createdAt: dateFilter, isDeleted: false } },
+    { $match: hasDateFilter ? { createdAt: dateFilter, isDeleted: false } : { isDeleted: false } },
     { $group: { _id: '$senderId', messageCount: { $sum: 1 } } },
     { $sort: { messageCount: -1 } },
     { $limit: 10 },

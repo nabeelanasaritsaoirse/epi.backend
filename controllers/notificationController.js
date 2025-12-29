@@ -612,6 +612,18 @@ async function registerToken(req, res) {
     const userId = req.user._id;
     const { fcmToken } = req.body;
 
+    // Check if token is already registered (avoid unnecessary updates)
+    const user = await User.findById(userId).select('deviceToken');
+
+    if (user && user.deviceToken === fcmToken) {
+      console.log(`[FCM] Token already registered for user ${userId}, skipping update`);
+      return res.status(200).json({
+        success: true,
+        message: 'FCM token already registered'
+      });
+    }
+
+    console.log(`[FCM] Registering new token for user ${userId}`);
     await registerFCMToken(userId, fcmToken);
 
     res.status(200).json({
@@ -638,7 +650,23 @@ async function removeToken(req, res) {
   try {
     const userId = req.user._id;
 
-    await removeFCMToken(userId);
+    // Check if user actually has a token before attempting removal
+    const user = await User.findById(userId).select('deviceToken');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Only remove if token exists (avoid unnecessary DB operations)
+    if (user.deviceToken) {
+      console.log(`[FCM] Removing token for user ${userId}`);
+      await removeFCMToken(userId);
+    } else {
+      console.log(`[FCM] Token already removed for user ${userId}, skipping`);
+    }
 
     res.status(200).json({
       success: true,

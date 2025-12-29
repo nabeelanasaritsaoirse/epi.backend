@@ -3,6 +3,7 @@ const router = express.Router();
 const { verifyToken } = require('../middlewares/auth');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
+const WalletTransaction = require('../models/WalletTransaction');
 const Product = require('../models/Product');
 const razorpay = require('../config/razorpay');
 const recalcWallet = require('../services/walletCalculator');
@@ -14,8 +15,37 @@ router.get('/', verifyToken, async (req, res) => {
   try {
     const updatedUser = await recalcWallet(req.user._id);
 
-    const transactions = await Transaction.find({ user: req.user._id })
+    // Get legacy transactions
+    const legacyTransactions = await Transaction.find({ user: req.user._id })
       .sort({ createdAt: -1 });
+
+    // Get wallet transactions from installment system
+    const walletTransactions = await WalletTransaction.find({ user: req.user._id })
+      .sort({ createdAt: -1 });
+
+    // Combine and sort all transactions by date
+    const allTransactions = [
+      ...legacyTransactions.map(t => ({
+        _id: t._id,
+        type: t.type,
+        amount: t.amount,
+        status: t.status,
+        description: t.description,
+        paymentMethod: t.paymentMethod,
+        createdAt: t.createdAt,
+        source: 'legacy'
+      })),
+      ...walletTransactions.map(t => ({
+        _id: t._id,
+        type: t.type,
+        amount: t.amount,
+        status: t.status,
+        description: t.description,
+        meta: t.meta,
+        createdAt: t.createdAt,
+        source: 'installment'
+      }))
+    ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     res.status(200).json({
       success: true,
@@ -33,7 +63,22 @@ router.get('/', verifyToken, async (req, res) => {
       availableBalance: updatedUser.availableBalance,
       totalEarnings: updatedUser.totalEarnings,
 
-      transactions
+      // NEW: Commission tracking for installment orders
+      commissionEarned: updatedUser.wallet.commissionEarned || 0,
+      commissionUsedInApp: updatedUser.wallet.commissionUsedInApp || 0,
+      commissionWithdrawable: (() => {
+        const earned = updatedUser.wallet.commissionEarned || 0;
+        const used = updatedUser.wallet.commissionUsedInApp || 0;
+        const requiredInAppUsage = earned * 0.1; // 10% must be used in-app
+
+        // User can only withdraw if they've used at least 10% in-app
+        if (used >= requiredInAppUsage) {
+          return Math.max(0, earned - used);
+        }
+        return 0;
+      })(),
+
+      transactions: allTransactions
     });
   } catch (err) {
     console.error("Wallet fetch error:", err);
@@ -154,6 +199,25 @@ router.post('/withdraw', verifyToken, async (req, res) => {
 
     if (user.availableBalance < amount)
       return res.status(400).json({ success: false, message: "Insufficient withdrawable balance" });
+
+    // NEW: Check 10% in-app usage rule for commission
+    const commissionEarned = user.wallet.commissionEarned || 0;
+    const commissionUsedInApp = user.wallet.commissionUsedInApp || 0;
+    const requiredUsage = commissionEarned * 0.1; // 10% must be used in-app
+
+    if (commissionEarned > 0 && commissionUsedInApp < requiredUsage) {
+      const remainingRequired = Math.ceil(requiredUsage - commissionUsedInApp);
+      return res.status(400).json({
+        success: false,
+        message: `You must use at least 10% of your commission (₹${remainingRequired}) for in-app purchases before withdrawing. Total commission earned: ₹${commissionEarned}, Used in-app: ₹${commissionUsedInApp}`,
+        details: {
+          commissionEarned,
+          commissionUsedInApp,
+          requiredUsage: Math.ceil(requiredUsage),
+          remainingRequired
+        }
+      });
+    }
 
     // Create withdrawal transaction with pending status
     const tx = new Transaction({
@@ -285,36 +349,69 @@ router.post('/invest', verifyToken, async (req, res) => {
 ===================================================================== */
 router.get('/transactions', verifyToken, async (req, res) => {
   try {
-    const tx = await Transaction.find({ user: req.user._id })
+    // Get legacy transactions
+    const legacyTx = await Transaction.find({ user: req.user._id })
       .populate('product', 'name images pricing')
       .populate('order', 'orderAmount orderStatus')
       .sort({ createdAt: -1 });
 
+    // Get wallet transactions from installment system
+    const walletTx = await WalletTransaction.find({ user: req.user._id })
+      .sort({ createdAt: -1 });
+
+    // Combine all transactions
+    const allTransactions = [
+      ...legacyTx.map(t => ({
+        _id: t._id,
+        type: t.type,
+        amount: t.amount,
+        status: t.status,
+        description: t.description,
+        paymentMethod: t.paymentMethod,
+        paymentDetails: t.paymentDetails,
+        product: t.product,
+        order: t.order,
+        createdAt: t.createdAt,
+        source: 'legacy'
+      })),
+      ...walletTx.map(t => ({
+        _id: t._id,
+        type: t.type,
+        amount: t.amount,
+        status: t.status,
+        description: t.description,
+        meta: t.meta,
+        createdAt: t.createdAt,
+        source: 'installment'
+      }))
+    ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
     // Calculate summary statistics
     const summary = {
-      total: tx.length,
-      completed: tx.filter(t => t.status === 'completed').length,
-      pending: tx.filter(t => t.status === 'pending').length,
-      failed: tx.filter(t => t.status === 'failed').length,
+      total: allTransactions.length,
+      completed: allTransactions.filter(t => t.status === 'completed').length,
+      pending: allTransactions.filter(t => t.status === 'pending').length,
+      failed: allTransactions.filter(t => t.status === 'failed').length,
 
       // Transaction types count
-      razorpayPayments: tx.filter(t => t.paymentMethod === 'razorpay').length,
-      walletTransactions: tx.filter(t => ['bonus', 'withdrawal'].includes(t.type)).length,
-      emiPayments: tx.filter(t => t.type === 'emi_payment').length,
-      commissions: tx.filter(t => ['referral_commission', 'commission'].includes(t.type)).length,
+      razorpayPayments: legacyTx.filter(t => t.paymentMethod === 'razorpay').length,
+      walletTransactions: allTransactions.filter(t => ['bonus', 'withdrawal', 'deposit'].includes(t.type)).length,
+      emiPayments: legacyTx.filter(t => t.type === 'emi_payment').length,
+      installmentPayments: walletTx.filter(t => t.type === 'withdrawal' && t.description.includes('Installment payment')).length,
+      commissions: allTransactions.filter(t => ['referral_commission', 'commission', 'referral_bonus'].includes(t.type)).length,
 
       // Total amounts by type
-      totalEarnings: tx
-        .filter(t => t.status === 'completed' && ['referral_commission', 'commission', 'bonus'].includes(t.type))
-        .reduce((sum, t) => sum + t.amount, 0),
-      totalSpent: tx
-        .filter(t => t.status === 'completed' && ['purchase', 'emi_payment', 'withdrawal'].includes(t.type))
-        .reduce((sum, t) => sum + t.amount, 0)
+      totalEarnings: allTransactions
+        .filter(t => t.status === 'completed' && ['referral_commission', 'commission', 'bonus', 'referral_bonus'].includes(t.type))
+        .reduce((sum, t) => sum + Math.abs(t.amount), 0),
+      totalSpent: allTransactions
+        .filter(t => t.status === 'completed' && (['purchase', 'emi_payment', 'withdrawal'].includes(t.type) || (t.type === 'withdrawal' && t.amount < 0)))
+        .reduce((sum, t) => sum + Math.abs(t.amount), 0)
     };
 
     res.status(200).json({
       success: true,
-      transactions: tx,
+      transactions: allTransactions,
       summary
     });
 

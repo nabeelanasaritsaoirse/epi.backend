@@ -1,12 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const categoryController = require('../controllers/categoryController');
-const { verifyToken, isAdmin } = require('../middlewares/auth');
+const { verifyToken, isAdmin, optionalAuth } = require('../middlewares/auth');
 const { uploadSingle } = require('../middlewares/uploadMiddleware');
 
 /**
  * Public routes
  */
+
+// Export categories (admin only - must be BEFORE generic routes)
+router.get('/export', verifyToken, isAdmin, categoryController.exportCategories);
 
 // Get category stats
 router.get('/stats', categoryController.getCategoryStats);
@@ -15,19 +18,19 @@ router.get('/stats', categoryController.getCategoryStats);
 router.get('/featured', categoryController.getFeaturedCategories);
 
 // Get all main categories with subcategories (for dropdown)
-router.get('/dropdown/all', categoryController.getCategoriesForDropdown);
+router.get('/dropdown/all', optionalAuth, categoryController.getCategoriesForDropdown);
 
 // Get all categories
-router.get('/', categoryController.getAllCategories);
+router.get('/', optionalAuth, categoryController.getAllCategories);
 
 // Search categories
-router.get('/search/:query', categoryController.searchCategories);
+router.get('/search/:query', optionalAuth, categoryController.searchCategories);
 
 // Get category by ID with subcategories
-router.get('/:categoryId/with-subcategories', categoryController.getCategoryWithSubcategories);
+router.get('/:categoryId/with-subcategories', optionalAuth, categoryController.getCategoryWithSubcategories);
 
 // Get category by ID
-router.get('/:categoryId', categoryController.getCategoryById);
+router.get('/:categoryId', optionalAuth, categoryController.getCategoryById);
 
 /**
  * Admin routes (With authentication)
@@ -66,7 +69,13 @@ router.put('/:categoryId/toggle-featured', verifyToken, isAdmin, categoryControl
 // Delete category (soft delete)
 router.delete('/:categoryId', verifyToken, isAdmin, categoryController.deleteCategory);
 
+// Hard delete category (permanent deletion)
+router.delete('/:categoryId/hard', verifyToken, isAdmin, categoryController.hardDeleteCategory);
+
 // Bulk reorder categories
 router.put('/bulk/reorder', verifyToken, isAdmin, categoryController.reorderCategories);
+
+// Sync product counts for all categories
+router.post('/sync-product-counts', verifyToken, isAdmin, categoryController.syncAllProductCounts);
 
 module.exports = router;

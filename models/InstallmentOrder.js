@@ -15,11 +15,13 @@ const paymentScheduleItemSchema = new mongoose.Schema(
     amount: { type: Number, required: true, min: 0 },
     status: {
       type: String,
-      enum: ["PENDING", "PAID", "SKIPPED", "FREE"],
+      enum: ["PENDING", "PAID", "COMPLETED", "SKIPPED", "FREE"],
       default: "PENDING",
     },
     isCouponBenefit: { type: Boolean, default: false },
     paidDate: { type: Date, default: null },
+    paidAt: { type: Date, default: null },
+    transactionId: { type: String, default: null },
     paymentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "PaymentRecord",
@@ -77,11 +79,11 @@ const installmentOrderSchema = new mongoose.Schema(
     couponCode: { type: String, default: null, uppercase: true },
     couponDiscount: { type: Number, default: 0, min: 0 },
 
-    // ❌ FIXED ENUM — removed null from allowed values
+    // ✅ FIXED ENUM — made optional, no default value
     couponType: {
       type: String,
       enum: ["INSTANT", "REDUCE_DAYS", "MILESTONE_REWARD"],
-      default: null,
+      default: undefined,
     },
 
     originalPrice: { type: Number, default: null },
@@ -184,6 +186,15 @@ const installmentOrderSchema = new mongoose.Schema(
     cancellationReason: { type: String, default: "" },
 
     completedAt: { type: Date, default: null },
+
+    /** ADMIN TRACKING **/
+    createdByAdmin: { type: Boolean, default: false },
+    createdByAdminId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    createdByAdminEmail: { type: String, default: null },
   },
   { timestamps: true }
 );
@@ -289,6 +300,21 @@ installmentOrderSchema.methods.getSummary = function () {
     nextDueDate: this.getNextPayableInstallment()?.dueDate || null,
     createdAt: this.createdAt,
   };
+};
+
+/** STATIC METHODS **/
+installmentOrderSchema.statics.getByUser = async function (userId, options = {}) {
+  const { status, limit = 50, skip = 0 } = options;
+
+  const query = { user: userId };
+  if (status) query.status = status;
+
+  return this.find(query)
+    .populate("product", "name images pricing availability")
+    .populate("referrer", "name email")
+    .sort({ createdAt: -1 })
+    .limit(parseInt(limit))
+    .skip(parseInt(skip));
 };
 
 module.exports = mongoose.model("InstallmentOrder", installmentOrderSchema);

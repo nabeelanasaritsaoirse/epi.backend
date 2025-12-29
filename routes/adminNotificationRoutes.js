@@ -141,4 +141,14 @@ router.delete(
   adminNotificationController.deleteComment
 );
 
+/**
+ * @route   POST /api/admin/notifications/send-to-user
+ * @desc    Send push notification to specific user
+ * @access  Admin
+ */
+router.post(
+  '/send-to-user',
+  adminNotificationController.sendToUser
+);
+
 module.exports = router;

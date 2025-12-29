@@ -225,6 +225,14 @@ const createCombinedRazorpayOrder = asyncHandler(async (req, res) => {
   const { selectedOrders } = req.body;
   const userId = req.user._id;
 
+  // Validate selectedOrders
+  if (!selectedOrders || !Array.isArray(selectedOrders) || selectedOrders.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'selectedOrders array is required and must contain at least one order'
+    });
+  }
+
   const razorpayOrder = await paymentService.createCombinedRazorpayOrder(
     userId,
     selectedOrders

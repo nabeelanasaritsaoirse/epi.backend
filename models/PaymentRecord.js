@@ -52,7 +52,7 @@ const paymentRecordSchema = new mongoose.Schema({
   // Payment Method
   paymentMethod: {
     type: String,
-    enum: ['RAZORPAY', 'WALLET'],
+    enum: ['RAZORPAY', 'WALLET', 'ADMIN_MARKED', 'CASH', 'UPI', 'BANK_TRANSFER', 'OTHER'],
     required: true
   },
 
@@ -86,7 +86,7 @@ const paymentRecordSchema = new mongoose.Schema({
   // Payment Status
   status: {
     type: String,
-    enum: ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'REFUNDED'],
+    enum: ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'REFUNDED', 'CANCELLED'],
     default: 'PENDING',
     index: true
   },
@@ -149,11 +149,61 @@ const paymentRecordSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
+  paidAt: {
+    type: Date,
+    default: null
+  },
+
+  // Admin Tracking
+  adminMarked: {
+    type: Boolean,
+    default: false
+  },
+  markedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  markedByEmail: {
+    type: String,
+    default: null
+  },
+  adminNote: {
+    type: String,
+    default: null
+  },
+  transactionId: {
+    type: String,
+    default: null
+  },
+
+  // Cancellation
+  cancelledBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  cancelledByEmail: {
+    type: String,
+    default: null
+  },
+  cancellationReason: {
+    type: String,
+    default: null
+  },
+  cancelledAt: {
+    type: Date,
+    default: null
+  },
 
   // Metadata
   metadata: {
     type: Object,
     default: {}
+  },
+  commissionCreditError: {
+    type: String,
+    default: null
   }
 }, {
   timestamps: true // Adds createdAt and updatedAt

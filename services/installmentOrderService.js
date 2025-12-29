@@ -23,6 +23,7 @@ const {
   validateInstallmentDuration,
   getMaxAllowedDays,
   generateOrderId,
+  generateIdempotencyKey, // For first payment idempotency
   calculateTotalProductPrice, // ⭐ NEW
   applyInstantCoupon, // ⭐ NEW
   calculateCouponDaysReduction, // ⭐ NEW
@@ -72,23 +73,44 @@ async function createOrder(orderData) {
     deliveryAddress,
   } = orderData;
 
+  // Validate inputs
   if (quantity < 1 || quantity > 10) {
     throw new Error("Quantity must be between 1 and 10");
+  }
+
+  if (!totalDays || isNaN(totalDays) || totalDays < 1) {
+    throw new Error(`Invalid totalDays: ${totalDays}. Must be a positive number.`);
   }
 
   console.log("\n========================================");
   console.log("🔍 DEBUG: Service - createOrder called");
   console.log("========================================");
+  console.log(`🔍 DEBUG: Input - productId: ${productId}, variantId: ${variantId}, quantity: ${quantity}, totalDays: ${totalDays}, paymentMethod: ${paymentMethod}`);
 
   const user = await User.findById(userId);
   if (!user) throw new UserNotFoundError(userId);
 
+  console.log(`🔍 DEBUG: Looking for product with ID: ${productId}`);
+
   let product;
   if (mongoose.Types.ObjectId.isValid(productId) && productId.length === 24) {
+    console.log(`🔍 DEBUG: Trying to find product by MongoDB _id: ${productId}`);
     product = await Product.findById(productId);
+    if (product) {
+      console.log(`✅ Found product by _id: ${product.name} (productId: ${product.productId})`);
+    }
   }
-  if (!product) product = await Product.findOne({ productId });
-  if (!product) throw new ProductNotFoundError(productId);
+  if (!product) {
+    console.log(`🔍 DEBUG: Trying to find product by custom productId field: ${productId}`);
+    product = await Product.findOne({ productId });
+    if (product) {
+      console.log(`✅ Found product by productId: ${product.name} (_id: ${product._id})`);
+    }
+  }
+  if (!product) {
+    console.error(`❌ Product not found with ID: ${productId}`);
+    throw new ProductNotFoundError(productId);
+  }
 
   if (
     product.availability?.stockStatus === "out_of_stock" ||
@@ -101,19 +123,25 @@ async function createOrder(orderData) {
   let pricePerUnit =
     product.pricing?.finalPrice || product.pricing?.regularPrice || 0;
 
+  console.log(`🔍 DEBUG: Base product price: ${pricePerUnit}`);
+
   let variantDetails = null;
   if (variantId && product.variants && product.variants.length > 0) {
+    console.log(`🔍 DEBUG: Looking for variant: ${variantId}`);
     selectedVariant = product.variants.find((v) => v.variantId === variantId);
 
     if (!selectedVariant) {
+      console.error(`❌ Variant not found: ${variantId}`);
       throw new Error(`Variant with ID ${variantId} not found`);
     }
 
     if (!selectedVariant.isActive) {
+      console.error(`❌ Variant not active: ${variantId}`);
       throw new Error(`Variant ${variantId} is not available`);
     }
 
     pricePerUnit = selectedVariant.salePrice || selectedVariant.price;
+    console.log(`✅ Found variant. Price: ${pricePerUnit}`);
 
     variantDetails = {
       sku: selectedVariant.sku,
@@ -123,6 +151,14 @@ async function createOrder(orderData) {
         selectedVariant.description?.short || selectedVariant.description?.long,
     };
   }
+
+  // Validate price is valid
+  if (!pricePerUnit || isNaN(pricePerUnit) || pricePerUnit <= 0) {
+    console.error(`❌ Invalid price: ${pricePerUnit}`);
+    throw new Error(`Invalid product price: ${pricePerUnit}. Product may not have proper pricing configured.`);
+  }
+
+  console.log(`🔍 DEBUG: Final pricePerUnit: ${pricePerUnit}, quantity: ${quantity}`);
 
   const totalProductPrice = calculateTotalProductPrice(pricePerUnit, quantity);
   let productPrice = totalProductPrice;
@@ -142,7 +178,8 @@ async function createOrder(orderData) {
     });
 
     if (!coupon) throw new Error(`Coupon '${couponCode}' not found`);
-    if (!coupon.isActive) throw new Error(`Coupon '${couponCode}' is not active`);
+    if (!coupon.isActive)
+      throw new Error(`Coupon '${couponCode}' is not active`);
     if (new Date() > coupon.expiryDate)
       throw new Error(`Coupon '${couponCode}' has expired`);
 
@@ -198,16 +235,27 @@ async function createOrder(orderData) {
   // ---------------------------------------------------
   // 🔧 FIX FOR INSTANT COUPON (DAILY AMOUNT RECALC)
   // ---------------------------------------------------
+  // Calculate daily amount if not provided, or recalculate for INSTANT coupon
   let finalDailyAmount = dailyAmount;
 
   if (couponType === "INSTANT") {
+    // For INSTANT coupons, recalculate based on discounted price
     finalDailyAmount = Math.ceil(productPrice / totalDays);
     console.log(`🔧 FIXED DAILY AMOUNT (INSTANT): ${finalDailyAmount}`);
+  } else if (!finalDailyAmount) {
+    // If no daily amount provided and no INSTANT coupon, calculate it
+    finalDailyAmount = calculateDailyAmount(productPrice, totalDays);
+    console.log(`🔧 CALCULATED DAILY AMOUNT: ${finalDailyAmount}`);
   }
 
   // Replace old logic with corrected logic
   const calculatedDailyAmount = finalDailyAmount;
   // ---------------------------------------------------
+
+  // Validate that calculatedDailyAmount is a valid number
+  if (!calculatedDailyAmount || isNaN(calculatedDailyAmount) || calculatedDailyAmount <= 0) {
+    throw new Error("Invalid daily payment amount calculated. Please check your input.");
+  }
 
   if (calculatedDailyAmount < 50) {
     throw new Error("Daily payment amount must be at least ₹50");
@@ -226,11 +274,12 @@ async function createOrder(orderData) {
   );
 
   let referrer = null;
-  let commissionPercentage = 10;
+  let commissionPercentage = 10; // Default 10% commission for all products
 
   if (user.referredBy) {
     referrer = await User.findById(user.referredBy);
-    commissionPercentage = product.referralBonus?.value || 10;
+    // Always use 10% commission regardless of product settings
+    commissionPercentage = 10;
   }
 
   const productSnapshot = {
@@ -292,7 +341,7 @@ async function createOrder(orderData) {
 
       couponCode: appliedCouponCode || null,
       couponDiscount,
-      couponType,
+      ...(couponType && { couponType }), // Only include couponType if it exists
       originalPrice: couponDiscount > 0 ? originalPrice : null,
       milestonePaymentsRequired,
       milestoneFreeDays,
@@ -321,6 +370,13 @@ async function createOrder(orderData) {
     const order = new InstallmentOrder(orderDataForModel);
     await order.save();
 
+    // Generate idempotency key for first payment to prevent duplicates
+    const firstPaymentIdempotencyKey = generateIdempotencyKey(
+      order._id.toString(),
+      userId,
+      1 // First installment
+    );
+
     const paymentData = {
       order: order._id,
       user: userId,
@@ -330,6 +386,7 @@ async function createOrder(orderData) {
       razorpayOrderId: razorpayOrder?.id || null,
       status: firstPaymentStatus,
       walletTransactionId,
+      idempotencyKey: firstPaymentIdempotencyKey, // Add idempotency key
       processedAt: paymentMethod === "WALLET" ? new Date() : null,
       completedAt: paymentMethod === "WALLET" ? new Date() : null,
     };
@@ -348,26 +405,71 @@ async function createOrder(orderData) {
 
     await order.save();
 
-    if (paymentMethod === "WALLET" && referrer && commissionPercentage > 0) {
+    // ========================================
+    // 🔧 FIX: Process commission for BOTH Wallet and Razorpay first payment
+    // ========================================
+    if (referrer && commissionPercentage > 0) {
       const commissionAmount =
         (calculatedDailyAmount * commissionPercentage) / 100;
 
-      const commissionResult = await creditCommissionToWallet(
-        referrer._id,
-        commissionAmount,
-        order._id.toString(),
-        firstPayment._id.toString(),
-        null
-      );
+      // Only credit commission immediately for WALLET payments
+      // For RAZORPAY, commission will be credited when payment is verified
+      if (paymentMethod === "WALLET") {
+        const commissionResult = await creditCommissionToWallet(
+          referrer._id,
+          commissionAmount,
+          order._id.toString(),
+          firstPayment._id.toString(),
+          null
+        );
 
-      await firstPayment.recordCommission(
-        commissionAmount,
-        commissionPercentage,
-        commissionResult.walletTransaction._id
-      );
+        await firstPayment.recordCommission(
+          commissionAmount,
+          commissionPercentage,
+          commissionResult.walletTransaction._id
+        );
 
-      order.totalCommissionPaid = commissionAmount;
-      await order.save();
+        order.totalCommissionPaid = commissionAmount;
+        await order.save();
+
+        console.log(`✅ Commission credited immediately for WALLET payment: ₹${commissionAmount}`);
+      } else if (paymentMethod === "RAZORPAY") {
+        // Store commission details in payment record for later processing
+        firstPayment.commissionAmount = commissionAmount;
+        firstPayment.commissionPercentage = commissionPercentage;
+        firstPayment.commissionCalculated = false; // Will be set to true when payment is verified
+        await firstPayment.save();
+
+        console.log(`⏳ Commission will be credited after RAZORPAY payment verification: ₹${commissionAmount}`);
+      }
+
+      // ========================================
+      // 🆕 INTEGRATE REFERRAL TRACKING SYSTEM
+      // ========================================
+      try {
+        const referralController = require("../controllers/referralController");
+
+        const installmentDetails = {
+          productId: product._id,
+          orderId: order._id,
+          totalAmount: productPrice,
+          dailyAmount: calculatedDailyAmount,
+          days: totalDays,
+          commissionPercentage: commissionPercentage,
+          name: `${product.name} - ${totalDays} days installment`,
+        };
+
+        await referralController.processReferral(
+          referrer._id,
+          userId,
+          installmentDetails
+        );
+
+        console.log(`✅ Referral tracking updated successfully for referrer: ${referrer._id}`);
+      } catch (referralError) {
+        // Log error but don't fail the order creation
+        console.error("⚠️ Failed to update referral tracking:", referralError.message);
+      }
     }
 
     return {
@@ -418,11 +520,16 @@ async function createOrder(orderData) {
         : null,
     };
   } catch (error) {
-    console.error("\n❌ Order creation failed!", error);
-    throw new TransactionFailedError(error.message);
+    console.error("\n❌ Order creation failed!");
+    console.error("Error name:", error.name);
+    console.error("Error message:", error.message);
+    console.error("Error stack:", error.stack);
+
+    // Provide more specific error message
+    const errorMessage = error.message || 'Database transaction failed';
+    throw new TransactionFailedError(errorMessage);
   }
 }
-
 
 /**
  * Get order by ID
@@ -466,7 +573,18 @@ async function getUserOrders(userId, options = {}) {
  * @returns {Promise<Array>} Array of completed orders
  */
 async function getCompletedOrders(options = {}) {
-  return InstallmentOrder.getCompletedOrders(options);
+  const { deliveryStatus, limit = 50, skip = 0 } = options;
+
+  const query = { status: "COMPLETED" };
+  if (deliveryStatus) query.deliveryStatus = deliveryStatus;
+
+  return InstallmentOrder.find(query)
+    .sort({ completedAt: -1 })
+    .limit(limit)
+    .skip(skip)
+    .populate("user", "name email phoneNumber")
+    .populate("product", "name images pricing")
+    .populate("referrer", "name email");
 }
 
 /**
@@ -718,6 +836,168 @@ async function getOverallInvestmentStatus(userId) {
   };
 }
 
+/**
+ * Verify first payment for Razorpay orders
+ *
+ * This function is called after user completes Razorpay payment.
+ * It verifies the payment signature and activates the order.
+ *
+ * @param {Object} data - Payment verification data
+ * @param {string} data.orderId - InstallmentOrder ID (MongoDB _id or orderId)
+ * @param {string} data.userId - User ID
+ * @param {string} data.razorpayOrderId - Razorpay order ID
+ * @param {string} data.razorpayPaymentId - Razorpay payment ID
+ * @param {string} data.razorpaySignature - Razorpay signature
+ * @returns {Promise<Object>} { order, payment, message }
+ */
+async function verifyFirstPayment(data) {
+  const {
+    orderId,
+    userId,
+    razorpayOrderId,
+    razorpayPaymentId,
+    razorpaySignature,
+  } = data;
+
+  // 1. Find the order
+  const order = await getOrderById(orderId, userId);
+
+  if (!order) {
+    throw new Error("Order not found");
+  }
+
+  // 2. Check if order is in PENDING status
+  if (order.status !== "PENDING") {
+    throw new Error(`Order is already ${order.status}. First payment was already processed.`);
+  }
+
+  // 3. Find the first payment record
+  const firstPayment = await PaymentRecord.findOne({
+    order: order._id,
+    installmentNumber: 1,
+    status: "PENDING",
+  });
+
+  if (!firstPayment) {
+    throw new Error("First payment record not found or already processed");
+  }
+
+  // 4. Verify Razorpay payment ID matches
+  if (firstPayment.razorpayOrderId !== razorpayOrderId) {
+    throw new Error("Razorpay order ID mismatch");
+  }
+
+  // 5. Verify Razorpay signature
+  const crypto = require("crypto");
+  const expectedSignature = crypto
+    .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+    .update(`${razorpayOrderId}|${razorpayPaymentId}`)
+    .digest("hex");
+
+  if (expectedSignature !== razorpaySignature) {
+    throw new Error("Invalid payment signature. Payment verification failed.");
+  }
+
+  // 6. Payment verified! Update payment record
+  firstPayment.status = "COMPLETED";
+  firstPayment.razorpayPaymentId = razorpayPaymentId;
+  firstPayment.razorpaySignature = razorpaySignature;
+  firstPayment.processedAt = new Date();
+  firstPayment.completedAt = new Date();
+  await firstPayment.save();
+
+  // 7. Update order status to ACTIVE
+  order.status = "ACTIVE";
+  order.paidInstallments = 1;
+  order.totalPaidAmount = order.dailyPaymentAmount;
+  order.remainingAmount = order.productPrice - order.dailyPaymentAmount;
+  order.firstPaymentCompletedAt = new Date();
+  order.lastPaymentDate = new Date();
+
+  // Update first installment in payment schedule
+  order.paymentSchedule[0].status = "PAID";
+  order.paymentSchedule[0].paidDate = new Date();
+  order.paymentSchedule[0].paymentId = firstPayment._id;
+
+  await order.save();
+
+  // 8. Process commission if referrer exists
+  if (order.referrer && order.commissionPercentage > 0) {
+    const commissionAmount = (order.dailyPaymentAmount * order.commissionPercentage) / 100;
+
+    try {
+      const commissionResult = await creditCommissionToWallet(
+        order.referrer,
+        commissionAmount,
+        order._id.toString(),
+        firstPayment._id.toString(),
+        null
+      );
+
+      await firstPayment.recordCommission(
+        commissionAmount,
+        order.commissionPercentage,
+        commissionResult.walletTransaction._id
+      );
+
+      order.totalCommissionPaid = commissionAmount;
+      await order.save();
+
+      console.log(`✅ Commission credited for verified first payment: ₹${commissionAmount}`);
+    } catch (commissionError) {
+      console.error("⚠️ Failed to credit commission:", commissionError.message);
+    }
+
+    // Process referral tracking
+    try {
+      const referralController = require("../controllers/referralController");
+      const product = await Product.findById(order.product);
+
+      const installmentDetails = {
+        productId: order.product,
+        orderId: order._id,
+        totalAmount: order.productPrice,
+        dailyAmount: order.dailyPaymentAmount,
+        days: order.totalDays,
+        commissionPercentage: order.commissionPercentage,
+        name: `${product?.name || order.productName} - ${order.totalDays} days installment`,
+      };
+
+      await referralController.processReferral(
+        order.referrer,
+        userId,
+        installmentDetails
+      );
+
+      console.log(`✅ Referral tracking updated for verified payment`);
+    } catch (referralError) {
+      console.error("⚠️ Failed to update referral tracking:", referralError.message);
+    }
+  }
+
+  return {
+    success: true,
+    order: {
+      orderId: order.orderId,
+      _id: order._id,
+      status: order.status,
+      productName: order.productName,
+      dailyPaymentAmount: order.dailyPaymentAmount,
+      totalDays: order.totalDays,
+      paidInstallments: order.paidInstallments,
+      totalPaidAmount: order.totalPaidAmount,
+      remainingAmount: order.remainingAmount,
+    },
+    payment: {
+      paymentId: firstPayment._id,
+      amount: firstPayment.amount,
+      status: firstPayment.status,
+      completedAt: firstPayment.completedAt,
+    },
+    message: "First payment verified successfully. Order is now ACTIVE.",
+  };
+}
+
 module.exports = {
   createOrder,
   getOrderById,
@@ -728,4 +1008,5 @@ module.exports = {
   updateDeliveryStatus,
   getOrderStats,
   getOverallInvestmentStatus,
+  verifyFirstPayment,
 };

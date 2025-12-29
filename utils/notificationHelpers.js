@@ -250,8 +250,9 @@ function buildPushData(notification) {
     data.systemType = notification.systemType;
 
     if (notification.metadata?.orderId) {
-      data.orderId = notification.metadata.orderId.toString();
-      data.navigateTo = `/orders/${notification.metadata.orderId}`;
+      const orderIdString = notification.metadata.orderId.toString();
+      data.orderId = orderIdString;
+      data.navigateTo = `/orders/${orderIdString}`;
     }
   }
 

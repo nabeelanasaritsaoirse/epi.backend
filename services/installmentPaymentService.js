@@ -114,7 +114,7 @@ async function processPayment(paymentData) {
   }
 
   // Verify user owns this order
-  if (order.user.toString() !== userId) {
+  if (order.user.toString() !== userId.toString()) {
     throw new UnauthorizedOrderAccessError(orderId);
   }
 
@@ -127,8 +127,9 @@ async function processPayment(paymentData) {
     throw new InvalidOrderStatusError(order.status, "ACTIVE");
   }
 
-  if (order.status !== "ACTIVE") {
-    throw new InvalidOrderStatusError(order.status, "ACTIVE");
+  // Allow PENDING status for first payment (when transitioning from PENDING to ACTIVE)
+  if (order.status !== "ACTIVE" && order.status !== "PENDING") {
+    throw new InvalidOrderStatusError(order.status, "ACTIVE or PENDING");
   }
 
   // Check if already fully paid (money-wise)
@@ -162,6 +163,11 @@ async function processPayment(paymentData) {
 
   if (existingPayment && existingPayment.status === "COMPLETED") {
     throw new PaymentAlreadyProcessedError(existingPayment.paymentId);
+  }
+
+  // If payment exists but is PENDING (from order creation), update it instead of creating new
+  if (existingPayment && existingPayment.status === "PENDING") {
+    console.log(`✅ Found existing PENDING payment record, will update it instead of creating new`);
   }
 
   // ========================================
@@ -210,24 +216,40 @@ async function processPayment(paymentData) {
     }
 
     // ========================================
-    // 7. Create Payment Record
+    // 7. Create or Update Payment Record
     // ========================================
-    const payment = new PaymentRecord({
-      order: order._id,
-      user: userId,
-      amount: paymentAmount,
-      installmentNumber,
-      paymentMethod,
-      razorpayOrderId: razorpayOrderId || null,
-      razorpayPaymentId: razorpayPaymentId || null,
-      razorpaySignature: razorpaySignature || null,
-      razorpayVerified: paymentMethod === "RAZORPAY" ? true : false,
-      walletTransactionId,
-      status: "COMPLETED",
-      idempotencyKey,
-      processedAt: new Date(),
-      completedAt: new Date(),
-    });
+    let payment;
+
+    if (existingPayment && existingPayment.status === "PENDING") {
+      // Update existing PENDING payment record
+      payment = existingPayment;
+      payment.razorpayPaymentId = razorpayPaymentId || null;
+      payment.razorpaySignature = razorpaySignature || null;
+      payment.razorpayVerified = paymentMethod === "RAZORPAY" ? true : false;
+      payment.walletTransactionId = walletTransactionId;
+      payment.status = "COMPLETED";
+      payment.processedAt = new Date();
+      payment.completedAt = new Date();
+      console.log(`✅ Updated existing PENDING payment to COMPLETED`);
+    } else {
+      // Create new payment record
+      payment = new PaymentRecord({
+        order: order._id,
+        user: userId,
+        amount: paymentAmount,
+        installmentNumber,
+        paymentMethod,
+        razorpayOrderId: razorpayOrderId || null,
+        razorpayPaymentId: razorpayPaymentId || null,
+        razorpaySignature: razorpaySignature || null,
+        razorpayVerified: paymentMethod === "RAZORPAY" ? true : false,
+        walletTransactionId,
+        status: "COMPLETED",
+        idempotencyKey,
+        processedAt: new Date(),
+        completedAt: new Date(),
+      });
+    }
 
     await payment.save(); // session disabled for local development
 
@@ -321,10 +343,12 @@ async function processPayment(paymentData) {
     // ========================================
     let commissionResult = null;
 
-    if (order.referrer && order.productCommissionPercentage > 0) {
+    if (order.referrer) {
+      // Always use 10% commission if referrer exists
+      const commissionPercentage = order.productCommissionPercentage || 10;
       const commissionAmount = calculateCommission(
         paymentAmount,
-        order.productCommissionPercentage
+        commissionPercentage
       );
 
       commissionResult = await creditCommissionToWallet(
@@ -338,14 +362,24 @@ async function processPayment(paymentData) {
       // Update payment record with commission details
       payment.commissionCalculated = true;
       payment.commissionAmount = commissionAmount;
-      payment.commissionPercentage = order.productCommissionPercentage;
+      payment.commissionPercentage = commissionPercentage;
       payment.commissionCreditedToReferrer = true;
       payment.commissionTransactionId = commissionResult.walletTransaction._id;
 
       await payment.save(); // session disabled for local development
 
       // Update order total commission
-      order.totalCommissionPaid += commissionAmount;
+      order.totalCommissionPaid = (order.totalCommissionPaid || 0) + commissionAmount;
+
+      console.log(`✅ Commission credited: ₹${commissionAmount} (Installment #${installmentNumber})`);
+    }
+
+    // ========================================
+    // 🔧 FIX: Activate order if this was first payment (PENDING -> ACTIVE)
+    // ========================================
+    if (order.status === "PENDING" && installmentNumber === 1) {
+      order.status = "ACTIVE";
+      console.log(`✅ Order activated: ${order.orderId} (First payment completed)`);
     }
 
     // ⭐ Always update lastPaymentDate AFTER a successful payment
@@ -396,7 +430,7 @@ async function createRazorpayOrderForPayment(orderId, userId) {
   }
 
   // Verify user owns this order
-  if (order.user.toString() !== userId) {
+  if (order.user.toString() !== userId.toString()) {
     throw new UnauthorizedOrderAccessError(orderId);
   }
 
@@ -455,7 +489,7 @@ async function getPaymentHistory(orderId, userId = null) {
     throw new OrderNotFoundError(orderId);
   }
 
-  if (userId && order.user.toString() !== userId) {
+  if (userId && order.user.toString() !== userId.toString()) {
     throw new UnauthorizedOrderAccessError(orderId);
   }
 
@@ -532,47 +566,105 @@ async function getPaymentStats(userId = null) {
  * Get daily pending installment payments for user
  */
 async function getDailyPendingPayments(userId) {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
+  // Use consistent date handling - get start and end of today
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
-  const end = new Date();
-  end.setHours(23, 59, 59, 999);
-
-  const orders = await InstallmentOrder.find({
-    user: userId,
-    status: "ACTIVE",
-    paymentSchedule: {
-      $elemMatch: {
-        status: "PENDING",
-        dueDate: { $gte: start, $lte: end },
-      },
-    },
+  console.log('getDailyPendingPayments - Date range:', {
+    start: start.toISOString(),
+    end: end.toISOString(),
+    serverTime: now.toISOString(),
+    userId: userId.toString()
   });
+
+  // Find ALL active orders for this user (not just those with pending payments today)
+  const allActiveOrders = await InstallmentOrder.find({
+    user: userId,
+    status: "ACTIVE"
+  }).populate('product', 'images');
+
+  console.log('getDailyPendingPayments - Total active orders:', allActiveOrders.length);
+
+  // Filter for orders with pending payments due today
+  const orders = allActiveOrders.filter(order => {
+    const hasPendingToday = order.paymentSchedule.some(inst =>
+      inst.status === "PENDING" &&
+      inst.dueDate >= start &&
+      inst.dueDate <= end
+    );
+
+    if (hasPendingToday) {
+      console.log('getDailyPendingPayments - Order with pending payment today:', {
+        orderId: order.orderId,
+        lastPaymentDate: order.lastPaymentDate ? order.lastPaymentDate.toISOString() : 'null',
+        canPayToday: order.canPayToday()
+      });
+    }
+
+    return hasPendingToday;
+  });
+
+  console.log('getDailyPendingPayments - Orders with payments due today:', orders.length);
 
   let pendingList = [];
 
   for (const order of orders) {
+    // Check if user can actually pay today (hasn't already paid today)
+    const canPay = order.canPayToday();
+
+    // Skip this order if payment already done today
+    if (!canPay) {
+      console.log('getDailyPendingPayments - Skipping order (already paid today):', {
+        orderId: order.orderId,
+        lastPaymentDate: order.lastPaymentDate ? order.lastPaymentDate.toISOString() : 'null'
+      });
+      continue;
+    }
+
     order.paymentSchedule.forEach((inst) => {
       if (
         inst.status === "PENDING" &&
         inst.dueDate >= start &&
         inst.dueDate <= end
       ) {
+        console.log('getDailyPendingPayments - Adding installment:', {
+          orderId: order.orderId,
+          installmentNumber: inst.installmentNumber,
+          dueDate: inst.dueDate.toISOString(),
+          status: inst.status,
+          canPayToday: canPay,
+          lastPaymentDate: order.lastPaymentDate ? order.lastPaymentDate.toISOString() : 'null'
+        });
+
         pendingList.push({
           orderId: order.orderId,
           productName: order.productName,
+          productImage: order.product?.images?.[0] || null,
           installmentNumber: inst.installmentNumber,
           amount: order.dailyPaymentAmount,
           dueDate: inst.dueDate,
+          canPayToday: canPay, // Always true here now
         });
       }
     });
   }
 
+  console.log('getDailyPendingPayments - Total pending payments:', pendingList.length);
+
   return {
     count: pendingList.length,
     totalAmount: pendingList.reduce((sum, p) => sum + p.amount, 0),
     payments: pendingList,
+    debug: {
+      serverTime: now.toISOString(),
+      dateRange: {
+        start: start.toISOString(),
+        end: end.toISOString()
+      },
+      totalActiveOrders: allActiveOrders.length,
+      ordersWithPaymentsDueToday: orders.length
+    }
   };
 }
 
@@ -914,6 +1006,127 @@ async function processSelectedDailyPayments(data) {
   }
 }
 
+/**
+ * Admin: Mark a payment as completed
+ *
+ * This function allows admins to manually mark a payment as completed.
+ * Used when payments are made offline or need manual intervention.
+ *
+ * @param {string} paymentId - Payment record ID
+ * @param {Object} adminData - Admin action data
+ * @param {string} adminData.method - Payment method (e.g., 'ADMIN_MARKED', 'CASH', etc.)
+ * @param {string} adminData.transactionId - Transaction reference ID
+ * @param {string} [adminData.note] - Admin note
+ * @param {string} [adminData.markedBy] - Admin user ID
+ * @param {string} [adminData.markedByEmail] - Admin email
+ * @returns {Promise<Object>} Updated payment record
+ */
+async function markPaymentAsCompleted(paymentId, adminData) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    console.log(`[Admin] Marking payment ${paymentId} as completed`);
+
+    // Get payment record
+    const payment = await PaymentRecord.findById(paymentId).session(session);
+    if (!payment) {
+      throw new Error(`Payment ${paymentId} not found`);
+    }
+
+    // Don't re-process completed payments
+    if (payment.status === 'COMPLETED') {
+      console.log(`[Admin] Payment ${paymentId} already completed, skipping`);
+      await session.commitTransaction();
+      return payment;
+    }
+
+    // Get the order
+    const order = await InstallmentOrder.findById(payment.order).session(session);
+    if (!order) {
+      throw new Error(`Order ${payment.order} not found`);
+    }
+
+    // Update payment record
+    payment.status = 'COMPLETED';
+    payment.paymentMethod = adminData.method || 'ADMIN_MARKED';
+    payment.transactionId = adminData.transactionId;
+    payment.paidAt = new Date();
+    payment.adminMarked = true;
+    payment.markedBy = adminData.markedBy;
+    payment.markedByEmail = adminData.markedByEmail;
+    payment.adminNote = adminData.note;
+
+    // Calculate commission if this is first payment via Razorpay
+    if (payment.installmentNumber === 1 && order.firstPaymentMethod === 'RAZORPAY' && order.referrer) {
+      const commissionData = calculateCommission(
+        payment.amount,
+        order.commissionPercentage || order.productCommissionPercentage || 10
+      );
+
+      payment.commissionCalculated = true;
+      payment.commissionAmount = commissionData.commissionAmount;
+      payment.commissionPercentage = commissionData.commissionPercentage;
+
+      // Credit commission to referrer
+      try {
+        await creditCommissionToWallet(
+          order.referrer,
+          commissionData.commissionAmount,
+          order._id,
+          payment._id,
+          session
+        );
+
+        payment.commissionCreditedToReferrer = true;
+        order.totalCommissionPaid = (order.totalCommissionPaid || 0) + commissionData.commissionAmount;
+
+        console.log(`[Admin] Commission credited: ₹${commissionData.commissionAmount} to referrer ${order.referrer}`);
+      } catch (commError) {
+        console.error('[Admin] Commission credit failed:', commError);
+        payment.commissionCreditError = commError.message;
+      }
+    }
+
+    await payment.save({ session });
+
+    // Update order's payment schedule
+    const scheduleIndex = order.paymentSchedule.findIndex(
+      (p) => p.installmentNumber === payment.installmentNumber
+    );
+
+    if (scheduleIndex !== -1) {
+      order.paymentSchedule[scheduleIndex].status = 'COMPLETED';
+      order.paymentSchedule[scheduleIndex].paidAt = new Date();
+      order.paymentSchedule[scheduleIndex].transactionId = adminData.transactionId;
+    }
+
+    // Update order totals
+    order.paidInstallments = (order.paidInstallments || 0) + 1;
+    order.totalPaidAmount = (order.totalPaidAmount || 0) + payment.amount;
+
+    // Check if order is fully paid
+    if (isOrderFullyPaid(order)) {
+      order.status = 'COMPLETED';
+      order.completedAt = new Date();
+      console.log(`[Admin] Order ${order.orderId} marked as COMPLETED`);
+    }
+
+    await order.save({ session });
+
+    await session.commitTransaction();
+    console.log(`[Admin] Payment ${payment.paymentId} marked as completed successfully`);
+
+    return payment;
+  } catch (error) {
+    await session.abortTransaction();
+    console.error('[Admin] Error marking payment as completed:', error);
+    throw error;
+  } finally {
+    session.endSession();
+  }
+}
+
 module.exports = {
   processPayment,
   createRazorpayOrderForPayment,
@@ -925,4 +1138,5 @@ module.exports = {
   getDailyPendingPayments,
   createCombinedRazorpayOrder, // ⭐ NEW
   processSelectedDailyPayments, // ⭐ NEW
+  markPaymentAsCompleted, // ⭐ ADMIN
 };

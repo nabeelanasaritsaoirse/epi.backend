@@ -1,7 +1,61 @@
-const Product = require('../models/Product');
-const mongoose = require('mongoose');
-const { calculateEquivalentValues, generateInstallmentOptions } = require('../utils/productUtils');
-const { uploadSingleFileToS3, uploadMultipleFilesToS3, deleteImageFromS3 } = require('../services/awsUploadService');
+const Product = require("../models/Product");
+const Category = require("../models/Category");
+const mongoose = require("mongoose");
+const {
+  calculateEquivalentValues,
+  generateInstallmentOptions,
+} = require("../utils/productUtils");
+const {
+  uploadSingleFileToS3,
+  uploadMultipleFilesToS3,
+  deleteImageFromS3,
+} = require("../services/awsUploadService");
+const {
+  exportProductsToExcel,
+  exportProductsToCSV,
+} = require("../services/exportService");
+
+/**
+ * Helper function to recursively get all subcategory IDs
+ * @param {String} categoryId - The category ID to get subcategories for
+ * @returns {Array} - Array of all category IDs (including the parent)
+ */
+async function getAllSubcategoryIds(categoryId) {
+  try {
+    // Validate if it's a valid ObjectId
+    if (!mongoose.isValidObjectId(categoryId)) {
+      return [categoryId];
+    }
+
+    const category = await Category.findById(categoryId).select(
+      "subCategories"
+    );
+
+    if (
+      !category ||
+      !category.subCategories ||
+      category.subCategories.length === 0
+    ) {
+      return [categoryId]; // Return only the category itself if no subcategories
+    }
+
+    let allIds = [categoryId];
+
+    // Recursively get subcategories for each child
+    for (const subCategoryId of category.subCategories) {
+      const childIds = await getAllSubcategoryIds(subCategoryId);
+      allIds = allIds.concat(
+        childIds.filter((id) => id.toString() !== categoryId.toString())
+      );
+    }
+
+    // Remove duplicates
+    return [...new Set(allIds.map((id) => id.toString()))];
+  } catch (error) {
+    console.error("Error in getAllSubcategoryIds:", error);
+    return [categoryId]; // Fallback to just the category ID
+  }
+}
 
 // Create product and a number of product CRUD helpers with enhanced regional features
 exports.createProduct = async (req, res) => {
@@ -9,99 +63,137 @@ exports.createProduct = async (req, res) => {
     // Generate auto product ID if not provided
     if (!req.body.productId) {
       const timestamp = Date.now().toString().slice(-6);
-      const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+      const random = Math.floor(Math.random() * 1000)
+        .toString()
+        .padStart(3, "0");
       req.body.productId = `PROD${timestamp}${random}`;
     }
 
     // Generate variant ID for the main product if not provided
     if (!req.body.variantId) {
       const timestamp = Date.now().toString().slice(-6);
-      const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+      const random = Math.floor(Math.random() * 1000)
+        .toString()
+        .padStart(3, "0");
       req.body.variantId = `VAR${timestamp}${random}00`;
     }
 
     // Auto-calculate final prices if not provided
     if (req.body.regionalPricing) {
-      req.body.regionalPricing = req.body.regionalPricing.map(pricing => ({
+      req.body.regionalPricing = req.body.regionalPricing.map((pricing) => ({
         ...pricing,
-        finalPrice: pricing.finalPrice || pricing.salePrice || pricing.regularPrice
+        finalPrice:
+          pricing.finalPrice || pricing.salePrice || pricing.regularPrice,
       }));
     }
 
     // Auto-calculate stock status if not provided
     if (req.body.regionalAvailability) {
-      req.body.regionalAvailability = req.body.regionalAvailability.map(availability => ({
-        ...availability,
-        stockStatus: availability.stockStatus || 
-          (availability.stockQuantity <= 0 ? 'out_of_stock' : 
-           availability.stockQuantity <= (availability.lowStockLevel || 10) ? 'low_stock' : 'in_stock')
-      }));
+      req.body.regionalAvailability = req.body.regionalAvailability.map(
+        (availability) => ({
+          ...availability,
+          stockStatus:
+            availability.stockStatus ||
+            (availability.stockQuantity <= 0
+              ? "out_of_stock"
+              : availability.stockQuantity <= (availability.lowStockLevel || 10)
+              ? "low_stock"
+              : "in_stock"),
+        })
+      );
     }
 
     // Set default values for nested objects
     const productData = {
       ...req.body,
+
       availability: {
         isAvailable: true,
         stockQuantity: 0,
         lowStockLevel: 10,
-        stockStatus: 'in_stock',
-        ...req.body.availability
+        stockStatus: "in_stock",
+        ...req.body.availability,
       },
+
       pricing: {
-        currency: 'USD',
-        finalPrice: req.body.pricing?.salePrice || req.body.pricing?.regularPrice || 0,
-        ...req.body.pricing
+        currency: "USD",
+        finalPrice:
+          req.body.pricing?.salePrice || req.body.pricing?.regularPrice || 0,
+        ...req.body.pricing,
       },
-      regionalPricing: req.body.regionalPricing || [],
-      regionalSeo: req.body.regionalSeo || [],
-      regionalAvailability: req.body.regionalAvailability || [
-        {
-          region: 'global',
-          stockQuantity: req.body.availability?.stockQuantity || 0,
-          lowStockLevel: req.body.availability?.lowStockLevel || 10,
-          isAvailable: req.body.availability?.isAvailable !== undefined ? req.body.availability.isAvailable : true,
-          stockStatus: req.body.availability?.stockStatus || 'in_stock'
-        }
-      ],
+
+      // 🔥 FIX: Global products must NOT create fake "global" region rows
+      regionalPricing: req.body.isGlobalProduct
+        ? []
+        : req.body.regionalPricing || [],
+
+      regionalSeo: req.body.isGlobalProduct ? [] : req.body.regionalSeo || [],
+
+      regionalAvailability: req.body.isGlobalProduct
+        ? []
+        : req.body.regionalAvailability || [],
+
       relatedProducts: req.body.relatedProducts || [],
-      plans: req.body.plans || [], // Admin-created investment plans
-      status: req.body.status || 'draft',
+      plans: req.body.plans || [],
+
+      status: req.body.status || "draft",
+      createdByEmail: req.user.email,
+      updatedByEmail: req.user.email,
+
       createdAt: new Date(),
-      updatedAt: new Date()
+      updatedAt: new Date(),
     };
+
     // Handle variants if provided
     productData.hasVariants = !!req.body.hasVariants;
     if (productData.hasVariants) {
       if (!Array.isArray(req.body.variants) || req.body.variants.length === 0) {
-        return res.status(400).json({ success: false, message: 'variants array is required when hasVariants is true' });
+        return res.status(400).json({
+          success: false,
+          message: "variants array is required when hasVariants is true",
+        });
       }
 
       // Normalize variants: ensure variantId and sku exist, validate price
       const normalizedVariants = req.body.variants.map((v, idx) => {
         const timestamp = Date.now().toString().slice(-6);
-        const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+        const random = Math.floor(Math.random() * 1000)
+          .toString()
+          .padStart(3, "0");
         // Add index to ensure uniqueness even if timestamp and random collide
-        const variantId = v.variantId || `VAR${timestamp}${random}${idx.toString().padStart(2, '0')}`;
+        const variantId =
+          v.variantId ||
+          `VAR${timestamp}${random}${idx.toString().padStart(2, "0")}`;
 
-        const skuBase = req.body.sku || req.body.productId || `PROD${timestamp}`;
+        const skuBase =
+          req.body.sku || req.body.productId || `PROD${timestamp}`;
         const sku = v.sku || `${skuBase}-V${idx + 1}-${variantId.slice(-4)}`;
 
         if (v.price === undefined || v.price === null) {
-          throw new Error(`Each variant must include a price. Missing for variant at index ${idx}`);
+          throw new Error(
+            `Each variant must include a price. Missing for variant at index ${idx}`
+          );
         }
 
         return {
           variantId,
           sku,
-          attributes: v.attributes || {},
-          description: v.description || {},
+
+          attributes: v.attributes !== undefined ? v.attributes : {},
+
+          description: v.description !== undefined ? v.description : {},
+
           price: v.price,
-          salePrice: v.salePrice,
-          paymentPlan: v.paymentPlan || {},
-          stock: v.stock || 0,
-          images: v.images || [],
-          isActive: v.isActive !== undefined ? v.isActive : true
+
+          salePrice: v.salePrice !== undefined ? v.salePrice : undefined,
+
+          paymentPlan: v.paymentPlan !== undefined ? v.paymentPlan : {},
+
+          stock: v.stock !== undefined ? v.stock : 0, // ✅ allows 0 intentionally
+
+          images: v.images !== undefined ? v.images : [], // ✅ explicit, safe
+
+          isActive: v.isActive !== undefined ? v.isActive : true,
         };
       });
 
@@ -110,7 +202,7 @@ exports.createProduct = async (req, res) => {
 
     const product = new Product(productData);
     await product.save();
-    
+
     res.status(201).json({
       success: true,
       message: "Product created successfully",
@@ -118,21 +210,21 @@ exports.createProduct = async (req, res) => {
         productId: product.productId,
         variantId: product.variantId,
         name: product.name,
-        sku: product.sku
-      }
+        sku: product.sku,
+      },
     });
   } catch (error) {
-    console.error('Error creating product:', error);
+    console.error("Error creating product:", error);
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
-        message: "Product ID, Variant ID, or SKU already exists"
+        message: "Product ID, Variant ID, or SKU already exists",
       });
     }
-    
-    res.status(500).json({ 
-      success: false, 
-      message: error.message
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 };
@@ -150,26 +242,27 @@ exports.getAllProducts = async (req, res) => {
       status,
       region = "global",
       hasVariants,
-      simpleOnly
+      simpleOnly,
     } = req.query;
 
     const filter = {};
 
-    // -----------------------------------------
-    // SOFT DELETE FILTER
-    // -----------------------------------------
-    // Filter out soft deleted products for non-admin users
-    const isAdmin = req.user && req.user.role === 'admin';
+    // ===============================
+    // ADMIN OVERRIDE (OPTION D FIX)
+    // ===============================
+    const isAdmin =
+      req.user &&
+      (req.user.role === "admin" || req.user.role === "super_admin");
+
     if (!isAdmin) {
+      // Apply soft delete filter for normal users
       filter.isDeleted = false;
     }
 
-    // -----------------------------------------
-    // VARIANT FILTERING (CLEAN + NO CONFLICTS)
-    // -----------------------------------------
-
+    // ===============================
+    // Variant filtering
+    // ===============================
     if (simpleOnly === "true") {
-      // Highest priority → force simple products
       filter.hasVariants = false;
     } else if (hasVariants === "true") {
       filter.hasVariants = true;
@@ -177,9 +270,9 @@ exports.getAllProducts = async (req, res) => {
       filter.hasVariants = false;
     }
 
-    // -----------------------------------------
-    // SEARCH
-    // -----------------------------------------
+    // ===============================
+    // Search
+    // ===============================
     if (search) {
       filter.$or = [
         { name: { $regex: search, $options: "i" } },
@@ -188,33 +281,91 @@ exports.getAllProducts = async (req, res) => {
       ];
     }
 
-    // -----------------------------------------
-    // BASIC FILTERS
-    // -----------------------------------------
-    if (category) filter["category.mainCategoryId"] = category;
+    // ===============================
+    // Basic filters
+    // ===============================
+    // Support hierarchical category filtering (includes all subcategories)
+    if (category) {
+      // Get all subcategory IDs recursively
+      const allCategoryIds = await getAllSubcategoryIds(category);
+
+      const categoryFilter = {
+        $or: [
+          { "category.mainCategoryId": { $in: allCategoryIds } },
+          { "category.subCategoryId": { $in: allCategoryIds } },
+        ],
+      };
+
+      if (filter.$or) {
+        // If search filter exists, use $and to combine
+        filter.$and = [
+          { $or: filter.$or }, // Search filter
+          categoryFilter, // Category filter
+        ];
+        delete filter.$or;
+      } else {
+        Object.assign(filter, categoryFilter);
+      }
+    }
     if (brand) filter.brand = brand;
     if (status) filter.status = status;
 
-    // -----------------------------------------
-    // REGION FILTER
-    // -----------------------------------------
-    if (region && region !== "all" && region !== "global") {
-      filter["regionalAvailability.region"] = region;
-      filter["regionalAvailability.isAvailable"] = true;
+    // ===============================
+    // REGION FILTER — DISABLED FOR ADMINS (IMPORTANT)
+    // ===============================
+    if (!isAdmin) {
+      const userRegion =
+        region && region !== "global" && region !== "all"
+          ? region
+          : req.userCountry;
+
+      if (userRegion && userRegion !== "all" && userRegion !== "global") {
+        // Show products available in user's region OR globally available products
+        // Need to handle $or properly if it already exists (from search)
+        const regionFilter = {
+          $or: [
+            {
+              // Products specifically available in user's region
+              "regionalAvailability.region": userRegion,
+              "regionalAvailability.isAvailable": true,
+            },
+            {
+              // Products marked as "global" region
+              "regionalAvailability.region": "global",
+              "regionalAvailability.isAvailable": true,
+            },
+            {
+              // Products with no regional restrictions (empty array)
+              regionalAvailability: { $exists: true, $size: 0 },
+            },
+          ],
+        };
+
+        // Merge with existing $or filter from search if present
+        if (filter.$or) {
+          filter.$and = [
+            { $or: filter.$or }, // Search filter
+            regionFilter, // Region filter
+          ];
+          delete filter.$or;
+        } else {
+          Object.assign(filter, regionFilter);
+        }
+      }
     }
 
-    // -----------------------------------------
-    // PRICE FILTER
-    // -----------------------------------------
+    // ===============================
+    // Price filter
+    // ===============================
     if (minPrice || maxPrice) {
       filter["pricing.finalPrice"] = {};
       if (minPrice) filter["pricing.finalPrice"].$gte = parseFloat(minPrice);
       if (maxPrice) filter["pricing.finalPrice"].$lte = parseFloat(maxPrice);
     }
 
-    // -----------------------------------------
-    // EXECUTE QUERY
-    // -----------------------------------------
+    // ===============================
+    // DB Query
+    // ===============================
     const products = await Product.find(filter)
       .sort({ createdAt: -1 })
       .limit(parseInt(limit))
@@ -231,7 +382,6 @@ exports.getAllProducts = async (req, res) => {
         total,
       },
     });
-
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -240,48 +390,47 @@ exports.getAllProducts = async (req, res) => {
   }
 };
 
-
 // Add this new endpoint for stats
 exports.getProductStats = async (req, res) => {
   try {
-    const { region = 'global' } = req.query;
+    const { region = "global" } = req.query;
 
     const filter = {};
-    if (region && region !== 'global' && region !== 'all') {
-      filter['regionalAvailability.region'] = region;
-      filter['regionalAvailability.isAvailable'] = true;
+    if (region && region !== "global" && region !== "all") {
+      filter["regionalAvailability.region"] = region;
+      filter["regionalAvailability.isAvailable"] = true;
     }
 
     const totalProducts = await Product.countDocuments(filter);
-    
+
     const inStockProducts = await Product.countDocuments({
       ...filter,
       $or: [
-        { 'availability.stockQuantity': { $gt: 0 } },
-        { 'regionalAvailability.stockQuantity': { $gt: 0 } }
-      ]
+        { "availability.stockQuantity": { $gt: 0 } },
+        { "regionalAvailability.stockQuantity": { $gt: 0 } },
+      ],
     });
 
     const lowStockProducts = await Product.countDocuments({
       ...filter,
       $or: [
-        { 
-          'availability.stockQuantity': { $gt: 0, $lte: 10 },
-          'availability.stockStatus': 'low_stock'
+        {
+          "availability.stockQuantity": { $gt: 0, $lte: 10 },
+          "availability.stockStatus": "low_stock",
         },
-        { 
-          'regionalAvailability.stockQuantity': { $gt: 0, $lte: 10 },
-          'regionalAvailability.stockStatus': 'low_stock'
-        }
-      ]
+        {
+          "regionalAvailability.stockQuantity": { $gt: 0, $lte: 10 },
+          "regionalAvailability.stockStatus": "low_stock",
+        },
+      ],
     });
 
     const outOfStockProducts = await Product.countDocuments({
       ...filter,
       $or: [
-        { 'availability.stockQuantity': 0 },
-        { 'regionalAvailability.stockQuantity': 0 }
-      ]
+        { "availability.stockQuantity": 0 },
+        { "regionalAvailability.stockQuantity": 0 },
+      ],
     });
 
     res.json({
@@ -290,14 +439,14 @@ exports.getProductStats = async (req, res) => {
         totalProducts,
         inStockProducts,
         lowStockProducts,
-        outOfStockProducts
-      }
+        outOfStockProducts,
+      },
     });
   } catch (error) {
-    console.error('Error getting product stats:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: error.message
+    console.error("Error getting product stats:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 };
@@ -313,20 +462,20 @@ exports.getProductById = async (req, res) => {
     }
 
     if (!product) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Product not found" 
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
       });
     }
 
     res.json({
       success: true,
-      data: product
+      data: product,
     });
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      message: error.message
+    res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 };
@@ -341,69 +490,196 @@ exports.updateProduct = async (req, res) => {
     }
 
     if (!product) {
-      return res.status(404).json({ success: false, message: 'Product not found' });
+      return res
+        .status(404)
+        .json({ success: false, message: "Product not found" });
     }
 
-    // If variants provided, normalize and replace
+    // Ensure variants array always exists
+    if (!Array.isArray(product.variants)) {
+      product.variants = [];
+    }
+
+    // Update hasVariants
     if (req.body.hasVariants !== undefined) {
       product.hasVariants = !!req.body.hasVariants;
     }
 
-    if (req.body.variants) {
-      if (!Array.isArray(req.body.variants)) {
-        return res.status(400).json({ success: false, message: 'variants must be an array' });
-      }
+    /* ============================================================
+       VARIANTS — SAFE MERGE (IMAGE SAFE)
+    ============================================================ */
+    if (Array.isArray(req.body.variants)) {
+      const updatedVariants = [];
 
-      const normalizedVariants = req.body.variants.map((v, idx) => {
+      for (let idx = 0; idx < req.body.variants.length; idx++) {
+        const v = req.body.variants[idx];
+
+        const existingVariant = product.variants.find(
+          (ev) => ev.variantId === v.variantId
+        );
+
         const timestamp = Date.now().toString().slice(-6);
-        const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-        // Add index to ensure uniqueness even if timestamp and random collide
-        const variantId = v.variantId || `VAR${timestamp}${random}${idx.toString().padStart(2, '0')}`;
-        const skuBase = req.body.sku || product.sku || product.productId || `PROD${timestamp}`;
-        const sku = v.sku || `${skuBase}-V${idx + 1}-${variantId.slice(-4)}`;
+        const random = Math.floor(Math.random() * 1000)
+          .toString()
+          .padStart(3, "0");
+
+        const variantId =
+          v.variantId ||
+          existingVariant?.variantId ||
+          `VAR${timestamp}${random}${idx.toString().padStart(2, "0")}`;
+
+        const skuBase =
+          req.body.sku ||
+          product.sku ||
+          product.productId ||
+          `PROD${timestamp}`;
+
+        const sku =
+          v.sku ||
+          existingVariant?.sku ||
+          `${skuBase}-V${idx + 1}-${variantId.slice(-4)}`;
 
         if (v.price === undefined || v.price === null) {
-          throw new Error(`Each variant must include a price. Missing for variant at index ${idx}`);
+          throw new Error(
+            `Each variant must include a price. Missing for variant at index ${idx}`
+          );
         }
 
-        return {
+        updatedVariants.push({
           variantId,
           sku,
-          attributes: v.attributes || {},
-          description: v.description || {},
-          price: v.price,
-          salePrice: v.salePrice,
-          paymentPlan: v.paymentPlan || {},
-          stock: v.stock || 0,
-          images: v.images || [],
-          isActive: v.isActive !== undefined ? v.isActive : true
-        };
-      });
 
-      product.variants = normalizedVariants;
+          attributes:
+            v.attributes !== undefined
+              ? v.attributes
+              : existingVariant?.attributes || {},
+
+          description:
+            v.description !== undefined
+              ? v.description
+              : existingVariant?.description || {},
+
+          price: v.price,
+
+          salePrice:
+            v.salePrice !== undefined
+              ? v.salePrice
+              : existingVariant?.salePrice,
+
+          paymentPlan:
+            v.paymentPlan !== undefined
+              ? v.paymentPlan
+              : existingVariant?.paymentPlan || {},
+
+          stock: v.stock !== undefined ? v.stock : existingVariant?.stock ?? 0,
+
+          // 🔥 IMAGE PRESERVATION (CRITICAL)
+          images:
+            v.images !== undefined ? v.images : existingVariant?.images || [],
+
+          isActive:
+            v.isActive !== undefined
+              ? v.isActive
+              : existingVariant?.isActive ?? true,
+        });
+      }
+
+      product.variants = updatedVariants;
     }
 
-    // Merge other top-level fields (safe shallow merge)
-    const updatableFields = ['name','description','brand','pricing','availability','regionalPricing','regionalSeo','regionalAvailability','relatedProducts','paymentPlan','plans','origin','referralBonus','images','project','dimensions','warranty','seo','status'];
-    updatableFields.forEach(field => {
-      if (req.body[field] !== undefined) product[field] = req.body[field];
+    /* ============================================================
+       SAFE SHALLOW MERGE — NON VARIANT FIELDS
+    ============================================================ */
+    const updatableFields = [
+      "name",
+      "description",
+      "brand",
+      "pricing",
+      "availability",
+      "regionalPricing",
+      "regionalSeo",
+      "regionalAvailability",
+      "relatedProducts",
+      "paymentPlan",
+      "plans",
+      "origin",
+      "referralBonus",
+      "project",
+      "dimensions",
+      "warranty",
+      "seo",
+      "status",
+      "isGlobalProduct",
+    ];
+
+    updatableFields.forEach((field) => {
+      if (req.body[field] !== undefined) {
+        product[field] = req.body[field];
+      }
     });
 
+    /* ============================================================
+       STOCK HANDLING — UNCHANGED
+    ============================================================ */
+    let stockUpdateRequested = false;
+    let newStock = null;
+
+    if (
+      req.body.availability &&
+      req.body.availability.stockQuantity !== undefined
+    ) {
+      newStock = Number(req.body.availability.stockQuantity);
+      stockUpdateRequested = true;
+    } else if (req.body.stock !== undefined) {
+      newStock = Number(req.body.stock);
+      stockUpdateRequested = true;
+    } else if (req.body.pricing && req.body.pricing.stock !== undefined) {
+      newStock = Number(req.body.pricing.stock);
+      stockUpdateRequested = true;
+    }
+
+    if (stockUpdateRequested && !isNaN(newStock)) {
+      product.availability.stockQuantity = newStock;
+
+      if (newStock <= 0) {
+        product.availability.stockStatus = "out_of_stock";
+      } else if (newStock <= (product.availability.lowStockLevel || 10)) {
+        product.availability.stockStatus = "low_stock";
+      } else {
+        product.availability.stockStatus = "in_stock";
+      }
+
+      if (Array.isArray(product.regionalAvailability)) {
+        const globalRegion = product.regionalAvailability.find(
+          (r) => r.region === "global"
+        );
+        if (globalRegion) {
+          globalRegion.stockQuantity = newStock;
+          globalRegion.stockStatus = product.availability.stockStatus;
+        }
+      }
+    }
+
     product.updatedAt = new Date();
+    product.updatedByEmail = req.user.email;
     await product.save();
 
-    res.json({ success: true, message: 'Product updated successfully', data: product });
+    res.json({
+      success: true,
+      message: "Product updated successfully",
+      data: product,
+    });
   } catch (error) {
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
-        message: "Product ID, Variant ID, or SKU already exists"
+        message: "Product ID, Variant ID, or SKU already exists",
       });
     }
-    
-    res.status(500).json({ 
-      success: false, 
-      message: error.message
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 };
@@ -412,40 +688,41 @@ exports.deleteProduct = async (req, res) => {
   try {
     const id = req.params.productId;
 
-    let product = await Product.findOne({ productId: id });
-    if (!product && mongoose.isValidObjectId(id)) {
-      product = await Product.findById(id);
-    }
+    const query = mongoose.isValidObjectId(id)
+      ? { _id: id }
+      : { productId: id };
 
-    if (!product) {
+    const updated = await Product.findOneAndUpdate(
+      query,
+      {
+        $set: {
+          isDeleted: true,
+          deletedAt: new Date(),
+          deletedByEmail: req.user.email,
+          updatedByEmail: req.user.email,
+        },
+      },
+      {
+        new: true,
+        runValidators: false, // 🔥 THIS is the key
+      }
+    );
+
+    if (!updated) {
       return res.status(404).json({
         success: false,
-        message: "Product not found"
+        message: "Product not found",
       });
     }
-
-    // Check if already deleted
-    if (product.isDeleted) {
-      return res.status(400).json({
-        success: false,
-        message: "Product is already deleted",
-      });
-    }
-
-    // Soft delete the product
-    product.isDeleted = true;
-    product.deletedAt = new Date();
-    product.deletedBy = req.user?._id || null;
-    await product.save();
 
     res.json({
       success: true,
-      message: "Product deleted successfully"
+      message: "Product deleted successfully",
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -462,31 +739,35 @@ exports.restoreProduct = async (req, res) => {
     if (!product) {
       return res.status(404).json({
         success: false,
-        message: "Product not found"
+        message: "Product not found",
       });
     }
 
     if (!product.isDeleted) {
       return res.status(400).json({
         success: false,
-        message: "Product is not deleted"
+        message: "Product is not deleted",
       });
     }
 
     product.isDeleted = false;
     product.deletedAt = null;
-    product.deletedBy = null;
+    product.deletedByEmail = null;
+
+    product.restoredAt = new Date();
+    product.restoredByEmail = req.user.email;
+    product.updatedByEmail = req.user.email;
     await product.save();
 
     res.json({
       success: true,
       message: "Product restored successfully",
-      data: product
+      data: product,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -494,13 +775,23 @@ exports.restoreProduct = async (req, res) => {
 exports.getProductsByCategory = async (req, res) => {
   try {
     const { category } = req.params;
-    const { page = 1, limit = 10, region = 'global' } = req.query;
+    const { page = 1, limit = 10, region = "global" } = req.query;
 
-    const filter = { 'category.mainCategoryId': category };
+    // Get all subcategory IDs recursively (includes parent + all children)
+    const allCategoryIds = await getAllSubcategoryIds(category);
 
-    if (region && region !== 'all' && region !== 'global') {
-      filter['regionalAvailability.region'] = region;
-      filter['regionalAvailability.isAvailable'] = true;
+    // Support hierarchical category filtering
+    const filter = {
+      isDeleted: false, // 🔥 FIX: Hide deleted products from users
+      $or: [
+        { "category.mainCategoryId": { $in: allCategoryIds } },
+        { "category.subCategoryId": { $in: allCategoryIds } },
+      ],
+    };
+
+    if (region && region !== "all" && region !== "global") {
+      filter["regionalAvailability.region"] = region;
+      filter["regionalAvailability.isAvailable"] = true;
     }
 
     const products = await Product.find(filter)
@@ -516,43 +807,46 @@ exports.getProductsByCategory = async (req, res) => {
       pagination: {
         current: parseInt(page),
         pages: Math.ceil(total / limit),
-        total
-      }
+        total,
+      },
     });
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      message: error.message 
+    res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 };
 
 exports.getLowStockProducts = async (req, res) => {
   try {
-    const { region = 'global' } = req.query;
+    const { region = "global" } = req.query;
 
     const filter = {
-      'availability.stockStatus': 'low_stock',
-      'availability.isAvailable': true
+      isDeleted: false, // 🔥 FIX: Hide deleted products from users
+      "availability.stockStatus": "low_stock",
+      "availability.isAvailable": true,
     };
 
-    if (region && region !== 'all' && region !== 'global') {
-      filter['regionalAvailability.region'] = region;
-      filter['regionalAvailability.isAvailable'] = true;
-      filter['regionalAvailability.stockStatus'] = 'low_stock';
+    if (region && region !== "all" && region !== "global") {
+      filter["regionalAvailability.region"] = region;
+      filter["regionalAvailability.isAvailable"] = true;
+      filter["regionalAvailability.stockStatus"] = "low_stock";
     }
 
-    const lowStockProducts = await Product.find(filter).sort({ 'availability.stockQuantity': 1 });
+    const lowStockProducts = await Product.find(filter).sort({
+      "availability.stockQuantity": 1,
+    });
 
     res.json({
       success: true,
       data: lowStockProducts,
-      count: lowStockProducts.length
+      count: lowStockProducts.length,
     });
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      message: error.message 
+    res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 };
@@ -568,38 +862,64 @@ exports.getProductsByRegion = async (req, res) => {
       brand,
       minPrice,
       maxPrice,
-      status
+      status,
     } = req.query;
 
     // Build filter object
     const filter = {
-      'regionalAvailability.region': region,
-      'regionalAvailability.isAvailable': true
+      isDeleted: false, // 🔥 FIX: Hide deleted products from users
+      "regionalAvailability.region": region,
+      "regionalAvailability.isAvailable": true,
     };
-    
+
     if (search) {
       filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { 'description.short': { $regex: search, $options: 'i' } },
-        { 'description.long': { $regex: search, $options: 'i' } },
-        { 'regionalSeo.metaTitle': { $regex: search, $options: 'i' } }
+        { name: { $regex: search, $options: "i" } },
+        { "description.short": { $regex: search, $options: "i" } },
+        { "description.long": { $regex: search, $options: "i" } },
+        { "regionalSeo.metaTitle": { $regex: search, $options: "i" } },
       ];
     }
-    
-    if (category) filter['category.mainCategoryId'] = category;
+
+    // Support hierarchical category filtering
+    if (category) {
+      const allCategoryIds = await getAllSubcategoryIds(category);
+
+      const categoryFilter = {
+        $or: [
+          { "category.mainCategoryId": { $in: allCategoryIds } },
+          { "category.subCategoryId": { $in: allCategoryIds } },
+        ],
+      };
+
+      if (filter.$or) {
+        // If search filter exists, use $and to combine
+        filter.$and = [
+          { $or: filter.$or }, // Search filter
+          categoryFilter, // Category filter
+        ];
+        delete filter.$or;
+      } else {
+        Object.assign(filter, categoryFilter);
+      }
+    }
     if (brand) filter.brand = brand;
     if (status) filter.status = status;
-    
+
     // Price range filter for specific region
     if (minPrice || maxPrice) {
-      filter['regionalPricing'] = {
+      filter["regionalPricing"] = {
         $elemMatch: {
           region: region,
-          finalPrice: {}
-        }
+          finalPrice: {},
+        },
       };
-      if (minPrice) filter['regionalPricing'].$elemMatch.finalPrice.$gte = parseFloat(minPrice);
-      if (maxPrice) filter['regionalPricing'].$elemMatch.finalPrice.$lte = parseFloat(maxPrice);
+      if (minPrice)
+        filter["regionalPricing"].$elemMatch.finalPrice.$gte =
+          parseFloat(minPrice);
+      if (maxPrice)
+        filter["regionalPricing"].$elemMatch.finalPrice.$lte =
+          parseFloat(maxPrice);
     }
 
     const products = await Product.find(filter)
@@ -617,13 +937,13 @@ exports.getProductsByRegion = async (req, res) => {
         pages: Math.ceil(total / limit),
         total,
         hasNext: page * limit < total,
-        hasPrev: page > 1
-      }
+        hasPrev: page > 1,
+      },
     });
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      message: error.message
+    res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 };
@@ -639,15 +959,15 @@ exports.addRegionalPricing = async (req, res) => {
     }
 
     if (!product) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Product not found" 
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
       });
     }
 
     // Remove existing pricing for this region
     product.regionalPricing = product.regionalPricing.filter(
-      p => p.region !== region
+      (p) => p.region !== region
     );
 
     // Add new pricing
@@ -657,7 +977,7 @@ exports.addRegionalPricing = async (req, res) => {
       regularPrice,
       salePrice,
       costPrice,
-      finalPrice: salePrice || regularPrice
+      finalPrice: salePrice || regularPrice,
     });
 
     await product.save();
@@ -665,12 +985,12 @@ exports.addRegionalPricing = async (req, res) => {
     res.json({
       success: true,
       message: "Regional pricing added successfully",
-      data: product.regionalPricing
+      data: product.regionalPricing,
     });
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      message: error.message
+    res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 };
@@ -678,7 +998,12 @@ exports.addRegionalPricing = async (req, res) => {
 exports.addRegionalAvailability = async (req, res) => {
   try {
     const { productId } = req.params;
-    const { region, stockQuantity, lowStockLevel, isAvailable = true } = req.body;
+    const {
+      region,
+      stockQuantity,
+      lowStockLevel,
+      isAvailable = true,
+    } = req.body;
 
     let product = await Product.findOne({ productId });
     if (!product && mongoose.isValidObjectId(productId)) {
@@ -686,23 +1011,23 @@ exports.addRegionalAvailability = async (req, res) => {
     }
 
     if (!product) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Product not found" 
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
       });
     }
 
     // Calculate stock status
-    let stockStatus = 'in_stock';
+    let stockStatus = "in_stock";
     if (stockQuantity <= 0) {
-      stockStatus = 'out_of_stock';
+      stockStatus = "out_of_stock";
     } else if (stockQuantity <= (lowStockLevel || 10)) {
-      stockStatus = 'low_stock';
+      stockStatus = "low_stock";
     }
 
     // Remove existing availability for this region
     product.regionalAvailability = product.regionalAvailability.filter(
-      a => a.region !== region
+      (a) => a.region !== region
     );
 
     // Add new availability
@@ -711,7 +1036,7 @@ exports.addRegionalAvailability = async (req, res) => {
       stockQuantity,
       lowStockLevel: lowStockLevel || 10,
       isAvailable,
-      stockStatus
+      stockStatus,
     });
 
     await product.save();
@@ -719,12 +1044,12 @@ exports.addRegionalAvailability = async (req, res) => {
     res.json({
       success: true,
       message: "Regional availability added successfully",
-      data: product.regionalAvailability
+      data: product.regionalAvailability,
     });
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      message: error.message
+    res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 };
@@ -740,22 +1065,28 @@ exports.addRegionalSeo = async (req, res) => {
     }
 
     if (!product) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Product not found" 
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
       });
     }
 
     // Remove existing SEO for this region
-    product.regionalSeo = product.regionalSeo.filter(s => s.region !== region);
+    product.regionalSeo = product.regionalSeo.filter(
+      (s) => s.region !== region
+    );
 
     // Add new SEO
     product.regionalSeo.push({
       region,
       metaTitle,
       metaDescription,
-      keywords: Array.isArray(keywords) ? keywords : (keywords ? keywords.split(',').map(k => k.trim()) : []),
-      slug
+      keywords: Array.isArray(keywords)
+        ? keywords
+        : keywords
+        ? keywords.split(",").map((k) => k.trim())
+        : [],
+      slug,
     });
 
     await product.save();
@@ -763,12 +1094,12 @@ exports.addRegionalSeo = async (req, res) => {
     res.json({
       success: true,
       message: "Regional SEO added successfully",
-      data: product.regionalSeo
+      data: product.regionalSeo,
     });
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      message: error.message
+    res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 };
@@ -784,19 +1115,21 @@ exports.addRelatedProducts = async (req, res) => {
     }
 
     if (!product) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Product not found" 
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
       });
     }
 
     // Validate related products exist
     for (const relatedProduct of relatedProducts) {
-      const exists = await Product.findOne({ productId: relatedProduct.productId });
+      const exists = await Product.findOne({
+        productId: relatedProduct.productId,
+      });
       if (!exists) {
         return res.status(400).json({
           success: false,
-          message: `Related product ${relatedProduct.productId} not found`
+          message: `Related product ${relatedProduct.productId} not found`,
         });
       }
     }
@@ -807,12 +1140,12 @@ exports.addRelatedProducts = async (req, res) => {
     res.json({
       success: true,
       message: "Related products added successfully",
-      data: product.relatedProducts
+      data: product.relatedProducts,
     });
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      message: error.message
+    res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 };
@@ -821,31 +1154,35 @@ exports.getProductByRegion = async (req, res) => {
   try {
     const { productId, region } = req.params;
 
-    let product = await Product.findOne({ 
+    let product = await Product.findOne({
       productId,
-      'regionalAvailability.region': region,
-      'regionalAvailability.isAvailable': true
+      "regionalAvailability.region": region,
+      "regionalAvailability.isAvailable": true,
     });
 
     if (!product && mongoose.isValidObjectId(productId)) {
       product = await Product.findOne({
         _id: productId,
-        'regionalAvailability.region': region,
-        'regionalAvailability.isAvailable': true
+        "regionalAvailability.region": region,
+        "regionalAvailability.isAvailable": true,
       });
     }
 
     if (!product) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Product not found in specified region" 
+      return res.status(404).json({
+        success: false,
+        message: "Product not found in specified region",
       });
     }
 
     // Filter data for specific region
-    const regionalPricing = product.regionalPricing.find(p => p.region === region);
-    const regionalSeo = product.regionalSeo.find(s => s.region === region);
-    const regionalAvailability = product.regionalAvailability.find(a => a.region === region);
+    const regionalPricing = product.regionalPricing.find(
+      (p) => p.region === region
+    );
+    const regionalSeo = product.regionalSeo.find((s) => s.region === region);
+    const regionalAvailability = product.regionalAvailability.find(
+      (a) => a.region === region
+    );
 
     const regionalData = {
       productId: product.productId,
@@ -863,17 +1200,17 @@ exports.getProductByRegion = async (req, res) => {
       project: product.project,
       status: product.status,
       createdAt: product.createdAt,
-      updatedAt: product.updatedAt
+      updatedAt: product.updatedAt,
     };
 
     res.json({
       success: true,
-      data: regionalData
+      data: regionalData,
     });
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      message: error.message
+    res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 };
@@ -887,8 +1224,15 @@ exports.bulkUpdateRegionalPricing = async (req, res) => {
 
     for (const update of updates) {
       try {
-        const { productId, region, currency, regularPrice, salePrice, costPrice } = update;
-        
+        const {
+          productId,
+          region,
+          currency,
+          regularPrice,
+          salePrice,
+          costPrice,
+        } = update;
+
         let product = await Product.findOne({ productId });
         if (!product && mongoose.isValidObjectId(productId)) {
           product = await Product.findById(productId);
@@ -901,7 +1245,7 @@ exports.bulkUpdateRegionalPricing = async (req, res) => {
 
         // Remove existing pricing for this region
         product.regionalPricing = product.regionalPricing.filter(
-          p => p.region !== region
+          (p) => p.region !== region
         );
 
         // Add new pricing
@@ -911,11 +1255,11 @@ exports.bulkUpdateRegionalPricing = async (req, res) => {
           regularPrice,
           salePrice,
           costPrice,
-          finalPrice: salePrice || regularPrice
+          finalPrice: salePrice || regularPrice,
         });
 
         await product.save();
-        results.push({ productId, region, status: 'success' });
+        results.push({ productId, region, status: "success" });
       } catch (error) {
         errors.push(`Failed to update ${update.productId}: ${error.message}`);
       }
@@ -926,13 +1270,13 @@ exports.bulkUpdateRegionalPricing = async (req, res) => {
       message: `Bulk update completed. ${results.length} successful, ${errors.length} failed.`,
       data: {
         results,
-        errors
-      }
+        errors,
+      },
     });
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      message: error.message
+    res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 };
@@ -942,39 +1286,41 @@ exports.getRegionalStats = async (req, res) => {
     const { region } = req.params;
 
     const totalProducts = await Product.countDocuments({
-      'regionalAvailability.region': region,
-      'regionalAvailability.isAvailable': true
+      "regionalAvailability.region": region,
+      "regionalAvailability.isAvailable": true,
     });
 
     const inStockProducts = await Product.countDocuments({
-      'regionalAvailability.region': region,
-      'regionalAvailability.isAvailable': true,
-      'regionalAvailability.stockStatus': 'in_stock'
+      "regionalAvailability.region": region,
+      "regionalAvailability.isAvailable": true,
+      "regionalAvailability.stockStatus": "in_stock",
     });
 
     const lowStockProducts = await Product.countDocuments({
-      'regionalAvailability.region': region,
-      'regionalAvailability.isAvailable': true,
-      'regionalAvailability.stockStatus': 'low_stock'
+      "regionalAvailability.region": region,
+      "regionalAvailability.isAvailable": true,
+      "regionalAvailability.stockStatus": "low_stock",
     });
 
     const outOfStockProducts = await Product.countDocuments({
-      'regionalAvailability.region': region,
-      'regionalAvailability.isAvailable': true,
-      'regionalAvailability.stockStatus': 'out_of_stock'
+      "regionalAvailability.region": region,
+      "regionalAvailability.isAvailable": true,
+      "regionalAvailability.stockStatus": "out_of_stock",
     });
 
     // Get average price for the region
     const products = await Product.find({
-      'regionalAvailability.region': region,
-      'regionalAvailability.isAvailable': true
+      "regionalAvailability.region": region,
+      "regionalAvailability.isAvailable": true,
     });
 
     let totalPrice = 0;
     let priceCount = 0;
 
-    products.forEach(product => {
-      const regionalPricing = product.regionalPricing.find(p => p.region === region);
+    products.forEach((product) => {
+      const regionalPricing = product.regionalPricing.find(
+        (p) => p.region === region
+      );
       if (regionalPricing && regionalPricing.finalPrice) {
         totalPrice += regionalPricing.finalPrice;
         priceCount++;
@@ -991,13 +1337,13 @@ exports.getRegionalStats = async (req, res) => {
         inStockProducts,
         lowStockProducts,
         outOfStockProducts,
-        averagePrice: Math.round(averagePrice * 100) / 100
-      }
+        averagePrice: Math.round(averagePrice * 100) / 100,
+      },
     });
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      message: error.message
+    res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 };
@@ -1013,20 +1359,26 @@ exports.syncRegionalData = async (req, res) => {
     }
 
     if (!product) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Product not found" 
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
       });
     }
 
-    const sourcePricing = product.regionalPricing.find(p => p.region === sourceRegion);
-    const sourceSeo = product.regionalSeo.find(s => s.region === sourceRegion);
-    const sourceAvailability = product.regionalAvailability.find(a => a.region === sourceRegion);
+    const sourcePricing = product.regionalPricing.find(
+      (p) => p.region === sourceRegion
+    );
+    const sourceSeo = product.regionalSeo.find(
+      (s) => s.region === sourceRegion
+    );
+    const sourceAvailability = product.regionalAvailability.find(
+      (a) => a.region === sourceRegion
+    );
 
     if (!sourcePricing) {
       return res.status(400).json({
         success: false,
-        message: `No pricing data found for source region ${sourceRegion}`
+        message: `No pricing data found for source region ${sourceRegion}`,
       });
     }
 
@@ -1034,27 +1386,35 @@ exports.syncRegionalData = async (req, res) => {
 
     for (const targetRegion of targetRegions) {
       // Sync pricing
-      product.regionalPricing = product.regionalPricing.filter(p => p.region !== targetRegion);
+      product.regionalPricing = product.regionalPricing.filter(
+        (p) => p.region !== targetRegion
+      );
       product.regionalPricing.push({
-        ... (sourcePricing.toObject ? sourcePricing.toObject() : sourcePricing),
-        region: targetRegion
+        ...(sourcePricing.toObject ? sourcePricing.toObject() : sourcePricing),
+        region: targetRegion,
       });
 
       // Sync SEO if exists
       if (sourceSeo) {
-        product.regionalSeo = product.regionalSeo.filter(s => s.region !== targetRegion);
+        product.regionalSeo = product.regionalSeo.filter(
+          (s) => s.region !== targetRegion
+        );
         product.regionalSeo.push({
-          ... (sourceSeo.toObject ? sourceSeo.toObject() : sourceSeo),
-          region: targetRegion
+          ...(sourceSeo.toObject ? sourceSeo.toObject() : sourceSeo),
+          region: targetRegion,
         });
       }
 
       // Sync availability if exists
       if (sourceAvailability) {
-        product.regionalAvailability = product.regionalAvailability.filter(a => a.region !== targetRegion);
+        product.regionalAvailability = product.regionalAvailability.filter(
+          (a) => a.region !== targetRegion
+        );
         product.regionalAvailability.push({
-          ... (sourceAvailability.toObject ? sourceAvailability.toObject() : sourceAvailability),
-          region: targetRegion
+          ...(sourceAvailability.toObject
+            ? sourceAvailability.toObject()
+            : sourceAvailability),
+          region: targetRegion,
         });
       }
 
@@ -1067,13 +1427,13 @@ exports.syncRegionalData = async (req, res) => {
       success: true,
       message: `Regional data synced from ${sourceRegion} to ${results.length} regions`,
       data: {
-        syncedRegions: results
-      }
+        syncedRegions: results,
+      },
     });
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      message: error.message
+    res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 };
@@ -1081,13 +1441,16 @@ exports.syncRegionalData = async (req, res) => {
 exports.getProductsByProject = async (req, res) => {
   try {
     const { projectId } = req.params;
-    const { page = 1, limit = 10, region = 'global' } = req.query;
+    const { page = 1, limit = 10, region = "global" } = req.query;
 
-    const filter = { 'project.projectId': projectId };
+    const filter = {
+      isDeleted: false, // 🔥 FIX: Hide deleted products from users
+      "project.projectId": projectId
+    };
 
-    if (region && region !== 'all' && region !== 'global') {
-      filter['regionalAvailability.region'] = region;
-      filter['regionalAvailability.isAvailable'] = true;
+    if (region && region !== "all" && region !== "global") {
+      filter["regionalAvailability.region"] = region;
+      filter["regionalAvailability.isAvailable"] = true;
     }
 
     const products = await Product.find(filter)
@@ -1097,9 +1460,17 @@ exports.getProductsByProject = async (req, res) => {
 
     const total = await Product.countDocuments(filter);
 
-    
-    const projectProducts = await Product.find({ 'project.projectId': projectId });
-    const regions = [...new Set(projectProducts.flatMap(p => p.regionalAvailability.map(a => a.region)))];
+    const projectProducts = await Product.find({
+      isDeleted: false, // 🔥 FIX: Hide deleted products from users
+      "project.projectId": projectId,
+    });
+    const regions = [
+      ...new Set(
+        projectProducts.flatMap((p) =>
+          p.regionalAvailability.map((a) => a.region)
+        )
+      ),
+    ];
 
     res.json({
       success: true,
@@ -1107,18 +1478,18 @@ exports.getProductsByProject = async (req, res) => {
       projectSummary: {
         totalProducts: total,
         regions,
-        projectId
+        projectId,
       },
       pagination: {
         current: parseInt(page),
         pages: Math.ceil(total / limit),
-        total
-      }
+        total,
+      },
     });
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      message: error.message
+    res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 };
@@ -1126,8 +1497,9 @@ exports.getProductsByProject = async (req, res) => {
 exports.searchProductsAdvanced = async (req, res) => {
   try {
     const {
+      q,
       query,
-      region = 'global',
+      region = "global",
       category,
       brand,
       minPrice,
@@ -1136,49 +1508,81 @@ exports.searchProductsAdvanced = async (req, res) => {
       hasVariants = false,
       projectId,
       page = 1,
-      limit = 10
+      limit = 10,
     } = req.query;
 
-    const filter = {};
+    // Support both 'q' and 'query' parameters
+    const searchQuery = q || query;
 
-    
-    if (query) {
+    const filter = {
+      isDeleted: false,
+      status: { $in: ["active", "published"] }
+    };
+
+    if (searchQuery) {
       filter.$or = [
-        { name: { $regex: query, $options: 'i' } },
-        { 'description.short': { $regex: query, $options: 'i' } },
-        { 'description.long': { $regex: query, $options: 'i' } },
-        { 'regionalSeo.metaTitle': { $regex: query, $options: 'i' } },
-        { 'regionalSeo.metaDescription': { $regex: query, $options: 'i' } },
-        { 'regionalSeo.keywords': { $in: [new RegExp(query, 'i')] } }
+        { name: { $regex: searchQuery, $options: "i" } },
+        { "description.short": { $regex: searchQuery, $options: "i" } },
+        { "description.long": { $regex: searchQuery, $options: "i" } },
+        { "regionalSeo.metaTitle": { $regex: searchQuery, $options: "i" } },
+        { "regionalSeo.metaDescription": { $regex: searchQuery, $options: "i" } },
+        { "regionalSeo.keywords": { $in: [new RegExp(searchQuery, "i")] } },
       ];
     }
 
-
-    if (region && region !== 'all' && region !== 'global') {
-      filter['regionalAvailability.region'] = region;
-      filter['regionalAvailability.isAvailable'] = true;
+    if (region && region !== "all" && region !== "global") {
+      filter["regionalAvailability.region"] = region;
+      filter["regionalAvailability.isAvailable"] = true;
     }
 
+    // Support hierarchical category filtering
+    if (category) {
+      const allCategoryIds = await getAllSubcategoryIds(category);
 
-    if (category) filter['category.mainCategoryId'] = category;
+      const categoryFilter = {
+        $or: [
+          { "category.mainCategoryId": { $in: allCategoryIds } },
+          { "category.subCategoryId": { $in: allCategoryIds } },
+        ],
+      };
+
+      if (filter.$or) {
+        // If search filter exists, use $and to combine
+        filter.$and = [
+          { $or: filter.$or }, // Search filter
+          categoryFilter, // Category filter
+        ];
+        delete filter.$or;
+      } else {
+        Object.assign(filter, categoryFilter);
+      }
+    }
     if (brand) filter.brand = brand;
-    if (projectId) filter['project.projectId'] = projectId;
+    if (projectId) filter["project.projectId"] = projectId;
     if (hasVariants) filter.hasVariants = true;
 
     if (inStock) {
-      filter['regionalAvailability.stockQuantity'] = { $gt: 0 };
+      filter["regionalAvailability.stockQuantity"] = { $gt: 0 };
     }
 
-
-    if ((minPrice || maxPrice) && region && region !== 'all' && region !== 'global') {
-      filter['regionalPricing'] = {
+    if (
+      (minPrice || maxPrice) &&
+      region &&
+      region !== "all" &&
+      region !== "global"
+    ) {
+      filter["regionalPricing"] = {
         $elemMatch: {
           region: region,
-          finalPrice: {}
-        }
+          finalPrice: {},
+        },
       };
-      if (minPrice) filter['regionalPricing'].$elemMatch.finalPrice.$gte = parseFloat(minPrice);
-      if (maxPrice) filter['regionalPricing'].$elemMatch.finalPrice.$lte = parseFloat(maxPrice);
+      if (minPrice)
+        filter["regionalPricing"].$elemMatch.finalPrice.$gte =
+          parseFloat(minPrice);
+      if (maxPrice)
+        filter["regionalPricing"].$elemMatch.finalPrice.$lte =
+          parseFloat(maxPrice);
     }
 
     const products = await Product.find(filter)
@@ -1196,13 +1600,13 @@ exports.searchProductsAdvanced = async (req, res) => {
         pages: Math.ceil(total / limit),
         total,
         hasNext: page * limit < total,
-        hasPrev: page > 1
-      }
+        hasPrev: page > 1,
+      },
     });
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      message: error.message
+    res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 };
@@ -1219,7 +1623,7 @@ exports.updateProductImages = async (req, res) => {
     if (!files || files.length === 0) {
       return res.status(400).json({
         success: false,
-        message: "At least one image file is required"
+        message: "At least one image file is required",
       });
     }
 
@@ -1231,18 +1635,22 @@ exports.updateProductImages = async (req, res) => {
     if (!product) {
       return res.status(404).json({
         success: false,
-        message: "Product not found"
+        message: "Product not found",
       });
     }
 
     // Upload all files to S3
-    const uploadResults = await uploadMultipleFilesToS3(files, 'products/', 800);
+    const uploadResults = await uploadMultipleFilesToS3(
+      files,
+      "products/",
+      800
+    );
 
     // Format images with S3 URLs
     const formattedImages = uploadResults.map((result, index) => ({
       url: result.url,
       isPrimary: index === 0, // First image is primary
-      altText: req.body.altText || product.name
+      altText: req.body.altText || product.name,
     }));
 
     product.images = formattedImages;
@@ -1254,14 +1662,14 @@ exports.updateProductImages = async (req, res) => {
       data: {
         productId: product.productId,
         images: product.images,
-        uploadedCount: uploadResults.length
-      }
+        uploadedCount: uploadResults.length,
+      },
     });
   } catch (error) {
-    console.error('Error updating product images:', error);
+    console.error("Error updating product images:", error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -1279,7 +1687,7 @@ exports.updateVariantImages = async (req, res) => {
     if (!files || files.length === 0) {
       return res.status(400).json({
         success: false,
-        message: "At least one image file is required"
+        message: "At least one image file is required",
       });
     }
 
@@ -1291,28 +1699,32 @@ exports.updateVariantImages = async (req, res) => {
     if (!product) {
       return res.status(404).json({
         success: false,
-        message: "Product not found"
+        message: "Product not found",
       });
     }
 
     // Find variant
-    const variant = product.variants.find(v => v.variantId === variantId);
+    const variant = product.variants.find((v) => v.variantId === variantId);
 
     if (!variant) {
       return res.status(404).json({
         success: false,
-        message: "Variant not found"
+        message: "Variant not found",
       });
     }
 
     // Upload all files to S3
-    const uploadResults = await uploadMultipleFilesToS3(files, `products/variants/${variantId}/`, 800);
+    const uploadResults = await uploadMultipleFilesToS3(
+      files,
+      `products/variants/${variantId}/`,
+      800
+    );
 
     // Format images
     const formattedImages = uploadResults.map((result, index) => ({
       url: result.url,
       isPrimary: index === 0,
-      altText: req.body.altText || `${product.name} - ${variant.variantId}`
+      altText: req.body.altText || `${product.name} - ${variant.variantId}`,
     }));
 
     variant.images = formattedImages;
@@ -1325,14 +1737,14 @@ exports.updateVariantImages = async (req, res) => {
         productId: product.productId,
         variantId: variant.variantId,
         images: variant.images,
-        uploadedCount: uploadResults.length
-      }
+        uploadedCount: uploadResults.length,
+      },
     });
   } catch (error) {
-    console.error('Error updating variant images:', error);
+    console.error("Error updating variant images:", error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -1355,14 +1767,18 @@ exports.updateProductSEO = async (req, res) => {
     if (!product) {
       return res.status(404).json({
         success: false,
-        message: "Product not found"
+        message: "Product not found",
       });
     }
 
     product.seo = {
       metaTitle: metaTitle || product.seo?.metaTitle || product.name,
-      metaDescription: metaDescription || product.seo?.metaDescription || product.description?.short || '',
-      keywords: keywords || product.seo?.keywords || []
+      metaDescription:
+        metaDescription ||
+        product.seo?.metaDescription ||
+        product.description?.short ||
+        "",
+      keywords: keywords || product.seo?.keywords || [],
     };
 
     await product.save();
@@ -1372,14 +1788,14 @@ exports.updateProductSEO = async (req, res) => {
       message: "Product SEO updated successfully",
       data: {
         productId: product.productId,
-        seo: product.seo
-      }
+        seo: product.seo,
+      },
     });
   } catch (error) {
-    console.error('Error updating product SEO:', error);
+    console.error("Error updating product SEO:", error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -1397,7 +1813,7 @@ exports.updateProductPlans = async (req, res) => {
     if (!Array.isArray(plans)) {
       return res.status(400).json({
         success: false,
-        message: "Plans must be an array"
+        message: "Plans must be an array",
       });
     }
 
@@ -1409,7 +1825,7 @@ exports.updateProductPlans = async (req, res) => {
     if (!product) {
       return res.status(404).json({
         success: false,
-        message: "Product not found"
+        message: "Product not found",
       });
     }
 
@@ -1418,7 +1834,7 @@ exports.updateProductPlans = async (req, res) => {
       if (!plan.name || !plan.days || !plan.perDayAmount) {
         return res.status(400).json({
           success: false,
-          message: "Each plan must have name, days, and perDayAmount"
+          message: "Each plan must have name, days, and perDayAmount",
         });
       }
     }
@@ -1431,14 +1847,14 @@ exports.updateProductPlans = async (req, res) => {
       message: "Product plans updated successfully",
       data: {
         productId: product.productId,
-        plans: product.plans
-      }
+        plans: product.plans,
+      },
     });
   } catch (error) {
-    console.error('Error updating product plans:', error);
+    console.error("Error updating product plans:", error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -1459,7 +1875,7 @@ exports.getProductPlans = async (req, res) => {
     if (!product) {
       return res.status(404).json({
         success: false,
-        message: "Product not found"
+        message: "Product not found",
       });
     }
 
@@ -1467,14 +1883,14 @@ exports.getProductPlans = async (req, res) => {
       success: true,
       data: {
         productId: product.productId,
-        plans: product.plans || []
-      }
+        plans: product.plans || [],
+      },
     });
   } catch (error) {
     console.error("Error fetching product plans:", error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -1495,16 +1911,16 @@ exports.getAllProductsForAdmin = async (req, res) => {
       minPrice,
       maxPrice,
       status,
-      region = "global",
+      region, // No default - admin sees all regions by default
       hasVariants,
       simpleOnly,
-      showDeleted
+      showDeleted,
     } = req.query;
 
     const filter = {};
 
     // Show deleted products only if explicitly requested
-    if (showDeleted !== 'true') {
+    if (showDeleted !== "true") {
       filter.isDeleted = false;
     }
 
@@ -1526,12 +1942,35 @@ exports.getAllProductsForAdmin = async (req, res) => {
       ];
     }
 
-    // Basic filters
-    if (category) filter["category.mainCategoryId"] = category;
+    // Basic filters - Support hierarchical category filtering
+    if (category) {
+      const allCategoryIds = await getAllSubcategoryIds(category);
+
+      const categoryFilter = {
+        $or: [
+          { "category.mainCategoryId": { $in: allCategoryIds } },
+          { "category.subCategoryId": { $in: allCategoryIds } },
+        ],
+      };
+
+      if (filter.$or) {
+        // If search filter exists, use $and to combine
+        filter.$and = [
+          { $or: filter.$or }, // Search filter
+          categoryFilter, // Category filter
+        ];
+        delete filter.$or;
+      } else {
+        Object.assign(filter, categoryFilter);
+      }
+    }
     if (brand) filter.brand = brand;
     if (status) filter.status = status;
 
-    // Region filter
+    // Region filter - ONLY apply if specific region requested
+    // Admin by default sees ALL regions
+    // Use ?region=india or ?region=usa to filter by specific region
+    // Use ?region=all or ?region=global to explicitly see all (same as no param)
     if (region && region !== "all" && region !== "global") {
       filter["regionalAvailability.region"] = region;
       filter["regionalAvailability.isAvailable"] = true;
@@ -1545,7 +1984,6 @@ exports.getAllProductsForAdmin = async (req, res) => {
     }
 
     const products = await Product.find(filter)
-      .populate("deletedBy", "name email")
       .sort({ createdAt: -1 })
       .limit(parseInt(limit))
       .skip((parseInt(page) - 1) * parseInt(limit));
@@ -1560,8 +1998,15 @@ exports.getAllProductsForAdmin = async (req, res) => {
         pages: Math.ceil(total / parseInt(limit)),
         total,
       },
+      // Include applied filters for debugging
+      appliedFilters: {
+        region: region || "all",
+        status: status || "all",
+        category: category || "all",
+        hasVariants: hasVariants || "all",
+        showDeleted: showDeleted === "true",
+      },
     });
-
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -1597,7 +2042,8 @@ exports.deleteProductImage = async (req, res) => {
     if (isNaN(index) || index < 1) {
       return res.status(400).json({
         success: false,
-        message: "Invalid image index. Index must be a positive number starting from 1",
+        message:
+          "Invalid image index. Index must be a positive number starting from 1",
       });
     }
 
@@ -1670,7 +2116,7 @@ exports.deleteVariantImage = async (req, res) => {
     }
 
     // Find the variant
-    const variant = product.variants.find(v => v.variantId === variantId);
+    const variant = product.variants.find((v) => v.variantId === variantId);
 
     if (!variant) {
       return res.status(404).json({
@@ -1685,7 +2131,8 @@ exports.deleteVariantImage = async (req, res) => {
     if (isNaN(index) || index < 1) {
       return res.status(400).json({
         success: false,
-        message: "Invalid image index. Index must be a positive number starting from 1",
+        message:
+          "Invalid image index. Index must be a positive number starting from 1",
       });
     }
 
@@ -1761,7 +2208,8 @@ exports.reorderProductImages = async (req, res) => {
     if (!imageOrders || !Array.isArray(imageOrders)) {
       return res.status(400).json({
         success: false,
-        message: "imageOrders must be an array of {index: number, order: number}",
+        message:
+          "imageOrders must be an array of {index: number, order: number}",
       });
     }
 
@@ -1777,7 +2225,7 @@ exports.reorderProductImages = async (req, res) => {
     }
 
     // Update order for each image
-    imageOrders.forEach(item => {
+    imageOrders.forEach((item) => {
       const arrayIndex = item.index - 1;
       product.images[arrayIndex].order = item.order;
     });
@@ -1811,7 +2259,8 @@ exports.getProductsByCategoryId = async (req, res) => {
 
     // 🔥 THIS IS THE CRITICAL FIX
     const filter = {
-      'category.mainCategoryIdCategoryId': categoryId  // ← CHANGED FROM 'category.mainCategoryId'
+      isDeleted: false, // 🔥 FIX: Hide deleted products from users
+      "category.mainCategoryIdCategoryId": categoryId, // ← CHANGED FROM 'category.mainCategoryId'
     };
 
     const products = await Product.find(filter)
@@ -1838,9 +2287,6 @@ exports.getProductsByCategoryId = async (req, res) => {
   }
 };
 
-
-
-
 /**
  * @desc    Reorder variant images
  * @route   PUT /api/products/:productId/variants/:variantId/images/reorder
@@ -1864,7 +2310,7 @@ exports.reorderVariantImages = async (req, res) => {
     }
 
     // Find the variant
-    const variant = product.variants.find(v => v.variantId === variantId);
+    const variant = product.variants.find((v) => v.variantId === variantId);
 
     if (!variant) {
       return res.status(404).json({
@@ -1876,7 +2322,8 @@ exports.reorderVariantImages = async (req, res) => {
     if (!imageOrders || !Array.isArray(imageOrders)) {
       return res.status(400).json({
         success: false,
-        message: "imageOrders must be an array of {index: number, order: number}",
+        message:
+          "imageOrders must be an array of {index: number, order: number}",
       });
     }
 
@@ -1892,7 +2339,7 @@ exports.reorderVariantImages = async (req, res) => {
     }
 
     // Update order for each image
-    imageOrders.forEach(item => {
+    imageOrders.forEach((item) => {
       const arrayIndex = item.index - 1;
       variant.images[arrayIndex].order = item.order;
     });
@@ -1916,6 +2363,170 @@ exports.reorderVariantImages = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Export products to CSV or Excel
+ * @route   GET /api/products/export?format=excel&status=published
+ * @access  Admin
+ */
+exports.exportProducts = async (req, res) => {
+  try {
+    const {
+      format = "excel",
+      status,
+      category,
+      region,
+      brand,
+      hasVariants,
+      search,
+    } = req.query;
 
+    // Build filter (same as existing response format)
+    const filter = { isDeleted: false };
 
+    if (status) filter.status = status;
+    if (category) filter["category.mainCategoryId"] = category;
+    if (brand) filter.brand = brand;
 
+    if (hasVariants === "true") {
+      filter.hasVariants = true;
+    } else if (hasVariants === "false") {
+      filter.hasVariants = false;
+    }
+
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { description: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    if (region && region !== "all" && region !== "global") {
+      filter["regionalAvailability.region"] = region;
+      filter["regionalAvailability.isAvailable"] = true;
+    }
+
+    if (format === "csv") {
+      // Export as CSV
+      const csvData = await exportProductsToCSV(filter);
+
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="products-${Date.now()}.csv"`
+      );
+      res.send(csvData);
+    } else {
+      // Export as Excel (default)
+      const workbook = await exportProductsToExcel(filter);
+
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      );
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="products-${Date.now()}.xlsx"`
+      );
+
+      await workbook.xlsx.write(res);
+      res.end();
+    }
+  } catch (error) {
+    console.error("Export error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+/**
+ * @desc    Hard delete product (permanently removes from database)
+ * @route   DELETE /api/products/:productId/hard
+ * @access  Admin
+ */
+exports.hardDeleteProduct = async (req, res) => {
+  try {
+    const id = req.params.productId;
+    const { confirmDelete } = req.query;
+
+    // Safety check - require explicit confirmation
+    if (confirmDelete !== "true") {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Hard delete requires confirmDelete=true query parameter for safety",
+      });
+    }
+
+    let product = await Product.findOne({ productId: id });
+    if (!product && mongoose.isValidObjectId(id)) {
+      product = await Product.findById(id);
+    }
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    // Delete all images from S3 if they exist
+    if (product.images && product.images.length > 0) {
+      for (const image of product.images) {
+        if (image.url) {
+          try {
+            await deleteImageFromS3(image.url);
+          } catch (error) {
+            console.error("Error deleting product image from S3:", error);
+            // Continue deletion even if S3 delete fails
+          }
+        }
+      }
+    }
+
+    // Delete variant images from S3 if they exist
+    if (product.variants && product.variants.length > 0) {
+      for (const variant of product.variants) {
+        if (variant.images && variant.images.length > 0) {
+          for (const image of variant.images) {
+            if (image.url) {
+              try {
+                await deleteImageFromS3(image.url);
+              } catch (error) {
+                console.error("Error deleting variant image from S3:", error);
+                // Continue deletion even if S3 delete fails
+              }
+            }
+          }
+        }
+      }
+    }
+
+    const deletedProduct = {
+      id: product._id,
+      productId: product.productId,
+      name: product.name,
+      sku: product.sku,
+    };
+
+    // Permanently delete the product
+    if (product.productId === id) {
+      await Product.deleteOne({ productId: id });
+    } else {
+      await Product.findByIdAndDelete(id);
+    }
+
+    res.json({
+      success: true,
+      message: "Product permanently deleted from database",
+      deletedProduct,
+    });
+  } catch (error) {
+    console.error("Error hard deleting product:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};

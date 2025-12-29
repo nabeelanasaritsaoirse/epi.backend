@@ -4,6 +4,10 @@ const {
   uploadMultipleFilesToS3,
   deleteImageFromS3,
 } = require("../services/awsUploadService");
+const {
+  exportCategoriesToExcel,
+  exportCategoriesToCSV,
+} = require("../services/exportService");
 
 /**
  * @desc    Create a new category
@@ -30,6 +34,7 @@ exports.createCategory = async (req, res) => {
 
     const existingCategory = await Category.findOne({
       name: { $regex: `^${name}$`, $options: "i" },
+      isDeleted: false, // ← CRITICAL FIX
     });
 
     if (existingCategory) {
@@ -80,6 +85,25 @@ exports.createCategory = async (req, res) => {
       isFeatured:
         req.body.isFeatured === true || req.body.isFeatured === "true", // ✅ FIX
     });
+    // 🌍 REGIONAL SUPPORT
+    newCategory.availableInRegions = req.body.availableInRegions || [];
+
+    // Regional meta FIX
+    newCategory.regionalMeta = Array.isArray(req.body.regionalMeta)
+      ? req.body.regionalMeta.map((rm) => ({
+          region: rm.region,
+          metaTitle: rm.metaTitle || "",
+          metaDescription: rm.metaDescription || "",
+          keywords: Array.isArray(rm.keywords)
+            ? rm.keywords
+            : typeof rm.keywords === "string"
+            ? rm.keywords
+                .split(",")
+                .map((k) => k.trim())
+                .filter(Boolean)
+            : [],
+        }))
+      : [];
 
     await newCategory.save();
 
@@ -88,7 +112,6 @@ exports.createCategory = async (req, res) => {
         $push: { subCategories: newCategory._id },
       });
     }
-
     res.status(201).json({
       success: true,
       message: "Category created successfully",
@@ -113,7 +136,7 @@ exports.getAllCategories = async (req, res) => {
 
     // Filter out soft deleted categories for non-admin users
     // Admin can see deleted categories only when explicitly requested
-    const isAdmin = req.user && req.user.role === 'admin';
+    const isAdmin = req.user && (req.user.role === "admin" || req.user.role === "super_admin");
     if (!isAdmin) {
       filter.isDeleted = false;
     }
@@ -155,12 +178,12 @@ exports.getAllCategories = async (req, res) => {
  */
 exports.getAllCategoriesForAdmin = async (req, res) => {
   try {
-    const { parentCategoryId, isActive, showDeleted } = req.query;
+    const { parentCategoryId, isActive, showDeleted, region } = req.query;
 
     let filter = {};
 
     // Show deleted categories only if explicitly requested
-    if (showDeleted !== 'true') {
+    if (showDeleted !== "true") {
       filter.isDeleted = false;
     }
 
@@ -175,8 +198,23 @@ exports.getAllCategoriesForAdmin = async (req, res) => {
       filter.isActive = isActive === "true" || isActive === true;
     }
 
+    // Region filter - OPTIONAL for admin
+    // Admin by default sees ALL regions
+    // Use ?region=india to filter by specific region
+    // Categories with empty availableInRegions array are global (visible everywhere)
+    if (region && region !== "all" && region !== "global") {
+      filter.$or = [
+        { availableInRegions: region },
+        { availableInRegions: { $size: 0 } }, // Global categories
+        { availableInRegions: { $exists: false } }, // Legacy categories without region field
+      ];
+    }
+
     const categories = await Category.find(filter)
-      .populate("subCategories", "categoryId name slug image displayOrder isDeleted")
+      .populate(
+        "subCategories",
+        "categoryId name slug image displayOrder isDeleted"
+      )
       .populate("deletedBy", "name email")
       .sort({ displayOrder: 1, name: 1 })
       .exec();
@@ -185,6 +223,13 @@ exports.getAllCategoriesForAdmin = async (req, res) => {
       success: true,
       count: categories.length,
       data: categories,
+      // Include applied filters for debugging
+      appliedFilters: {
+        parentCategoryId: parentCategoryId || "all",
+        isActive: isActive || "all",
+        region: region || "all",
+        showDeleted: showDeleted === "true",
+      },
     });
   } catch (error) {
     console.error("Error fetching categories for admin:", error);
@@ -215,7 +260,7 @@ exports.getCategoryById = async (req, res) => {
     }
 
     // Check if category is deleted and user is not admin
-    const isAdmin = req.user && req.user.role === 'admin';
+    const isAdmin = req.user && (req.user.role === "admin" || req.user.role === "super_admin");
     if (category.isDeleted && !isAdmin) {
       return res.status(404).json({
         success: false,
@@ -361,7 +406,29 @@ exports.updateCategory = async (req, res) => {
 
     // Meta
     if (meta !== undefined) category.meta = meta;
+    // 🌍 Regional Availability
+    if (req.body.availableInRegions !== undefined) {
+      category.availableInRegions = req.body.availableInRegions;
+    }
 
+    // 🌍 Per-Region SEO Meta (SAFE & FIXED)
+    if (req.body.regionalMeta !== undefined) {
+      category.regionalMeta = Array.isArray(req.body.regionalMeta)
+        ? req.body.regionalMeta.map((rm) => ({
+            region: rm.region,
+            metaTitle: rm.metaTitle || "",
+            metaDescription: rm.metaDescription || "",
+            keywords: Array.isArray(rm.keywords)
+              ? rm.keywords
+              : typeof rm.keywords === "string"
+              ? rm.keywords
+                  .split(",")
+                  .map((k) => k.trim())
+                  .filter(Boolean)
+              : [],
+          }))
+        : []; // ensures no crash when input is invalid
+    }
     // Flags
     if (displayOrder !== undefined) category.displayOrder = displayOrder;
     if (isActive !== undefined) category.isActive = isActive;
@@ -884,7 +951,8 @@ exports.deleteCategoryImage = async (req, res) => {
     if (isNaN(index) || index < 1) {
       return res.status(400).json({
         success: false,
-        message: "Invalid image index. Index must be a positive number starting from 1",
+        message:
+          "Invalid image index. Index must be a positive number starting from 1",
       });
     }
 
@@ -957,7 +1025,8 @@ exports.reorderCategoryImages = async (req, res) => {
     if (!imageOrders || !Array.isArray(imageOrders)) {
       return res.status(400).json({
         success: false,
-        message: "imageOrders must be an array of {index: number, order: number}",
+        message:
+          "imageOrders must be an array of {index: number, order: number}",
       });
     }
 
@@ -973,7 +1042,7 @@ exports.reorderCategoryImages = async (req, res) => {
     }
 
     // Update order for each image
-    imageOrders.forEach(item => {
+    imageOrders.forEach((item) => {
       const arrayIndex = item.index - 1;
       category.images[arrayIndex].order = item.order;
     });
@@ -990,6 +1059,158 @@ exports.reorderCategoryImages = async (req, res) => {
     });
   } catch (error) {
     console.error("Error reordering category images:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+/**
+ * @desc    Sync product counts for all categories
+ * @route   POST /api/categories/sync-product-counts
+ * @access  Admin
+ */
+exports.syncAllProductCounts = async (req, res) => {
+  try {
+    const Product = require("../models/Product");
+    const categories = await Category.find({});
+    let updated = 0;
+
+    for (const category of categories) {
+      // Count only active/published products that are not deleted
+      const count = await Product.countDocuments({
+        "category.mainCategoryId": category._id,
+        isDeleted: false,
+        status: { $in: ["published", "active"] },
+      });
+
+      category.productCount = count;
+      await category.save();
+      updated++;
+    }
+
+    res.json({
+      success: true,
+      message: `Product counts synced successfully for ${updated} categories`,
+      data: {
+        categoriesUpdated: updated,
+      },
+    });
+  } catch (error) {
+    console.error("Error syncing product counts:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+/**
+ * @desc    Export categories to CSV or Excel
+ * @route   GET /api/categories/export?format=excel
+ * @access  Admin
+ */
+exports.exportCategories = async (req, res) => {
+  try {
+    const { format = 'excel', isActive, parentCategoryId } = req.query;
+
+    // Build filter (same as existing response format)
+    const filter = { isDeleted: false };
+
+    if (isActive !== undefined && isActive !== 'all') {
+      filter.isActive = isActive === 'true' || isActive === true;
+    }
+
+    if (parentCategoryId) {
+      filter.parentCategoryId = parentCategoryId === 'null' ? null : parentCategoryId;
+    }
+
+    if (format === 'csv') {
+      // Export as CSV
+      const csvData = await exportCategoriesToCSV(filter);
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="categories-${Date.now()}.csv"`);
+      res.send(csvData);
+
+    } else {
+      // Export as Excel (default)
+      const workbook = await exportCategoriesToExcel(filter);
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="categories-${Date.now()}.xlsx"`);
+
+      await workbook.xlsx.write(res);
+      res.end();
+    }
+
+  } catch (error) {
+    console.error('Export error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Hard delete category (permanently removes from database)
+ * @route   DELETE /api/categories/:categoryId/hard
+ * @access  Admin
+ */
+exports.hardDeleteCategory = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+    const { confirmDelete } = req.query;
+
+    // Safety check - require explicit confirmation
+    if (confirmDelete !== 'true') {
+      return res.status(400).json({
+        success: false,
+        message: 'Hard delete requires confirmDelete=true query parameter for safety',
+      });
+    }
+
+    const category = await Category.findById(categoryId);
+
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: 'Category not found',
+      });
+    }
+
+    // Check if category has subcategories
+    if (category.subCategories && category.subCategories.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot hard delete category with ${category.subCategories.length} subcategories. Delete subcategories first.`,
+        subcategoriesCount: category.subCategories.length,
+      });
+    }
+
+    // Remove from parent category's subCategories array if it has a parent
+    if (category.parentCategoryId) {
+      await Category.findByIdAndUpdate(category.parentCategoryId, {
+        $pull: { subCategories: categoryId },
+      });
+    }
+
+    // Permanently delete the category
+    await Category.findByIdAndDelete(categoryId);
+
+    res.status(200).json({
+      success: true,
+      message: 'Category permanently deleted from database',
+      deletedCategory: {
+        id: category._id,
+        name: category.name,
+        categoryId: category.categoryId,
+      },
+    });
+  } catch (error) {
+    console.error('Error hard deleting category:', error);
     res.status(500).json({
       success: false,
       message: error.message,

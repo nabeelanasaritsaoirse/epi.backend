@@ -505,16 +505,16 @@ exports.verifyRefreshToken = async (req, res, next) => {
 
 // 🔥 CHECK ADMIN
 exports.isAdmin = (req, res, next) => {
-  if (req.user && req.user.role === 'admin') {
-    next();
-  } else {
-    return res.status(403).json({ 
-      success: false,
-      message: 'Access denied. Admin role required.',
-      code: 'ADMIN_REQUIRED'
-    });
+  if (req.user && (req.user.role === 'admin' || req.user.role === 'super_admin')) {
+    return next();
   }
+  return res.status(403).json({
+    success: false,
+    message: 'Access denied',
+    code: 'ADMIN_REQUIRED'
+  });
 };
+
 
 
 // 🔥 FLEXIBLE AUTH - Accepts BOTH Firebase Token OR JWT Token
@@ -606,6 +606,48 @@ exports.verifyAnyToken = async (req, res, next) => {
       message: 'Authentication failed',
       error: error.message
     });
+  }
+};
+
+
+// 🔥 OPTIONAL AUTH - Parses token if present, but doesn't block if missing
+// Use this for public routes that need to detect if user is admin
+exports.optionalAuth = async (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.split('Bearer ')[1];
+
+    // If no token, continue without user
+    if (!token) {
+      req.user = null;
+      return next();
+    }
+
+    // Try to verify token
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      const userId = decoded.userId || decoded.id;
+
+      if (userId) {
+        const user = await User.findById(userId);
+
+        if (user && user.isActive) {
+          req.user = user;
+        } else {
+          req.user = null;
+        }
+      } else {
+        req.user = null;
+      }
+    } catch (error) {
+      // Token invalid, but don't block - just set user to null
+      req.user = null;
+    }
+
+    next();
+  } catch (error) {
+    // Any error, continue without user
+    req.user = null;
+    next();
   }
 };
 

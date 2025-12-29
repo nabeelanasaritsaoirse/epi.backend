@@ -4,7 +4,7 @@
   "description": "Epi project backend",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "echo '❌ Do not use npm start in production. Use PM2 only: pm2 restart epi-backend'",
     "dev": "nodemon index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "setup-cron": "node scripts/setupCron.js",
@@ -21,6 +21,7 @@
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
+    "exceljs": "^4.4.0",
     "express": "^4.18.2",
     "express-rate-limit": "^8.2.1",
     "express-session": "^1.18.2",
