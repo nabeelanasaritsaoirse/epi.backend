@@ -432,7 +432,7 @@ exports.getReferralList = async (referrerId) => {
 
       // Include legacy referral data (only if NOT already in InstallmentOrder)
       if (referral && referral.purchases && referral.purchases.length > 0) {
-        // Filter out legacy purchases that have a matching InstallmentOrder
+        // Filter out legacy purchases that have a matching InstallmentOrder OR have no payments made
         const uniqueLegacyPurchases = referral.purchases.filter((p) => {
           const legacyProductId = p.productSnapshot?.productId || (p.product ? p.product.productId : null);
           const legacyOrderId = p.orderId ? p.orderId.toString() : null;
@@ -443,6 +443,10 @@ exports.getReferralList = async (referrerId) => {
           }
           // Skip if this orderId already exists in InstallmentOrder
           if (legacyOrderId && installmentOrderIds.has(legacyOrderId)) {
+            return false;
+          }
+          // Skip if no payments have been made (paidDays === 0 or status is PENDING)
+          if ((p.paidDays || 0) === 0 || p.status === 'PENDING') {
             return false;
           }
           return true;
@@ -555,7 +559,7 @@ exports.getReferredUserDetails = async (referredUserId, referrerId = null) => {
 
     // Include legacy referral data (only if NOT already in InstallmentOrder)
     if (referral && referral.purchases && referral.purchases.length > 0) {
-      // Filter out legacy purchases that have a matching InstallmentOrder
+      // Filter out legacy purchases that have a matching InstallmentOrder OR have no payments made
       const uniqueLegacyPurchases = referral.purchases.filter((p) => {
         const legacyProductId = p.productSnapshot?.productId || (p.product ? p.product.productId : null);
         const legacyOrderId = p.orderId ? p.orderId.toString() : null;
@@ -566,6 +570,10 @@ exports.getReferredUserDetails = async (referredUserId, referrerId = null) => {
         }
         // Skip if this orderId already exists in InstallmentOrder
         if (legacyOrderId && installmentOrderIds.has(legacyOrderId)) {
+          return false;
+        }
+        // Skip if no payments have been made (paidDays === 0 or status is PENDING)
+        if ((p.paidDays || 0) === 0 || p.status === 'PENDING') {
           return false;
         }
         return true;
