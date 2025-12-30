@@ -5,12 +5,15 @@
  * All endpoints require admin role verification.
  */
 
-const mongoose = require('mongoose');
-const orderService = require('../services/installmentOrderService');
-const paymentService = require('../services/installmentPaymentService');
-const InstallmentOrder = require('../models/InstallmentOrder');
-const PaymentRecord = require('../models/PaymentRecord');
-const { asyncHandler, successResponse } = require('../middlewares/errorHandler');
+const mongoose = require("mongoose");
+const orderService = require("../services/installmentOrderService");
+const paymentService = require("../services/installmentPaymentService");
+const InstallmentOrder = require("../models/InstallmentOrder");
+const PaymentRecord = require("../models/PaymentRecord");
+const {
+  asyncHandler,
+  successResponse,
+} = require("../middlewares/errorHandler");
 
 /**
  * @route   GET /api/admin/installment-orders/completed
@@ -39,17 +42,21 @@ const getCompletedOrders = asyncHandler(async (req, res) => {
   const options = {
     deliveryStatus,
     limit: Math.min(limit, 100), // Cap at 100
-    skip: actualSkip
+    skip: actualSkip,
   };
 
   const orders = await orderService.getCompletedOrders(options);
 
-  successResponse(res, {
-    orders,
-    count: orders.length,
-    page: page || Math.floor(actualSkip / limit) + 1,
-    limit
-  }, 'Completed orders retrieved successfully');
+  successResponse(
+    res,
+    {
+      orders,
+      count: orders.length,
+      page: page || Math.floor(actualSkip / limit) + 1,
+      limit,
+    },
+    "Completed orders retrieved successfully"
+  );
 });
 
 /**
@@ -69,7 +76,7 @@ const approveDelivery = asyncHandler(async (req, res) => {
 
   const order = await orderService.approveDelivery(orderId, adminId);
 
-  successResponse(res, { order }, 'Delivery approved successfully');
+  successResponse(res, { order }, "Delivery approved successfully");
 });
 
 /**
@@ -116,13 +123,7 @@ const updateDeliveryStatus = asyncHandler(async (req, res) => {
  * }
  */
 const getAllOrders = asyncHandler(async (req, res) => {
-  const {
-    status,
-    deliveryStatus,
-    limit = 50,
-    skip = 0,
-    page
-  } = req.query;
+  const { status, deliveryStatus, limit = 50, skip = 0, page } = req.query;
 
   // Calculate skip from page if provided
   const actualSkip = page ? (page - 1) * limit : skip;
@@ -135,20 +136,24 @@ const getAllOrders = asyncHandler(async (req, res) => {
     .sort({ createdAt: -1 })
     .limit(Math.min(limit, 100))
     .skip(actualSkip)
-    .populate('user', 'name email phoneNumber')
-    .populate('product', 'name images pricing')
-    .populate('referrer', 'name email');
+    .populate("user", "name email phoneNumber")
+    .populate("product", "name images pricing")
+    .populate("referrer", "name email");
 
   const totalCount = await InstallmentOrder.countDocuments(query);
 
-  successResponse(res, {
-    orders,
-    count: orders.length,
-    totalCount,
-    page: page || Math.floor(actualSkip / limit) + 1,
-    limit,
-    hasMore: actualSkip + orders.length < totalCount
-  }, 'Orders retrieved successfully');
+  successResponse(
+    res,
+    {
+      orders,
+      count: orders.length,
+      totalCount,
+      page: page || Math.floor(actualSkip / limit) + 1,
+      limit,
+      hasMore: actualSkip + orders.length < totalCount,
+    },
+    "Orders retrieved successfully"
+  );
 });
 
 /**
@@ -169,16 +174,20 @@ const getOrderDetails = asyncHandler(async (req, res) => {
   const order = await orderService.getOrderById(orderId);
 
   if (!order) {
-    throw new Error('Order not found');
+    throw new Error("Order not found");
   }
 
   // Get payment history for this order
   const payments = await paymentService.getPaymentHistory(orderId);
 
-  successResponse(res, {
-    order,
-    payments
-  }, 'Order details retrieved successfully');
+  successResponse(
+    res,
+    {
+      order,
+      payments,
+    },
+    "Order details retrieved successfully"
+  );
 });
 
 /**
@@ -203,38 +212,38 @@ const getDashboardStats = asyncHandler(async (req, res) => {
   const statusCounts = await InstallmentOrder.aggregate([
     {
       $group: {
-        _id: '$status',
-        count: { $sum: 1 }
-      }
-    }
+        _id: "$status",
+        count: { $sum: 1 },
+      },
+    },
   ]);
 
   // Get delivery status counts
   const deliveryStatusCounts = await InstallmentOrder.aggregate([
     {
-      $match: { status: 'COMPLETED' }
+      $match: { status: "COMPLETED" },
     },
     {
       $group: {
-        _id: '$deliveryStatus',
-        count: { $sum: 1 }
-      }
-    }
+        _id: "$deliveryStatus",
+        count: { $sum: 1 },
+      },
+    },
   ]);
 
   // Get total revenue and commission
   const revenueStats = await PaymentRecord.aggregate([
     {
-      $match: { status: 'COMPLETED' }
+      $match: { status: "COMPLETED" },
     },
     {
       $group: {
         _id: null,
-        totalRevenue: { $sum: '$amount' },
-        totalCommission: { $sum: '$commissionAmount' },
-        totalPayments: { $sum: 1 }
-      }
-    }
+        totalRevenue: { $sum: "$amount" },
+        totalCommission: { $sum: "$commissionAmount" },
+        totalPayments: { $sum: 1 },
+      },
+    },
   ]);
 
   // Calculate date ranges
@@ -247,83 +256,83 @@ const getDashboardStats = asyncHandler(async (req, res) => {
   const monthRevenue = await PaymentRecord.aggregate([
     {
       $match: {
-        status: 'COMPLETED',
-        createdAt: { $gte: startOfMonth }
-      }
+        status: "COMPLETED",
+        createdAt: { $gte: startOfMonth },
+      },
     },
     {
       $group: {
         _id: null,
-        amount: { $sum: '$amount' }
-      }
-    }
+        amount: { $sum: "$amount" },
+      },
+    },
   ]);
 
   // Get revenue for this week
   const weekRevenue = await PaymentRecord.aggregate([
     {
       $match: {
-        status: 'COMPLETED',
-        createdAt: { $gte: startOfWeek }
-      }
+        status: "COMPLETED",
+        createdAt: { $gte: startOfWeek },
+      },
     },
     {
       $group: {
         _id: null,
-        amount: { $sum: '$amount' }
-      }
-    }
+        amount: { $sum: "$amount" },
+      },
+    },
   ]);
 
   // Get revenue for today
   const todayRevenue = await PaymentRecord.aggregate([
     {
       $match: {
-        status: 'COMPLETED',
-        createdAt: { $gte: startOfToday }
-      }
+        status: "COMPLETED",
+        createdAt: { $gte: startOfToday },
+      },
     },
     {
       $group: {
         _id: null,
-        amount: { $sum: '$amount' }
-      }
-    }
+        amount: { $sum: "$amount" },
+      },
+    },
   ]);
 
   // Get payment counts and totals
   const paymentTotals = await PaymentRecord.aggregate([
     {
-      $match: { status: 'COMPLETED' }
+      $match: { status: "COMPLETED" },
     },
     {
       $group: {
         _id: null,
         total: { $sum: 1 },
-        totalAmount: { $sum: '$amount' }
-      }
-    }
+        totalAmount: { $sum: "$amount" },
+      },
+    },
   ]);
 
   // Get active orders count
   const activeOrdersCount = await InstallmentOrder.countDocuments({
-    status: 'ACTIVE'
+    status: "ACTIVE",
   });
 
   // Get completed orders count
   const completedOrdersCount = await InstallmentOrder.countDocuments({
-    status: 'COMPLETED'
+    status: "COMPLETED",
   });
 
   // Get cancelled orders count
   const cancelledOrdersCount = await InstallmentOrder.countDocuments({
-    status: 'CANCELLED'
+    status: "CANCELLED",
   });
 
   // Get pending delivery count
   const pendingDeliveryCount = await InstallmentOrder.countDocuments({
-    status: 'COMPLETED',
-    deliveryStatus: 'PENDING'
+    status: "COMPLETED",
+    deliveryStatus: "PENDING",
   });
 
   const stats = {
@@ -332,21 +341,21 @@ const getDashboardStats = asyncHandler(async (req, res) => {
       active: activeOrdersCount,
       completed: completedOrdersCount,
       cancelled: cancelledOrdersCount,
-      pendingDelivery: pendingDeliveryCount
+      pendingDelivery: pendingDeliveryCount,
     },
     payments: {
       total: paymentTotals[0]?.total || 0,
       totalAmount: paymentTotals[0]?.totalAmount || 0,
-      todayAmount: todayRevenue[0]?.amount || 0
+      todayAmount: todayRevenue[0]?.amount || 0,
     },
     revenue: {
       total: revenueStats[0]?.totalRevenue || 0,
       thisMonth: monthRevenue[0]?.amount || 0,
-      thisWeek: weekRevenue[0]?.amount || 0
-    }
+      thisWeek: weekRevenue[0]?.amount || 0,
+    },
   };
 
-  successResponse(res, stats, 'Dashboard statistics retrieved successfully');
+  successResponse(res, stats, "Dashboard statistics retrieved successfully");
 });
 
 /**
@@ -362,17 +371,21 @@ const getDashboardStats = asyncHandler(async (req, res) => {
  */
 const getPendingApprovalOrders = asyncHandler(async (req, res) => {
   const orders = await InstallmentOrder.find({
-    status: 'COMPLETED',
-    deliveryStatus: 'PENDING'
+    status: "COMPLETED",
+    deliveryStatus: "PENDING",
   })
-  .sort({ completedAt: -1 })
-  .populate('user', 'name email phoneNumber addresses')
-  .populate('product', 'name images pricing');
+    .sort({ completedAt: -1 })
+    .populate("user", "name email phoneNumber addresses")
+    .populate("product", "name images pricing");
 
-  successResponse(res, {
-    orders,
-    count: orders.length
-  }, 'Pending approval orders retrieved successfully');
+  successResponse(
+    res,
+    {
+      orders,
+      count: orders.length,
+    },
+    "Pending approval orders retrieved successfully"
+  );
 });
 
 /**
@@ -397,21 +410,21 @@ const addAdminNotes = asyncHandler(async (req, res) => {
   // Validate ObjectId only if it looks like one (24 hex chars)
   // Otherwise, treat it as a custom order ID
   if (orderId.length === 24 && !mongoose.Types.ObjectId.isValid(orderId)) {
-    throw new Error('Invalid order ID format');
+    throw new Error("Invalid order ID format");
   }
 
   const order = await InstallmentOrder.findOne({
-    $or: [{ _id: orderId }, { orderId }]
+    $or: [{ _id: orderId }, { orderId }],
   });
 
   if (!order) {
-    throw new Error('Order not found');
+    throw new Error("Order not found");
   }
 
   order.adminNotes = notes;
   await order.save();
 
-  successResponse(res, { order }, 'Admin notes added successfully');
+  successResponse(res, { order }, "Admin notes added successfully");
 });
 
 /**
@@ -433,13 +446,7 @@ const addAdminNotes = asyncHandler(async (req, res) => {
  * }
  */
 const getAllPayments = asyncHandler(async (req, res) => {
-  const {
-    status,
-    paymentMethod,
-    limit = 50,
-    skip = 0,
-    page
-  } = req.query;
+  const { status, paymentMethod, limit = 50, skip = 0, page } = req.query;
 
   const actualSkip = page ? (page - 1) * limit : skip;
 
@@ -451,19 +458,23 @@ const getAllPayments = asyncHandler(async (req, res) => {
     .sort({ createdAt: -1 })
     .limit(Math.min(limit, 100))
     .skip(actualSkip)
-    .populate('user', 'name email')
-    .populate('order', 'orderId productName');
+    .populate("user", "name email")
+    .populate("order", "orderId productName");
 
   const totalCount = await PaymentRecord.countDocuments(query);
 
-  successResponse(res, {
-    payments,
-    count: payments.length,
-    totalCount,
-    page: page || Math.floor(actualSkip / limit) + 1,
-    limit,
-    hasMore: actualSkip + payments.length < totalCount
-  }, 'Payments retrieved successfully');
+  successResponse(
+    res,
+    {
+      payments,
+      count: payments.length,
+      totalCount,
+      page: page || Math.floor(actualSkip / limit) + 1,
+      limit,
+      hasMore: actualSkip + payments.length < totalCount,
+    },
+    "Payments retrieved successfully"
+  );
 });
 
 /**
@@ -483,11 +494,11 @@ const adjustPaymentDates = asyncHandler(async (req, res) => {
   if (!userId && !orderId) {
     return res.status(400).json({
       success: false,
-      message: 'Either userId or orderId is required'
+      message: "Either userId or orderId is required",
     });
   }
 
-  const query = { status: 'ACTIVE' };
+  const query = { status: "ACTIVE" };
   if (orderId) {
     query.orderId = orderId;
   } else if (userId) {
@@ -499,7 +510,7 @@ const adjustPaymentDates = asyncHandler(async (req, res) => {
   if (orders.length === 0) {
     return res.status(404).json({
       success: false,
-      message: 'No active orders found'
+      message: "No active orders found",
     });
   }
 
@@ -515,7 +526,7 @@ const adjustPaymentDates = asyncHandler(async (req, res) => {
     for (let i = 0; i < order.paymentSchedule.length; i++) {
       const installment = order.paymentSchedule[i];
 
-      if (installment.status === 'PENDING') {
+      if (installment.status === "PENDING") {
         const newDate = new Date(today);
         newDate.setDate(newDate.getDate() + adjustDays);
 
@@ -534,11 +545,20 @@ const adjustPaymentDates = asyncHandler(async (req, res) => {
     }
   }
 
-  successResponse(res, {
-    ordersUpdated: totalUpdated,
-    paymentsAdjusted: totalPendingAdjusted,
-    adjustedTo: adjustDays === 0 ? 'today' : adjustDays < 0 ? `${Math.abs(adjustDays)} day(s) ago` : `${adjustDays} day(s) from now`
-  }, 'Payment dates adjusted successfully');
+  successResponse(
+    res,
+    {
+      ordersUpdated: totalUpdated,
+      paymentsAdjusted: totalPendingAdjusted,
+      adjustedTo:
+        adjustDays === 0
+          ? "today"
+          : adjustDays < 0
+          ? `${Math.abs(adjustDays)} day(s) ago`
+          : `${adjustDays} day(s) from now`,
+    },
+    "Payment dates adjusted successfully"
+  );
 });
 
 /**
@@ -569,10 +589,10 @@ const createOrderForUser = asyncHandler(async (req, res) => {
     productId,
     totalDays,
     shippingAddress,
-    paymentMethod = 'WALLET',
+    paymentMethod = "WALLET",
     couponCode,
     variantId,
-    autoPayFirstInstallment = true
+    autoPayFirstInstallment = true,
   } = req.body;
 
   const adminId = req.user._id;
@@ -582,7 +602,8 @@ const createOrderForUser = asyncHandler(async (req, res) => {
   if (!userId || !productId || !totalDays || !shippingAddress) {
     return res.status(400).json({
       success: false,
-      message: 'Missing required fields: userId, productId, totalDays, shippingAddress'
+      message:
+        "Missing required fields: userId, productId, totalDays, shippingAddress",
     });
   }
 
@@ -599,7 +620,7 @@ const createOrderForUser = asyncHandler(async (req, res) => {
     variantId,
     createdByAdmin: true,
     createdByAdminId: adminId,
-    createdByAdminEmail: adminEmail
+    createdByAdminEmail: adminEmail,
   };
 
   // Create order using the service
@@ -610,28 +631,32 @@ const createOrderForUser = asyncHandler(async (req, res) => {
     try {
       // Mark first payment as completed
       const firstPayment = result.firstPayment;
-      await paymentService.markPaymentAsCompleted(
-        firstPayment._id,
-        {
-          method: 'ADMIN_MARKED',
-          transactionId: `ADMIN_${Date.now()}`,
-          note: `Marked as paid by admin ${adminEmail}`,
-          markedBy: adminId
-        }
-      );
+      await paymentService.markPaymentAsCompleted(firstPayment._id, {
+        method: "ADMIN_MARKED",
+        transactionId: `ADMIN_${Date.now()}`,
+        note: `Marked as paid by admin ${adminEmail}`,
+        markedBy: adminId,
+      });
 
       console.log(`[Admin] First payment marked as completed by ${adminEmail}`);
     } catch (error) {
-      console.error('[Admin] Error marking first payment as completed:', error);
+      console.error("[Admin] Error marking first payment as completed:", error);
       // Continue anyway, order is created
     }
   }
 
-  successResponse(res, {
-    order: result.order,
-    firstPayment: result.firstPayment,
-    note: autoPayFirstInstallment ? 'Order created and first payment marked as completed' : 'Order created successfully'
-  }, 'Order created successfully on behalf of user', 201);
+  successResponse(
+    res,
+    {
+      order: result.order,
+      firstPayment: result.firstPayment,
+      note: autoPayFirstInstallment
+        ? "Order created and first payment marked as completed"
+        : "Order created successfully",
+    },
+    "Order created successfully on behalf of user",
+    201
+  );
 });
 
 /**
@@ -653,7 +678,7 @@ const createOrderForUser = asyncHandler(async (req, res) => {
  */
 const markPaymentAsPaid = asyncHandler(async (req, res) => {
   const { paymentId } = req.params;
-  const { transactionId, note, paymentMethod = 'ADMIN_MARKED' } = req.body;
+  const { transactionId, note, paymentMethod = "ADMIN_MARKED" } = req.body;
 
   const adminId = req.user._id;
   const adminEmail = req.user.email;
@@ -661,18 +686,15 @@ const markPaymentAsPaid = asyncHandler(async (req, res) => {
   console.log(`[Admin] ${adminEmail} marking payment ${paymentId} as paid`);
 
   // Mark payment as completed
-  const payment = await paymentService.markPaymentAsCompleted(
-    paymentId,
-    {
-      method: paymentMethod,
-      transactionId: transactionId || `ADMIN_${Date.now()}`,
-      note: note || `Marked as paid by admin ${adminEmail}`,
-      markedBy: adminId,
-      markedByEmail: adminEmail
-    }
-  );
+  const payment = await paymentService.markPaymentAsCompleted(paymentId, {
+    method: paymentMethod,
+    transactionId: transactionId || `ADMIN_${Date.now()}`,
+    note: note || `Marked as paid by admin ${adminEmail}`,
+    markedBy: adminId,
+    markedByEmail: adminEmail,
+  });
 
-  successResponse(res, { payment }, 'Payment marked as paid successfully');
+  successResponse(res, { payment }, "Payment marked as paid successfully");
 });
 
 /**
@@ -697,21 +719,23 @@ const markAllPaymentsAsPaid = asyncHandler(async (req, res) => {
   const adminId = req.user._id;
   const adminEmail = req.user.email;
 
-  console.log(`[Admin] ${adminEmail} marking all payments as paid for order ${orderId}`);
+  console.log(
+    `[Admin] ${adminEmail} marking all payments as paid for order ${orderId}`
+  );
 
   // Get order
   const order = await InstallmentOrder.findById(orderId);
   if (!order) {
     return res.status(404).json({
       success: false,
-      message: 'Order not found'
+      message: "Order not found",
     });
   }
 
   // Get all pending payments
   const pendingPayments = await PaymentRecord.find({
     order: orderId,
-    status: 'PENDING'
+    status: "PENDING",
   });
 
   let markedCount = 0;
@@ -719,16 +743,13 @@ const markAllPaymentsAsPaid = asyncHandler(async (req, res) => {
   // Mark each pending payment as completed
   for (const payment of pendingPayments) {
     try {
-      await paymentService.markPaymentAsCompleted(
-        payment._id,
-        {
-          method: 'ADMIN_MARKED',
-          transactionId: `ADMIN_BULK_${Date.now()}_${markedCount}`,
-          note: note || `Bulk marked as paid by admin ${adminEmail}`,
-          markedBy: adminId,
-          markedByEmail: adminEmail
-        }
-      );
+      await paymentService.markPaymentAsCompleted(payment._id, {
+        method: "ADMIN_MARKED",
+        transactionId: `ADMIN_BULK_${Date.now()}_${markedCount}`,
+        note: note || `Bulk marked as paid by admin ${adminEmail}`,
+        markedBy: adminId,
+        markedByEmail: adminEmail,
+      });
       markedCount++;
     } catch (error) {
       console.error(`[Admin] Error marking payment ${payment._id}:`, error);
@@ -737,14 +758,18 @@ const markAllPaymentsAsPaid = asyncHandler(async (req, res) => {
 
   // Refresh order
   const updatedOrder = await InstallmentOrder.findById(orderId)
-    .populate('user', 'name email phoneNumber')
-    .populate('product', 'name images pricing');
+    .populate("user", "name email phoneNumber")
+    .populate("product", "name images pricing");
 
-  successResponse(res, {
-    order: updatedOrder,
-    paymentsMarked: markedCount,
-    totalPending: pendingPayments.length
-  }, `Successfully marked ${markedCount} payment(s) as paid`);
+  successResponse(
+    res,
+    {
+      order: updatedOrder,
+      paymentsMarked: markedCount,
+      totalPending: pendingPayments.length,
+    },
+    `Successfully marked ${markedCount} payment(s) as paid`
+  );
 });
 
 /**
@@ -772,7 +797,7 @@ const cancelPayment = asyncHandler(async (req, res) => {
   if (!reason) {
     return res.status(400).json({
       success: false,
-      message: 'Cancellation reason is required'
+      message: "Cancellation reason is required",
     });
   }
 
@@ -783,19 +808,19 @@ const cancelPayment = asyncHandler(async (req, res) => {
   if (!payment) {
     return res.status(404).json({
       success: false,
-      message: 'Payment not found'
+      message: "Payment not found",
     });
   }
 
   // Update payment status
-  payment.status = 'CANCELLED';
+  payment.status = "CANCELLED";
   payment.cancelledBy = adminId;
   payment.cancelledByEmail = adminEmail;
   payment.cancellationReason = reason;
   payment.cancelledAt = new Date();
   await payment.save();
 
-  successResponse(res, { payment }, 'Payment cancelled successfully');
+  successResponse(res, { payment }, "Payment cancelled successfully");
 });
 
 // ============================================
@@ -809,8 +834,8 @@ const cancelPayment = asyncHandler(async (req, res) => {
  * @returns {string} Completion bucket category
  */
 const getCompletionBucket = (lastDueDate, status) => {
-  if (status === 'COMPLETED') return 'completed';
-  if (status === 'CANCELLED') return 'cancelled';
+  if (status === "COMPLETED") return "completed";
+  if (status === "CANCELLED") return "cancelled";
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -821,11 +846,11 @@ const getCompletionBucket = (lastDueDate, status) => {
   const diffTime = dueDate.getTime() - today.getTime();
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-  if (diffDays < 0) return 'overdue';
-  if (diffDays === 0) return 'due-today';
-  if (diffDays <= 7) return '1-7-days';
-  if (diffDays <= 30) return '8-30-days';
-  return '30+-days';
+  if (diffDays < 0) return "overdue";
+  if (diffDays === 0) return "due-today";
+  if (diffDays <= 7) return "1-7-days";
+  if (diffDays <= 30) return "8-30-days";
+  return "30+-days";
 };
 
 /**
@@ -834,34 +859,49 @@ const getCompletionBucket = (lastDueDate, status) => {
  * @returns {Object} Derived metadata
  */
 const deriveOrderMetadata = (order) => {
-  const pendingInstallments = order.paymentSchedule.filter(p => p.status === 'PENDING');
-  const remainingInstallments = pendingInstallments.length;
+  // Only installments that actually require payment
+  const payableSchedule = order.paymentSchedule.filter((i) => i.amount > 0);
 
-  // Get last due date (last item in payment schedule)
-  const lastDueDate = order.paymentSchedule.length > 0
-    ? order.paymentSchedule[order.paymentSchedule.length - 1].dueDate
-    : null;
+  const pendingPayable = payableSchedule.filter((i) => i.status === "PENDING");
 
-  // Calculate days to complete
+  const remainingInstallments = pendingPayable.length;
+
+  // Last payable due date determines completion timing
+  const lastDueDate =
+    pendingPayable.length > 0
+      ? pendingPayable[pendingPayable.length - 1].dueDate
+      : null;
+
+  // Days left to complete (only if not effectively completed/cancelled)
   let daysToComplete = null;
-  if (lastDueDate && order.status !== 'COMPLETED' && order.status !== 'CANCELLED') {
+  if (lastDueDate && order.status !== "CANCELLED") {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+
     const dueDate = new Date(lastDueDate);
     dueDate.setHours(0, 0, 0, 0);
-    daysToComplete = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+    daysToComplete = Math.ceil(
+      (dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+    );
   }
 
-  // Calculate progress percentage
-  const progressPercentage = order.productPrice > 0
-    ? Math.round((order.totalPaidAmount / order.productPrice) * 100)
-    : 0;
+  // Progress based on money (not installment count)
+  const progressPercentage =
+    order.productPrice > 0
+      ? Math.round((order.totalPaidAmount / order.productPrice) * 100)
+      : 0;
 
-  // Get completion bucket
-  const completionBucket = getCompletionBucket(lastDueDate, order.status);
+  // 🔑 Effective status derived from schedule, not stored field
+  const effectiveStatus =
+    pendingPayable.length === 0 ? "COMPLETED" : order.status;
 
-  // Calculate remaining amount
-  const remainingAmount = order.productPrice - order.totalPaidAmount;
+  const completionBucket = getCompletionBucket(lastDueDate, effectiveStatus);
+
+  const remainingAmount = Math.max(
+    0,
+    order.productPrice - order.totalPaidAmount
+  );
 
   return {
     remainingInstallments,
@@ -870,8 +910,8 @@ const deriveOrderMetadata = (order) => {
     completionBucket,
     progressPercentage,
     remainingAmount,
-    paidInstallments: order.paidInstallments || 0,
-    totalInstallments: order.paymentSchedule.length
+    paidInstallments: order.paidInstallments || 0, // kept for backward compatibility
+    totalInstallments: order.paymentSchedule.length,
   };
 };
 
@@ -906,8 +946,8 @@ const getOrdersWithMetadata = asyncHandler(async (req, res) => {
     completionBucket,
     limit = 50,
     page = 1,
-    sortBy = 'createdAt',
-    sortOrder = 'desc'
+    sortBy = "createdAt",
+    sortOrder = "desc",
   } = req.query;
 
   const actualLimit = Math.min(parseInt(limit), 100);
@@ -920,39 +960,44 @@ const getOrdersWithMetadata = asyncHandler(async (req, res) => {
 
   // Get orders
   let orders = await InstallmentOrder.find(query)
-    .sort({ [sortBy === 'createdAt' ? 'createdAt' : 'createdAt']: sortOrder === 'asc' ? 1 : -1 })
-    .populate('user', 'name email phoneNumber')
-    .populate('product', 'name images pricing')
-    .populate('referrer', 'name email')
+    .sort({
+      [sortBy === "createdAt" ? "createdAt" : "createdAt"]:
+        sortOrder === "asc" ? 1 : -1,
+    })
+    .populate("user", "name email phoneNumber")
+    .populate("product", "name images pricing")
+    .populate("referrer", "name email")
     .lean();
 
   // Add derived metadata to each order
-  orders = orders.map(order => ({
+  orders = orders.map((order) => ({
     ...order,
-    metadata: deriveOrderMetadata(order)
+    metadata: deriveOrderMetadata(order),
   }));
 
   // Filter by completion bucket if specified
   if (completionBucket) {
-    orders = orders.filter(order => order.metadata.completionBucket === completionBucket);
+    orders = orders.filter(
+      (order) => order.metadata.completionBucket === completionBucket
+    );
   }
 
   // Sort by derived fields if needed
-  if (sortBy === 'daysToComplete') {
+  if (sortBy === "daysToComplete") {
     orders.sort((a, b) => {
       const aVal = a.metadata.daysToComplete ?? Infinity;
       const bVal = b.metadata.daysToComplete ?? Infinity;
-      return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
+      return sortOrder === "asc" ? aVal - bVal : bVal - aVal;
     });
-  } else if (sortBy === 'progressPercentage') {
+  } else if (sortBy === "progressPercentage") {
     orders.sort((a, b) => {
-      return sortOrder === 'asc'
+      return sortOrder === "asc"
         ? a.metadata.progressPercentage - b.metadata.progressPercentage
         : b.metadata.progressPercentage - a.metadata.progressPercentage;
     });
-  } else if (sortBy === 'remainingAmount') {
+  } else if (sortBy === "remainingAmount") {
     orders.sort((a, b) => {
-      return sortOrder === 'asc'
+      return sortOrder === "asc"
         ? a.metadata.remainingAmount - b.metadata.remainingAmount
         : b.metadata.remainingAmount - a.metadata.remainingAmount;
     });
@@ -963,13 +1008,17 @@ const getOrdersWithMetadata = asyncHandler(async (req, res) => {
   // Apply pagination after filtering
   const paginatedOrders = orders.slice(skip, skip + actualLimit);
 
-  successResponse(res, {
-    orders: paginatedOrders,
-    totalCount,
-    page: actualPage,
-    limit: actualLimit,
-    hasMore: skip + paginatedOrders.length < totalCount
-  }, 'Orders with metadata retrieved successfully');
+  successResponse(
+    res,
+    {
+      orders: paginatedOrders,
+      totalCount,
+      page: actualPage,
+      limit: actualLimit,
+      hasMore: skip + paginatedOrders.length < totalCount,
+    },
+    "Orders with metadata retrieved successfully"
+  );
 });
 
 /**
@@ -1000,13 +1049,13 @@ const getCompletionBucketsSummary = asyncHandler(async (req, res) => {
 
   // Initialize buckets
   const buckets = {
-    'overdue': { count: 0, totalRemainingAmount: 0, orderIds: [] },
-    'due-today': { count: 0, totalRemainingAmount: 0, orderIds: [] },
-    '1-7-days': { count: 0, totalRemainingAmount: 0, orderIds: [] },
-    '8-30-days': { count: 0, totalRemainingAmount: 0, orderIds: [] },
-    '30+-days': { count: 0, totalRemainingAmount: 0, orderIds: [] },
-    'completed': { count: 0, totalRevenue: 0 },
-    'cancelled': { count: 0 }
+    overdue: { count: 0, totalRemainingAmount: 0, orderIds: [] },
+    "due-today": { count: 0, totalRemainingAmount: 0, orderIds: [] },
+    "1-7-days": { count: 0, totalRemainingAmount: 0, orderIds: [] },
+    "8-30-days": { count: 0, totalRemainingAmount: 0, orderIds: [] },
+    "30+-days": { count: 0, totalRemainingAmount: 0, orderIds: [] },
+    completed: { count: 0, totalRevenue: 0 },
+    cancelled: { count: 0 },
   };
 
   // Process each order
@@ -1017,32 +1066,39 @@ const getCompletionBucketsSummary = asyncHandler(async (req, res) => {
     if (buckets[bucket]) {
       buckets[bucket].count++;
 
-      if (bucket === 'completed') {
+      if (bucket === "completed") {
         buckets[bucket].totalRevenue += order.totalPaidAmount || 0;
-      } else if (bucket !== 'cancelled') {
+      } else if (bucket !== "cancelled") {
         buckets[bucket].totalRemainingAmount += metadata.remainingAmount || 0;
       }
     }
   }
 
   // Remove orderIds from response (only used for debugging)
-  Object.keys(buckets).forEach(key => {
+  Object.keys(buckets).forEach((key) => {
     delete buckets[key].orderIds;
   });
 
   const summary = {
-    totalActive: buckets['overdue'].count + buckets['due-today'].count +
-                 buckets['1-7-days'].count + buckets['8-30-days'].count +
-                 buckets['30+-days'].count,
-    totalCompleted: buckets['completed'].count,
-    totalCancelled: buckets['cancelled'].count,
-    totalOrders: orders.length
+    totalActive:
+      buckets["overdue"].count +
+      buckets["due-today"].count +
+      buckets["1-7-days"].count +
+      buckets["8-30-days"].count +
+      buckets["30+-days"].count,
+    totalCompleted: buckets["completed"].count,
+    totalCancelled: buckets["cancelled"].count,
+    totalOrders: orders.length,
   };
 
-  successResponse(res, {
-    buckets,
-    summary
-  }, 'Completion buckets summary retrieved successfully');
+  successResponse(
+    res,
+    {
+      buckets,
+      summary,
+    },
+    "Completion buckets summary retrieved successfully"
+  );
 });
 
 /**
@@ -1068,12 +1124,12 @@ const getCompletionBucketsSummary = asyncHandler(async (req, res) => {
  * }
  */
 const getRevenueByDateRange = asyncHandler(async (req, res) => {
-  const { startDate, endDate, groupBy = 'day' } = req.query;
+  const { startDate, endDate, groupBy = "day" } = req.query;
 
   if (!startDate || !endDate) {
     return res.status(400).json({
       success: false,
-      message: 'startDate and endDate are required'
+      message: "startDate and endDate are required",
     });
   }
 
@@ -1087,97 +1143,115 @@ const getRevenueByDateRange = asyncHandler(async (req, res) => {
   if (isNaN(start.getTime()) || isNaN(end.getTime())) {
     return res.status(400).json({
       success: false,
-      message: 'Invalid date format. Use ISO date string (YYYY-MM-DD)'
+      message: "Invalid date format. Use ISO date string (YYYY-MM-DD)",
     });
   }
 
   // Build aggregation pipeline based on groupBy
   let dateFormat;
   switch (groupBy) {
-    case 'week':
-      dateFormat = { $isoWeek: '$completedAt' };
+    case "week":
+      dateFormat = { $isoWeek: "$completedAt" };
       break;
-    case 'month':
-      dateFormat = { $month: '$completedAt' };
+    case "month":
+      dateFormat = { $month: "$completedAt" };
       break;
     default: // day
-      dateFormat = { $dateToString: { format: '%Y-%m-%d', date: '$completedAt' } };
+      dateFormat = {
+        $dateToString: { format: "%Y-%m-%d", date: "$completedAt" },
+      };
   }
 
   // Get revenue grouped by period
   const revenueByPeriod = await PaymentRecord.aggregate([
     {
       $match: {
-        status: 'COMPLETED',
-        completedAt: { $gte: start, $lte: end }
-      }
+        status: "COMPLETED",
+        completedAt: { $gte: start, $lte: end },
+      },
     },
     {
       $group: {
-        _id: groupBy === 'day'
-          ? { $dateToString: { format: '%Y-%m-%d', date: '$completedAt' } }
-          : groupBy === 'week'
-            ? { year: { $isoWeekYear: '$completedAt' }, week: { $isoWeek: '$completedAt' } }
-            : { year: { $year: '$completedAt' }, month: { $month: '$completedAt' } },
-        revenue: { $sum: '$amount' },
+        _id:
+          groupBy === "day"
+            ? { $dateToString: { format: "%Y-%m-%d", date: "$completedAt" } }
+            : groupBy === "week"
+            ? {
+                year: { $isoWeekYear: "$completedAt" },
+                week: { $isoWeek: "$completedAt" },
+              }
+            : {
+                year: { $year: "$completedAt" },
+                month: { $month: "$completedAt" },
+              },
+        revenue: { $sum: "$amount" },
         paymentCount: { $sum: 1 },
-        commissionPaid: { $sum: '$commissionAmount' }
-      }
+        commissionPaid: { $sum: "$commissionAmount" },
+      },
     },
-    { $sort: { _id: 1 } }
+    { $sort: { _id: 1 } },
   ]);
 
   // Get totals
   const totals = await PaymentRecord.aggregate([
     {
       $match: {
-        status: 'COMPLETED',
-        completedAt: { $gte: start, $lte: end }
-      }
+        status: "COMPLETED",
+        completedAt: { $gte: start, $lte: end },
+      },
     },
     {
       $group: {
         _id: null,
-        totalRevenue: { $sum: '$amount' },
+        totalRevenue: { $sum: "$amount" },
         totalPayments: { $sum: 1 },
-        totalCommission: { $sum: '$commissionAmount' }
-      }
-    }
+        totalCommission: { $sum: "$commissionAmount" },
+      },
+    },
   ]);
 
-  const totalData = totals[0] || { totalRevenue: 0, totalPayments: 0, totalCommission: 0 };
-  const averagePayment = totalData.totalPayments > 0
-    ? Math.round(totalData.totalRevenue / totalData.totalPayments)
-    : 0;
+  const totalData = totals[0] || {
+    totalRevenue: 0,
+    totalPayments: 0,
+    totalCommission: 0,
+  };
+  const averagePayment =
+    totalData.totalPayments > 0
+      ? Math.round(totalData.totalRevenue / totalData.totalPayments)
+      : 0;
 
   // Format revenue by period for better readability
-  const formattedRevenueByPeriod = revenueByPeriod.map(item => {
+  const formattedRevenueByPeriod = revenueByPeriod.map((item) => {
     let period;
-    if (groupBy === 'day') {
+    if (groupBy === "day") {
       period = item._id;
-    } else if (groupBy === 'week') {
+    } else if (groupBy === "week") {
       period = `${item._id.year}-W${item._id.week}`;
     } else {
-      period = `${item._id.year}-${String(item._id.month).padStart(2, '0')}`;
+      period = `${item._id.year}-${String(item._id.month).padStart(2, "0")}`;
     }
 
     return {
       period,
       revenue: item.revenue,
       paymentCount: item.paymentCount,
-      commissionPaid: item.commissionPaid || 0
+      commissionPaid: item.commissionPaid || 0,
     };
   });
 
-  successResponse(res, {
-    dateRange: { startDate: start, endDate: end },
-    groupBy,
-    totalRevenue: totalData.totalRevenue,
-    totalPayments: totalData.totalPayments,
-    totalCommission: totalData.totalCommission,
-    averagePayment,
-    revenueByPeriod: formattedRevenueByPeriod
-  }, 'Revenue data retrieved successfully');
+  successResponse(
+    res,
+    {
+      dateRange: { startDate: start, endDate: end },
+      groupBy,
+      totalRevenue: totalData.totalRevenue,
+      totalPayments: totalData.totalPayments,
+      totalCommission: totalData.totalCommission,
+      averagePayment,
+      revenueByPeriod: formattedRevenueByPeriod,
+    },
+    "Revenue data retrieved successfully"
+  );
 });
 
 /**
@@ -1195,26 +1269,30 @@ const getOrderMetadata = asyncHandler(async (req, res) => {
   const { orderId } = req.params;
 
   const order = await InstallmentOrder.findOne({
-    $or: [{ _id: orderId }, { orderId }]
+    $or: [{ _id: orderId }, { orderId }],
   })
-  .populate('user', 'name email phoneNumber')
-  .populate('product', 'name images pricing')
-  .populate('referrer', 'name email')
-  .lean();
+    .populate("user", "name email phoneNumber")
+    .populate("product", "name images pricing")
+    .populate("referrer", "name email")
+    .lean();
 
   if (!order) {
     return res.status(404).json({
       success: false,
-      message: 'Order not found'
+      message: "Order not found",
     });
   }
 
   const metadata = deriveOrderMetadata(order);
 
-  successResponse(res, {
-    order,
-    metadata
-  }, 'Order metadata retrieved successfully');
+  successResponse(
+    res,
+    {
+      order,
+      metadata,
+    },
+    "Order metadata retrieved successfully"
+  );
 });
 
 // ============================================
@@ -1227,61 +1305,109 @@ const getOrderMetadata = asyncHandler(async (req, res) => {
  * @access  Private (Admin only)
  */
 const getUserAnalytics = asyncHandler(async (req, res) => {
-  const { limit = 10, period = 'all' } = req.query;
+  const { limit = 10, period = "all" } = req.query;
   const actualLimit = Math.min(parseInt(limit), 50);
 
   let dateFilter = {};
   const now = new Date();
-  if (period === 'week') {
-    dateFilter = { createdAt: { $gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) } };
-  } else if (period === 'month') {
-    dateFilter = { createdAt: { $gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) } };
+  if (period === "week") {
+    dateFilter = {
+      createdAt: { $gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) },
+    };
+  } else if (period === "month") {
+    dateFilter = {
+      createdAt: { $gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) },
+    };
   }
 
   // Top users by total payments
   const topUsersByPayments = await PaymentRecord.aggregate([
-    { $match: { status: 'COMPLETED', ...dateFilter } },
-    { $group: { _id: '$user', totalPaid: { $sum: '$amount' }, paymentCount: { $sum: 1 } } },
+    { $match: { status: "COMPLETED", ...dateFilter } },
+    {
+      $group: {
+        _id: "$user",
+        totalPaid: { $sum: "$amount" },
+        paymentCount: { $sum: 1 },
+      },
+    },
     { $sort: { totalPaid: -1 } },
     { $limit: actualLimit },
-    { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'userDetails' } },
-    { $unwind: '$userDetails' },
-    { $project: { userId: '$_id', name: '$userDetails.name', email: '$userDetails.email', phoneNumber: '$userDetails.phoneNumber', totalPaid: 1, paymentCount: 1 } }
+    {
+      $lookup: {
+        from: "users",
+        localField: "_id",
+        foreignField: "_id",
+        as: "userDetails",
+      },
+    },
+    { $unwind: "$userDetails" },
+    {
+      $project: {
+        userId: "$_id",
+        name: "$userDetails.name",
+        email: "$userDetails.email",
+        phoneNumber: "$userDetails.phoneNumber",
+        totalPaid: 1,
+        paymentCount: 1,
+      },
+    },
   ]);
 
   // Users with most overdue orders
-  const allOrders = await InstallmentOrder.find({ status: 'ACTIVE' }).populate('user', 'name email phoneNumber').lean();
+  const allOrders = await InstallmentOrder.find({ status: "ACTIVE" })
+    .populate("user", "name email phoneNumber")
+    .lean();
   const overdueByUser = {};
   for (const order of allOrders) {
     const metadata = deriveOrderMetadata(order);
-    if (metadata.completionBucket === 'overdue' && order.user) {
+    if (metadata.completionBucket === "overdue" && order.user) {
       const oderId = order.user._id.toString();
       if (!overdueByUser[oderId]) {
-        overdueByUser[oderId] = { userId: order.user._id, name: order.user.name, email: order.user.email, phoneNumber: order.user.phoneNumber, overdueOrders: 0, totalOverdueAmount: 0 };
+        overdueByUser[oderId] = {
+          userId: order.user._id,
+          name: order.user.name,
+          email: order.user.email,
+          phoneNumber: order.user.phoneNumber,
+          overdueOrders: 0,
+          totalOverdueAmount: 0,
+        };
       }
       overdueByUser[oderId].overdueOrders++;
       overdueByUser[oderId].totalOverdueAmount += metadata.remainingAmount;
     }
   }
-  const usersWithOverdue = Object.values(overdueByUser).sort((a, b) => b.overdueOrders - a.overdueOrders).slice(0, actualLimit);
+  const usersWithOverdue = Object.values(overdueByUser)
+    .sort((a, b) => b.overdueOrders - a.overdueOrders)
+    .slice(0, actualLimit);
 
   // User retention stats
-  const totalUniqueUsers = await InstallmentOrder.distinct('user');
+  const totalUniqueUsers = await InstallmentOrder.distinct("user");
   const usersWithMultipleOrders = await InstallmentOrder.aggregate([
-    { $group: { _id: '$user', count: { $sum: 1 } } },
+    { $group: { _id: "$user", count: { $sum: 1 } } },
     { $match: { count: { $gt: 1 } } },
-    { $count: 'total' }
+    { $count: "total" },
   ]);
 
-  successResponse(res, {
-    topUsersByPayments,
-    usersWithOverdue,
-    summary: {
-      totalUniqueUsers: totalUniqueUsers.length,
-      usersWithMultipleOrders: usersWithMultipleOrders[0]?.total || 0,
-      retentionRate: totalUniqueUsers.length > 0 ? Math.round((usersWithMultipleOrders[0]?.total || 0) / totalUniqueUsers.length * 100) : 0
-    }
-  }, 'User analytics retrieved successfully');
+  successResponse(
+    res,
+    {
+      topUsersByPayments,
+      usersWithOverdue,
+      summary: {
+        totalUniqueUsers: totalUniqueUsers.length,
+        usersWithMultipleOrders: usersWithMultipleOrders[0]?.total || 0,
+        retentionRate:
+          totalUniqueUsers.length > 0
+            ? Math.round(
+                ((usersWithMultipleOrders[0]?.total || 0) /
+                  totalUniqueUsers.length) *
+                  100
+              )
+            : 0,
+      },
+    },
+    "User analytics retrieved successfully"
+  );
 });
 
 /**
@@ -1290,66 +1416,142 @@ const getUserAnalytics = asyncHandler(async (req, res) => {
  * @access  Private (Admin only)
  */
 const getProductAnalytics = asyncHandler(async (req, res) => {
-  const { limit = 10, period = 'all' } = req.query;
+  const { limit = 10, period = "all" } = req.query;
   const actualLimit = Math.min(parseInt(limit), 50);
 
   let dateFilter = {};
   const now = new Date();
-  if (period === 'week') {
-    dateFilter = { createdAt: { $gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) } };
-  } else if (period === 'month') {
-    dateFilter = { createdAt: { $gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) } };
+  if (period === "week") {
+    dateFilter = {
+      createdAt: { $gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) },
+    };
+  } else if (period === "month") {
+    dateFilter = {
+      createdAt: { $gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) },
+    };
   }
 
   // Best selling products by order count
   const bestSellingByCount = await InstallmentOrder.aggregate([
     { $match: dateFilter },
-    { $group: { _id: '$product', orderCount: { $sum: 1 }, totalRevenue: { $sum: '$totalPaidAmount' }, totalValue: { $sum: '$productPrice' } } },
+    {
+      $group: {
+        _id: "$product",
+        orderCount: { $sum: 1 },
+        totalRevenue: { $sum: "$totalPaidAmount" },
+        totalValue: { $sum: "$productPrice" },
+      },
+    },
     { $sort: { orderCount: -1 } },
     { $limit: actualLimit },
-    { $lookup: { from: 'products', localField: '_id', foreignField: '_id', as: 'productDetails' } },
-    { $unwind: { path: '$productDetails', preserveNullAndEmptyArrays: true } },
-    { $project: { productId: '$_id', name: { $ifNull: ['$productDetails.name', 'Unknown Product'] }, orderCount: 1, totalRevenue: 1, totalValue: 1, image: { $arrayElemAt: ['$productDetails.images.url', 0] } } }
+    {
+      $lookup: {
+        from: "products",
+        localField: "_id",
+        foreignField: "_id",
+        as: "productDetails",
+      },
+    },
+    { $unwind: { path: "$productDetails", preserveNullAndEmptyArrays: true } },
+    {
+      $project: {
+        productId: "$_id",
+        name: { $ifNull: ["$productDetails.name", "Unknown Product"] },
+        orderCount: 1,
+        totalRevenue: 1,
+        totalValue: 1,
+        image: { $arrayElemAt: ["$productDetails.images.url", 0] },
+      },
+    },
   ]);
 
   // Products by revenue
   const bestSellingByRevenue = await InstallmentOrder.aggregate([
     { $match: dateFilter },
-    { $group: { _id: '$product', orderCount: { $sum: 1 }, totalRevenue: { $sum: '$totalPaidAmount' }, totalValue: { $sum: '$productPrice' } } },
+    {
+      $group: {
+        _id: "$product",
+        orderCount: { $sum: 1 },
+        totalRevenue: { $sum: "$totalPaidAmount" },
+        totalValue: { $sum: "$productPrice" },
+      },
+    },
     { $sort: { totalRevenue: -1 } },
     { $limit: actualLimit },
-    { $lookup: { from: 'products', localField: '_id', foreignField: '_id', as: 'productDetails' } },
-    { $unwind: { path: '$productDetails', preserveNullAndEmptyArrays: true } },
-    { $project: { productId: '$_id', name: { $ifNull: ['$productDetails.name', 'Unknown Product'] }, orderCount: 1, totalRevenue: 1, totalValue: 1 } }
+    {
+      $lookup: {
+        from: "products",
+        localField: "_id",
+        foreignField: "_id",
+        as: "productDetails",
+      },
+    },
+    { $unwind: { path: "$productDetails", preserveNullAndEmptyArrays: true } },
+    {
+      $project: {
+        productId: "$_id",
+        name: { $ifNull: ["$productDetails.name", "Unknown Product"] },
+        orderCount: 1,
+        totalRevenue: 1,
+        totalValue: 1,
+      },
+    },
   ]);
 
   // Products with overdue analysis
-  const allOrders = await InstallmentOrder.find(dateFilter).populate('product', 'name').lean();
+  const allOrders = await InstallmentOrder.find(dateFilter)
+    .populate("product", "name")
+    .lean();
   const productIssues = {};
   for (const order of allOrders) {
     const metadata = deriveOrderMetadata(order);
-    const productId = order.product?._id?.toString() || 'unknown';
-    const productName = order.product?.name || order.productName || 'Unknown';
+    const productId = order.product?._id?.toString() || "unknown";
+    const productName = order.product?.name || order.productName || "Unknown";
     if (!productIssues[productId]) {
-      productIssues[productId] = { productId, name: productName, overdueCount: 0, cancelledCount: 0, completedCount: 0, totalOrders: 0 };
+      productIssues[productId] = {
+        productId,
+        name: productName,
+        overdueCount: 0,
+        cancelledCount: 0,
+        completedCount: 0,
+        totalOrders: 0,
+      };
     }
     productIssues[productId].totalOrders++;
-    if (metadata.completionBucket === 'overdue') productIssues[productId].overdueCount++;
-    if (order.status === 'CANCELLED') productIssues[productId].cancelledCount++;
-    if (order.status === 'COMPLETED') productIssues[productId].completedCount++;
+    if (metadata.completionBucket === "overdue")
+      productIssues[productId].overdueCount++;
+    if (order.status === "CANCELLED") productIssues[productId].cancelledCount++;
+    if (order.status === "COMPLETED") productIssues[productId].completedCount++;
   }
 
   const productsWithIssues = Object.values(productIssues)
-    .map(p => ({ ...p, completionRate: p.totalOrders > 0 ? Math.round(p.completedCount / p.totalOrders * 100) : 0, overdueRate: p.totalOrders > 0 ? Math.round(p.overdueCount / p.totalOrders * 100) : 0 }))
+    .map((p) => ({
+      ...p,
+      completionRate:
+        p.totalOrders > 0
+          ? Math.round((p.completedCount / p.totalOrders) * 100)
+          : 0,
+      overdueRate:
+        p.totalOrders > 0
+          ? Math.round((p.overdueCount / p.totalOrders) * 100)
+          : 0,
+    }))
     .sort((a, b) => b.overdueCount - a.overdueCount)
     .slice(0, actualLimit);
 
-  successResponse(res, {
-    bestSellingByCount,
-    bestSellingByRevenue,
-    productsWithIssues,
-    summary: { totalProducts: Object.keys(productIssues).length, totalOrders: allOrders.length }
-  }, 'Product analytics retrieved successfully');
+  successResponse(
+    res,
+    {
+      bestSellingByCount,
+      bestSellingByRevenue,
+      productsWithIssues,
+      summary: {
+        totalProducts: Object.keys(productIssues).length,
+        totalOrders: allOrders.length,
+      },
+    },
+    "Product analytics retrieved successfully"
+  );
 });
 
 /**
@@ -1358,55 +1560,136 @@ const getProductAnalytics = asyncHandler(async (req, res) => {
  * @access  Private (Admin only)
  */
 const getCommissionAnalytics = asyncHandler(async (req, res) => {
-  const { limit = 10, period = 'all' } = req.query;
+  const { limit = 10, period = "all" } = req.query;
   const actualLimit = Math.min(parseInt(limit), 50);
 
   let dateFilter = {};
   const now = new Date();
-  if (period === 'week') {
-    dateFilter = { completedAt: { $gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) } };
-  } else if (period === 'month') {
-    dateFilter = { completedAt: { $gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) } };
+  if (period === "week") {
+    dateFilter = {
+      completedAt: { $gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) },
+    };
+  } else if (period === "month") {
+    dateFilter = {
+      completedAt: { $gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) },
+    };
   }
 
   // Total commission stats
   const totalCommissionStats = await PaymentRecord.aggregate([
-    { $match: { status: 'COMPLETED', commissionCalculated: true, ...dateFilter } },
-    { $group: { _id: null, totalCommissionPaid: { $sum: '$commissionAmount' }, totalPaymentsWithCommission: { $sum: 1 }, avgCommissionPerPayment: { $avg: '$commissionAmount' } } }
+    {
+      $match: {
+        status: "COMPLETED",
+        commissionCalculated: true,
+        ...dateFilter,
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        totalCommissionPaid: { $sum: "$commissionAmount" },
+        totalPaymentsWithCommission: { $sum: 1 },
+        avgCommissionPerPayment: { $avg: "$commissionAmount" },
+      },
+    },
   ]);
 
   // Top referrers
   const topReferrers = await PaymentRecord.aggregate([
-    { $match: { status: 'COMPLETED', commissionCalculated: true, commissionAmount: { $gt: 0 }, ...dateFilter } },
-    { $lookup: { from: 'installmentorders', localField: 'order', foreignField: '_id', as: 'orderDetails' } },
-    { $unwind: '$orderDetails' },
-    { $match: { 'orderDetails.referrer': { $ne: null } } },
-    { $group: { _id: '$orderDetails.referrer', totalCommission: { $sum: '$commissionAmount' }, referralCount: { $sum: 1 } } },
+    {
+      $match: {
+        status: "COMPLETED",
+        commissionCalculated: true,
+        commissionAmount: { $gt: 0 },
+        ...dateFilter,
+      },
+    },
+    {
+      $lookup: {
+        from: "installmentorders",
+        localField: "order",
+        foreignField: "_id",
+        as: "orderDetails",
+      },
+    },
+    { $unwind: "$orderDetails" },
+    { $match: { "orderDetails.referrer": { $ne: null } } },
+    {
+      $group: {
+        _id: "$orderDetails.referrer",
+        totalCommission: { $sum: "$commissionAmount" },
+        referralCount: { $sum: 1 },
+      },
+    },
     { $sort: { totalCommission: -1 } },
     { $limit: actualLimit },
-    { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'referrerDetails' } },
-    { $unwind: '$referrerDetails' },
-    { $project: { referrerId: '$_id', name: '$referrerDetails.name', email: '$referrerDetails.email', totalCommission: 1, referralCount: 1 } }
+    {
+      $lookup: {
+        from: "users",
+        localField: "_id",
+        foreignField: "_id",
+        as: "referrerDetails",
+      },
+    },
+    { $unwind: "$referrerDetails" },
+    {
+      $project: {
+        referrerId: "$_id",
+        name: "$referrerDetails.name",
+        email: "$referrerDetails.email",
+        totalCommission: 1,
+        referralCount: 1,
+      },
+    },
   ]);
 
   // Commission trends (last 30 days)
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const commissionTrends = await PaymentRecord.aggregate([
-    { $match: { status: 'COMPLETED', commissionCalculated: true, completedAt: { $gte: thirtyDaysAgo } } },
-    { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$completedAt' } }, dailyCommission: { $sum: '$commissionAmount' }, paymentCount: { $sum: 1 } } },
-    { $sort: { _id: 1 } }
+    {
+      $match: {
+        status: "COMPLETED",
+        commissionCalculated: true,
+        completedAt: { $gte: thirtyDaysAgo },
+      },
+    },
+    {
+      $group: {
+        _id: { $dateToString: { format: "%Y-%m-%d", date: "$completedAt" } },
+        dailyCommission: { $sum: "$commissionAmount" },
+        paymentCount: { $sum: 1 },
+      },
+    },
+    { $sort: { _id: 1 } },
   ]);
 
   // Referral stats
-  const ordersWithReferrers = await InstallmentOrder.countDocuments({ referrer: { $ne: null } });
+  const ordersWithReferrers = await InstallmentOrder.countDocuments({
+    referrer: { $ne: null },
+  });
   const totalOrders = await InstallmentOrder.countDocuments({});
 
-  successResponse(res, {
-    totalStats: totalCommissionStats[0] || { totalCommissionPaid: 0, totalPaymentsWithCommission: 0, avgCommissionPerPayment: 0 },
-    topReferrers,
-    commissionTrends,
-    referralStats: { ordersWithReferrers, ordersWithoutReferrers: totalOrders - ordersWithReferrers, referralRate: totalOrders > 0 ? Math.round(ordersWithReferrers / totalOrders * 100) : 0 }
-  }, 'Commission analytics retrieved successfully');
+  successResponse(
+    res,
+    {
+      totalStats: totalCommissionStats[0] || {
+        totalCommissionPaid: 0,
+        totalPaymentsWithCommission: 0,
+        avgCommissionPerPayment: 0,
+      },
+      topReferrers,
+      commissionTrends,
+      referralStats: {
+        ordersWithReferrers,
+        ordersWithoutReferrers: totalOrders - ordersWithReferrers,
+        referralRate:
+          totalOrders > 0
+            ? Math.round((ordersWithReferrers / totalOrders) * 100)
+            : 0,
+      },
+    },
+    "Commission analytics retrieved successfully"
+  );
 });
 
 /**
@@ -1415,56 +1698,118 @@ const getCommissionAnalytics = asyncHandler(async (req, res) => {
  * @access  Private (Admin only)
  */
 const getPaymentMethodAnalytics = asyncHandler(async (req, res) => {
-  const { period = 'all' } = req.query;
+  const { period = "all" } = req.query;
 
   let dateFilter = {};
   const now = new Date();
-  if (period === 'week') {
-    dateFilter = { createdAt: { $gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) } };
-  } else if (period === 'month') {
-    dateFilter = { createdAt: { $gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) } };
+  if (period === "week") {
+    dateFilter = {
+      createdAt: { $gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) },
+    };
+  } else if (period === "month") {
+    dateFilter = {
+      createdAt: { $gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) },
+    };
   }
 
   // Payment method breakdown
   const paymentMethodBreakdown = await PaymentRecord.aggregate([
-    { $match: { status: 'COMPLETED', ...dateFilter } },
-    { $group: { _id: '$paymentMethod', count: { $sum: 1 }, totalAmount: { $sum: '$amount' } } },
-    { $sort: { count: -1 } }
+    { $match: { status: "COMPLETED", ...dateFilter } },
+    {
+      $group: {
+        _id: "$paymentMethod",
+        count: { $sum: 1 },
+        totalAmount: { $sum: "$amount" },
+      },
+    },
+    { $sort: { count: -1 } },
   ]);
 
   // Admin marked payments
   const adminMarkedStats = await PaymentRecord.aggregate([
     { $match: { adminMarked: true, ...dateFilter } },
-    { $group: { _id: null, count: { $sum: 1 }, totalAmount: { $sum: '$amount' } } }
+    {
+      $group: {
+        _id: null,
+        count: { $sum: 1 },
+        totalAmount: { $sum: "$amount" },
+      },
+    },
   ]);
 
   // Failed payments stats
   const failedPaymentStats = await PaymentRecord.aggregate([
-    { $match: { status: 'FAILED', ...dateFilter } },
-    { $group: { _id: null, totalFailed: { $sum: 1 }, avgRetryCount: { $avg: '$retryCount' } } }
+    { $match: { status: "FAILED", ...dateFilter } },
+    {
+      $group: {
+        _id: null,
+        totalFailed: { $sum: 1 },
+        avgRetryCount: { $avg: "$retryCount" },
+      },
+    },
   ]);
 
   // Status breakdown
   const statusBreakdown = await PaymentRecord.aggregate([
     { $match: dateFilter },
-    { $group: { _id: '$status', count: { $sum: 1 }, totalAmount: { $sum: '$amount' } } },
-    { $sort: { count: -1 } }
+    {
+      $group: {
+        _id: "$status",
+        count: { $sum: 1 },
+        totalAmount: { $sum: "$amount" },
+      },
+    },
+    { $sort: { count: -1 } },
   ]);
 
   const totalPayments = statusBreakdown.reduce((sum, s) => sum + s.count, 0);
-  const completedPayments = statusBreakdown.find(s => s._id === 'COMPLETED')?.count || 0;
-  const failedPayments = statusBreakdown.find(s => s._id === 'FAILED')?.count || 0;
-  const razorpayTotal = paymentMethodBreakdown.find(p => p._id === 'RAZORPAY') || { count: 0, totalAmount: 0 };
-  const walletTotal = paymentMethodBreakdown.find(p => p._id === 'WALLET') || { count: 0, totalAmount: 0 };
+  const completedPayments =
+    statusBreakdown.find((s) => s._id === "COMPLETED")?.count || 0;
+  const failedPayments =
+    statusBreakdown.find((s) => s._id === "FAILED")?.count || 0;
+  const razorpayTotal = paymentMethodBreakdown.find(
+    (p) => p._id === "RAZORPAY"
+  ) || { count: 0, totalAmount: 0 };
+  const walletTotal = paymentMethodBreakdown.find(
+    (p) => p._id === "WALLET"
+  ) || { count: 0, totalAmount: 0 };
 
-  successResponse(res, {
-    paymentMethodBreakdown,
-    statusBreakdown,
-    adminMarkedStats: adminMarkedStats[0] || { count: 0, totalAmount: 0 },
-    failedPaymentStats: failedPaymentStats[0] || { totalFailed: 0, avgRetryCount: 0 },
-    comparison: { razorpay: razorpayTotal, wallet: walletTotal, razorpayPercentage: totalPayments > 0 ? Math.round(razorpayTotal.count / totalPayments * 100) : 0, walletPercentage: totalPayments > 0 ? Math.round(walletTotal.count / totalPayments * 100) : 0 },
-    rates: { successRate: totalPayments > 0 ? Math.round(completedPayments / totalPayments * 100) : 0, failureRate: totalPayments > 0 ? Math.round(failedPayments / totalPayments * 100) : 0, totalPayments }
-  }, 'Payment method analytics retrieved successfully');
+  successResponse(
+    res,
+    {
+      paymentMethodBreakdown,
+      statusBreakdown,
+      adminMarkedStats: adminMarkedStats[0] || { count: 0, totalAmount: 0 },
+      failedPaymentStats: failedPaymentStats[0] || {
+        totalFailed: 0,
+        avgRetryCount: 0,
+      },
+      comparison: {
+        razorpay: razorpayTotal,
+        wallet: walletTotal,
+        razorpayPercentage:
+          totalPayments > 0
+            ? Math.round((razorpayTotal.count / totalPayments) * 100)
+            : 0,
+        walletPercentage:
+          totalPayments > 0
+            ? Math.round((walletTotal.count / totalPayments) * 100)
+            : 0,
+      },
+      rates: {
+        successRate:
+          totalPayments > 0
+            ? Math.round((completedPayments / totalPayments) * 100)
+            : 0,
+        failureRate:
+          totalPayments > 0
+            ? Math.round((failedPayments / totalPayments) * 100)
+            : 0,
+        totalPayments,
+      },
+    },
+    "Payment method analytics retrieved successfully"
+  );
 });
 
 /**
@@ -1482,30 +1827,70 @@ const getTrends = asyncHandler(async (req, res) => {
   // Orders per day
   const ordersPerDay = await InstallmentOrder.aggregate([
     { $match: { createdAt: { $gte: startDate } } },
-    { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, orderCount: { $sum: 1 }, totalValue: { $sum: '$productPrice' } } },
-    { $sort: { _id: 1 } }
+    {
+      $group: {
+        _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+        orderCount: { $sum: 1 },
+        totalValue: { $sum: "$productPrice" },
+      },
+    },
+    { $sort: { _id: 1 } },
   ]);
 
   // Payments per day
   const paymentsPerDay = await PaymentRecord.aggregate([
     { $match: { createdAt: { $gte: startDate } } },
-    { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, totalPayments: { $sum: 1 }, completedPayments: { $sum: { $cond: [{ $eq: ['$status', 'COMPLETED'] }, 1, 0] } }, totalAmount: { $sum: { $cond: [{ $eq: ['$status', 'COMPLETED'] }, '$amount', 0] } } } },
-    { $sort: { _id: 1 } }
+    {
+      $group: {
+        _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+        totalPayments: { $sum: 1 },
+        completedPayments: {
+          $sum: { $cond: [{ $eq: ["$status", "COMPLETED"] }, 1, 0] },
+        },
+        totalAmount: {
+          $sum: { $cond: [{ $eq: ["$status", "COMPLETED"] }, "$amount", 0] },
+        },
+      },
+    },
+    { $sort: { _id: 1 } },
   ]);
 
   // Weekly trends
   const weeklyTrends = await InstallmentOrder.aggregate([
     { $match: { createdAt: { $gte: startDate } } },
-    { $group: { _id: { year: { $isoWeekYear: '$createdAt' }, week: { $isoWeek: '$createdAt' } }, orderCount: { $sum: 1 }, totalValue: { $sum: '$productPrice' }, avgValue: { $avg: '$productPrice' } } },
-    { $sort: { '_id.year': 1, '_id.week': 1 } }
+    {
+      $group: {
+        _id: {
+          year: { $isoWeekYear: "$createdAt" },
+          week: { $isoWeek: "$createdAt" },
+        },
+        orderCount: { $sum: 1 },
+        totalValue: { $sum: "$productPrice" },
+        avgValue: { $avg: "$productPrice" },
+      },
+    },
+    { $sort: { "_id.year": 1, "_id.week": 1 } },
   ]);
 
-  successResponse(res, {
-    ordersPerDay,
-    paymentsPerDay,
-    weeklyTrends: weeklyTrends.map(w => ({ week: `${w._id.year}-W${w._id.week}`, orderCount: w.orderCount, totalValue: w.totalValue, avgValue: Math.round(w.avgValue) })),
-    summary: { totalDays: actualDays, totalOrders: ordersPerDay.reduce((sum, d) => sum + d.orderCount, 0), totalRevenue: paymentsPerDay.reduce((sum, d) => sum + d.totalAmount, 0) }
-  }, 'Trends retrieved successfully');
+  successResponse(
+    res,
+    {
+      ordersPerDay,
+      paymentsPerDay,
+      weeklyTrends: weeklyTrends.map((w) => ({
+        week: `${w._id.year}-W${w._id.week}`,
+        orderCount: w.orderCount,
+        totalValue: w.totalValue,
+        avgValue: Math.round(w.avgValue),
+      })),
+      summary: {
+        totalDays: actualDays,
+        totalOrders: ordersPerDay.reduce((sum, d) => sum + d.orderCount, 0),
+        totalRevenue: paymentsPerDay.reduce((sum, d) => sum + d.totalAmount, 0),
+      },
+    },
+    "Trends retrieved successfully"
+  );
 });
 
 /**
@@ -1514,48 +1899,98 @@ const getTrends = asyncHandler(async (req, res) => {
  * @access  Private (Admin only)
  */
 const getOverdueAnalysis = asyncHandler(async (req, res) => {
-  const allActiveOrders = await InstallmentOrder.find({ status: 'ACTIVE' }).populate('user', 'name email phoneNumber').populate('product', 'name').lean();
+  const allActiveOrders = await InstallmentOrder.find({ status: "ACTIVE" })
+    .populate("user", "name email phoneNumber")
+    .populate("product", "name")
+    .lean();
 
   const overdueOrders = [];
   let totalOverdueAmount = 0;
   let totalDaysOverdue = 0;
 
-  const overdueByDays = { '1-3': { count: 0, amount: 0 }, '4-7': { count: 0, amount: 0 }, '8-14': { count: 0, amount: 0 }, '15-30': { count: 0, amount: 0 }, '30+': { count: 0, amount: 0 } };
+  const overdueByDays = {
+    "1-3": { count: 0, amount: 0 },
+    "4-7": { count: 0, amount: 0 },
+    "8-14": { count: 0, amount: 0 },
+    "15-30": { count: 0, amount: 0 },
+    "30+": { count: 0, amount: 0 },
+  };
   const usersWithMultipleOverdue = {};
 
   for (const order of allActiveOrders) {
     const metadata = deriveOrderMetadata(order);
-    if (metadata.completionBucket === 'overdue') {
+    if (metadata.completionBucket === "overdue") {
       const daysOverdue = Math.abs(metadata.daysToComplete);
       totalOverdueAmount += metadata.remainingAmount;
       totalDaysOverdue += daysOverdue;
 
-      overdueOrders.push({ orderId: order.orderId, _id: order._id, user: order.user, product: order.product?.name || order.productName, remainingAmount: metadata.remainingAmount, daysOverdue, progressPercentage: metadata.progressPercentage, lastDueDate: metadata.lastDueDate });
+      overdueOrders.push({
+        orderId: order.orderId,
+        _id: order._id,
+        user: order.user,
+        product: order.product?.name || order.productName,
+        remainingAmount: metadata.remainingAmount,
+        daysOverdue,
+        progressPercentage: metadata.progressPercentage,
+        lastDueDate: metadata.lastDueDate,
+      });
 
-      let bucket = daysOverdue <= 3 ? '1-3' : daysOverdue <= 7 ? '4-7' : daysOverdue <= 14 ? '8-14' : daysOverdue <= 30 ? '15-30' : '30+';
+      let bucket =
+        daysOverdue <= 3
+          ? "1-3"
+          : daysOverdue <= 7
+          ? "4-7"
+          : daysOverdue <= 14
+          ? "8-14"
+          : daysOverdue <= 30
+          ? "15-30"
+          : "30+";
       overdueByDays[bucket].count++;
       overdueByDays[bucket].amount += metadata.remainingAmount;
 
       if (order.user) {
         const oderId = order.user._id.toString();
         if (!usersWithMultipleOverdue[oderId]) {
-          usersWithMultipleOverdue[oderId] = { user: order.user, overdueCount: 0, totalOverdueAmount: 0 };
+          usersWithMultipleOverdue[oderId] = {
+            user: order.user,
+            overdueCount: 0,
+            totalOverdueAmount: 0,
+          };
         }
         usersWithMultipleOverdue[oderId].overdueCount++;
-        usersWithMultipleOverdue[oderId].totalOverdueAmount += metadata.remainingAmount;
+        usersWithMultipleOverdue[oderId].totalOverdueAmount +=
+          metadata.remainingAmount;
       }
     }
   }
 
   overdueOrders.sort((a, b) => b.daysOverdue - a.daysOverdue);
-  const multipleOverdueUsers = Object.values(usersWithMultipleOverdue).filter(u => u.overdueCount > 1).sort((a, b) => b.overdueCount - a.overdueCount).slice(0, 20);
+  const multipleOverdueUsers = Object.values(usersWithMultipleOverdue)
+    .filter((u) => u.overdueCount > 1)
+    .sort((a, b) => b.overdueCount - a.overdueCount)
+    .slice(0, 20);
 
-  successResponse(res, {
-    summary: { totalOverdueOrders: overdueOrders.length, totalOverdueAmount, avgDaysOverdue: overdueOrders.length > 0 ? Math.round(totalDaysOverdue / overdueOrders.length) : 0, avgOverdueAmount: overdueOrders.length > 0 ? Math.round(totalOverdueAmount / overdueOrders.length) : 0 },
-    overdueByDays,
-    topOverdueOrders: overdueOrders.slice(0, 20),
-    usersWithMultipleOverdue: multipleOverdueUsers
-  }, 'Overdue analysis retrieved successfully');
+  successResponse(
+    res,
+    {
+      summary: {
+        totalOverdueOrders: overdueOrders.length,
+        totalOverdueAmount,
+        avgDaysOverdue:
+          overdueOrders.length > 0
+            ? Math.round(totalDaysOverdue / overdueOrders.length)
+            : 0,
+        avgOverdueAmount:
+          overdueOrders.length > 0
+            ? Math.round(totalOverdueAmount / overdueOrders.length)
+            : 0,
+      },
+      overdueByDays,
+      topOverdueOrders: overdueOrders.slice(0, 20),
+      usersWithMultipleOverdue: multipleOverdueUsers,
+    },
+    "Overdue analysis retrieved successfully"
+  );
 });
 
 /**
@@ -1572,7 +2007,10 @@ const getForecast = asyncHandler(async (req, res) => {
   const endDate = new Date(today);
   endDate.setDate(endDate.getDate() + actualDays);
 
-  const activeOrders = await InstallmentOrder.find({ status: 'ACTIVE' }).populate('user', 'name email').populate('product', 'name').lean();
+  const activeOrders = await InstallmentOrder.find({ status: "ACTIVE" })
+    .populate("user", "name email")
+    .populate("product", "name")
+    .lean();
 
   const expectedRevenueByDay = {};
   const ordersCompletingSoon = [];
@@ -1583,15 +2021,24 @@ const getForecast = asyncHandler(async (req, res) => {
     if (metadata.lastDueDate) {
       const lastDue = new Date(metadata.lastDueDate);
       if (lastDue >= today && lastDue <= endDate) {
-        ordersCompletingSoon.push({ orderId: order.orderId, _id: order._id, user: order.user, product: order.product?.name || order.productName, completionDate: metadata.lastDueDate, daysToComplete: metadata.daysToComplete, remainingAmount: metadata.remainingAmount, progressPercentage: metadata.progressPercentage });
+        ordersCompletingSoon.push({
+          orderId: order.orderId,
+          _id: order._id,
+          user: order.user,
+          product: order.product?.name || order.productName,
+          completionDate: metadata.lastDueDate,
+          daysToComplete: metadata.daysToComplete,
+          remainingAmount: metadata.remainingAmount,
+          progressPercentage: metadata.progressPercentage,
+        });
       }
     }
 
     for (const payment of order.paymentSchedule) {
-      if (payment.status === 'PENDING' && payment.amount > 0) {
+      if (payment.status === "PENDING" && payment.amount > 0) {
         const dueDate = new Date(payment.dueDate);
         if (dueDate >= today && dueDate <= endDate) {
-          const dateKey = dueDate.toISOString().split('T')[0];
+          const dateKey = dueDate.toISOString().split("T")[0];
           if (!expectedRevenueByDay[dateKey]) {
             expectedRevenueByDay[dateKey] = { expected: 0, paymentCount: 0 };
           }
@@ -1602,21 +2049,42 @@ const getForecast = asyncHandler(async (req, res) => {
     }
   }
 
-  const revenueForecast = Object.entries(expectedRevenueByDay).map(([date, data]) => ({ date, ...data })).sort((a, b) => a.date.localeCompare(b.date));
-  const totalExpectedRevenue = revenueForecast.reduce((sum, d) => sum + d.expected, 0);
-  const totalExpectedPayments = revenueForecast.reduce((sum, d) => sum + d.paymentCount, 0);
+  const revenueForecast = Object.entries(expectedRevenueByDay)
+    .map(([date, data]) => ({ date, ...data }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const totalExpectedRevenue = revenueForecast.reduce(
+    (sum, d) => sum + d.expected,
+    0
+  );
+  const totalExpectedPayments = revenueForecast.reduce(
+    (sum, d) => sum + d.paymentCount,
+    0
+  );
 
   ordersCompletingSoon.sort((a, b) => a.daysToComplete - b.daysToComplete);
 
   const next7Days = new Date(today);
   next7Days.setDate(next7Days.getDate() + 7);
-  const upcomingDuePayments = revenueForecast.filter(d => new Date(d.date) <= next7Days).reduce((sum, d) => sum + d.expected, 0);
+  const upcomingDuePayments = revenueForecast
+    .filter((d) => new Date(d.date) <= next7Days)
+    .reduce((sum, d) => sum + d.expected, 0);
 
-  successResponse(res, {
-    summary: { forecastDays: actualDays, totalExpectedRevenue, totalExpectedPayments, avgDailyExpected: Math.round(totalExpectedRevenue / actualDays), ordersCompletingInPeriod: ordersCompletingSoon.length, upcomingDuePayments7Days: upcomingDuePayments },
-    dailyForecast: revenueForecast,
-    ordersCompletingSoon: ordersCompletingSoon.slice(0, 20)
-  }, 'Forecast retrieved successfully');
+  successResponse(
+    res,
+    {
+      summary: {
+        forecastDays: actualDays,
+        totalExpectedRevenue,
+        totalExpectedPayments,
+        avgDailyExpected: Math.round(totalExpectedRevenue / actualDays),
+        ordersCompletingInPeriod: ordersCompletingSoon.length,
+        upcomingDuePayments7Days: upcomingDuePayments,
+      },
+      dailyForecast: revenueForecast,
+      ordersCompletingSoon: ordersCompletingSoon.slice(0, 20),
+    },
+    "Forecast retrieved successfully"
+  );
 });
 
 module.exports = {
@@ -1646,5 +2114,5 @@ module.exports = {
   getPaymentMethodAnalytics,
   getTrends,
   getOverdueAnalysis,
-  getForecast
+  getForecast,
 };
