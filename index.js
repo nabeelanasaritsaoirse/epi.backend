@@ -17,7 +17,7 @@ const categoryRoutes = require("./routes/categoryRoutes");
 const userRoutes = require("./routes/users");
 const walletRoutes = require("./routes/wallet");
 const adminWalletRoutes = require("./routes/adminWallet");
-
+const faqRoutes = require("./routes/faqRoutes");
 const referralCommissionRoutes = require("./routes/referralCommission");
 const paymentRoutes = require("./routes/payments");
 const orderRoutes = require("./routes/orders");
@@ -117,6 +117,7 @@ require("./services/kycAutoApproveService");
 app.use("/api/auth", authRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/products", productRoutes);
+app.use("/api/faqs", faqRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/kyc", require("./routes/kycRoutes"));
 
