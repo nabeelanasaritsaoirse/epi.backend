@@ -38,6 +38,9 @@ const {
   InvalidInstallmentDurationError,
   ProductOutOfStockError,
   TransactionFailedError,
+  BulkOrderError,
+  BulkOrderNotFoundError,
+  ValidationError,
 } = require("../utils/customErrors");
 
 /**
@@ -981,6 +984,971 @@ async function verifyFirstPayment(data) {
   };
 }
 
+/**
+ * Generate unique bulk order ID
+ * Format: BULK-YYYYMMDD-XXXX
+ */
+function generateBulkOrderId() {
+  const date = new Date();
+  const dateStr = date.toISOString().slice(0, 10).replace(/-/g, "");
+  const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+  return `BULK-${dateStr}-${random}`;
+}
+
+/**
+ * Validate a single item for bulk order
+ * Returns { valid: true, data: processedData } or { valid: false, error: errorMessage }
+ */
+async function validateBulkOrderItem(item, index, user) {
+  const {
+    productId,
+    variantId,
+    quantity = 1,
+    totalDays,
+    couponCode,
+  } = item;
+
+  const errors = [];
+
+  // Validate required fields
+  if (!productId) {
+    errors.push(`Item ${index + 1}: productId is required`);
+  }
+
+  if (!totalDays || isNaN(totalDays) || totalDays < 1) {
+    errors.push(`Item ${index + 1}: totalDays must be a positive number`);
+  }
+
+  if (quantity < 1 || quantity > 10) {
+    errors.push(`Item ${index + 1}: quantity must be between 1 and 10`);
+  }
+
+  if (errors.length > 0) {
+    return { valid: false, error: errors.join(", "), itemIndex: index };
+  }
+
+  // Find product
+  let product;
+  if (mongoose.Types.ObjectId.isValid(productId) && productId.length === 24) {
+    product = await Product.findById(productId);
+  }
+  if (!product) {
+    product = await Product.findOne({ productId });
+  }
+
+  if (!product) {
+    return {
+      valid: false,
+      error: `Item ${index + 1}: Product '${productId}' not found`,
+      itemIndex: index,
+    };
+  }
+
+  // Check stock
+  if (
+    product.availability?.stockStatus === "out_of_stock" ||
+    product.availability?.isAvailable === false
+  ) {
+    return {
+      valid: false,
+      error: `Item ${index + 1}: Product '${product.name}' is out of stock`,
+      itemIndex: index,
+    };
+  }
+
+  // Get price
+  let pricePerUnit =
+    product.pricing?.finalPrice || product.pricing?.regularPrice || 0;
+  let selectedVariant = null;
+  let variantDetails = null;
+
+  if (variantId && product.variants && product.variants.length > 0) {
+    selectedVariant = product.variants.find((v) => v.variantId === variantId);
+
+    if (!selectedVariant) {
+      return {
+        valid: false,
+        error: `Item ${index + 1}: Variant '${variantId}' not found`,
+        itemIndex: index,
+      };
+    }
+
+    if (!selectedVariant.isActive) {
+      return {
+        valid: false,
+        error: `Item ${index + 1}: Variant '${variantId}' is not available`,
+        itemIndex: index,
+      };
+    }
+
+    pricePerUnit = selectedVariant.salePrice || selectedVariant.price;
+    variantDetails = {
+      sku: selectedVariant.sku,
+      attributes: selectedVariant.attributes,
+      price: pricePerUnit,
+      description:
+        selectedVariant.description?.short || selectedVariant.description?.long,
+    };
+  }
+
+  // Validate price
+  if (!pricePerUnit || isNaN(pricePerUnit) || pricePerUnit <= 0) {
+    return {
+      valid: false,
+      error: `Item ${index + 1}: Invalid product price`,
+      itemIndex: index,
+    };
+  }
+
+  // Calculate prices
+  const totalProductPrice = calculateTotalProductPrice(pricePerUnit, quantity);
+  let productPrice = totalProductPrice;
+  let originalPrice = totalProductPrice;
+  let couponDiscount = 0;
+  let appliedCouponCode = null;
+  let couponType = null;
+  let milestonePaymentsRequired = null;
+  let milestoneFreeDays = null;
+
+  // Process coupon if provided
+  if (couponCode) {
+    try {
+      const Coupon = require("../models/Coupon");
+      const coupon = await Coupon.findOne({
+        couponCode: couponCode.toUpperCase(),
+      });
+
+      if (!coupon) {
+        return {
+          valid: false,
+          error: `Item ${index + 1}: Coupon '${couponCode}' not found`,
+          itemIndex: index,
+        };
+      }
+
+      if (!coupon.isActive) {
+        return {
+          valid: false,
+          error: `Item ${index + 1}: Coupon '${couponCode}' is not active`,
+          itemIndex: index,
+        };
+      }
+
+      if (new Date() > coupon.expiryDate) {
+        return {
+          valid: false,
+          error: `Item ${index + 1}: Coupon '${couponCode}' has expired`,
+          itemIndex: index,
+        };
+      }
+
+      if (totalProductPrice < coupon.minOrderValue) {
+        return {
+          valid: false,
+          error: `Item ${index + 1}: Minimum order value ₹${coupon.minOrderValue} required for coupon`,
+          itemIndex: index,
+        };
+      }
+
+      // Calculate discount
+      if (coupon.discountType === "flat") {
+        couponDiscount = coupon.discountValue;
+      } else if (coupon.discountType === "percentage") {
+        couponDiscount = Math.round(
+          (totalProductPrice * coupon.discountValue) / 100
+        );
+      }
+
+      couponDiscount = Math.min(couponDiscount, totalProductPrice);
+      couponType = coupon.couponType || "INSTANT";
+      appliedCouponCode = coupon.couponCode;
+
+      if (couponType === "INSTANT") {
+        const result = applyInstantCoupon(totalProductPrice, couponDiscount);
+        productPrice = result.finalPrice;
+      } else if (couponType === "REDUCE_DAYS") {
+        productPrice = totalProductPrice;
+      }
+
+      if (couponType === "MILESTONE_REWARD") {
+        milestonePaymentsRequired = coupon.rewardCondition;
+        milestoneFreeDays = coupon.rewardValue;
+        if (!milestonePaymentsRequired || !milestoneFreeDays) {
+          return {
+            valid: false,
+            error: `Item ${index + 1}: Invalid milestone coupon configuration`,
+            itemIndex: index,
+          };
+        }
+      }
+    } catch (couponError) {
+      return {
+        valid: false,
+        error: `Item ${index + 1}: Coupon error - ${couponError.message}`,
+        itemIndex: index,
+      };
+    }
+  }
+
+  // Validate duration
+  const durationValidation = validateInstallmentDuration(totalDays, productPrice);
+  if (!durationValidation.valid) {
+    return {
+      valid: false,
+      error: `Item ${index + 1}: Duration ${totalDays} days not allowed. Min: ${durationValidation.min}, Max: ${durationValidation.max}`,
+      itemIndex: index,
+    };
+  }
+
+  // Calculate daily amount
+  let calculatedDailyAmount;
+  if (couponType === "INSTANT") {
+    calculatedDailyAmount = Math.ceil(productPrice / totalDays);
+  } else {
+    calculatedDailyAmount = calculateDailyAmount(productPrice, totalDays);
+  }
+
+  if (calculatedDailyAmount < 50) {
+    return {
+      valid: false,
+      error: `Item ${index + 1}: Daily amount ₹${calculatedDailyAmount} is below minimum ₹50`,
+      itemIndex: index,
+    };
+  }
+
+  return {
+    valid: true,
+    data: {
+      product,
+      pricePerUnit,
+      quantity,
+      totalProductPrice,
+      productPrice,
+      originalPrice,
+      totalDays,
+      calculatedDailyAmount,
+      variantId,
+      variantDetails,
+      selectedVariant,
+      couponCode: appliedCouponCode,
+      couponDiscount,
+      couponType,
+      milestonePaymentsRequired,
+      milestoneFreeDays,
+    },
+    itemIndex: index,
+  };
+}
+
+/**
+ * Create Bulk Order with multiple products
+ *
+ * Features:
+ * - Multiple products with different quantities and plans
+ * - Same product with different plans (e.g., iPhone 100 days + iPhone 200 days)
+ * - Single Razorpay order for combined first payment
+ * - Atomic: All orders created or none (for validation)
+ * - Non-atomic for creation: Creates as many as possible, reports failures
+ *
+ * @param {Object} bulkOrderData
+ * @param {string} bulkOrderData.userId - User ID
+ * @param {Array} bulkOrderData.items - Array of order items
+ * @param {string} bulkOrderData.paymentMethod - 'RAZORPAY' or 'WALLET'
+ * @param {Object} bulkOrderData.deliveryAddress - Delivery address
+ * @returns {Promise<Object>} { bulkOrderId, orders, payment, razorpayOrder }
+ */
+async function createBulkOrder(bulkOrderData) {
+  const {
+    userId,
+    items,
+    paymentMethod,
+    deliveryAddress,
+  } = bulkOrderData;
+
+  console.log("\n========================================");
+  console.log("🛒 BULK ORDER: Starting bulk order creation");
+  console.log("========================================");
+  console.log(`📦 Items count: ${items.length}`);
+  console.log(`💳 Payment method: ${paymentMethod}`);
+
+  // Validate items array
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    throw new ValidationError([{ field: "items", message: "Items array is required and must not be empty" }]);
+  }
+
+  if (items.length > 10) {
+    throw new ValidationError([{ field: "items", message: "Maximum 10 items allowed per bulk order" }]);
+  }
+
+  // Validate payment method
+  if (!paymentMethod || !["RAZORPAY", "WALLET"].includes(paymentMethod)) {
+    throw new ValidationError([{ field: "paymentMethod", message: "Payment method must be RAZORPAY or WALLET" }]);
+  }
+
+  // Validate delivery address
+  if (!deliveryAddress || !deliveryAddress.name || !deliveryAddress.phoneNumber ||
+      !deliveryAddress.addressLine1 || !deliveryAddress.city ||
+      !deliveryAddress.state || !deliveryAddress.pincode) {
+    throw new ValidationError([{ field: "deliveryAddress", message: "Complete delivery address is required" }]);
+  }
+
+  // Find user
+  const user = await User.findById(userId);
+  if (!user) throw new UserNotFoundError(userId);
+
+  // Get referrer info
+  let referrer = null;
+  let commissionPercentage = 10;
+  if (user.referredBy) {
+    referrer = await User.findById(user.referredBy);
+  }
+
+  // Validate all items first
+  console.log("🔍 Validating all items...");
+  const validationResults = await Promise.all(
+    items.map((item, index) => validateBulkOrderItem(item, index, user))
+  );
+
+  const validItems = validationResults.filter((r) => r.valid);
+  const invalidItems = validationResults.filter((r) => !r.valid);
+
+  // If all items failed validation, throw error
+  if (validItems.length === 0) {
+    throw new BulkOrderError(
+      "All items failed validation",
+      [],
+      invalidItems.map((i) => ({ index: i.itemIndex, error: i.error }))
+    );
+  }
+
+  // Log validation results
+  console.log(`✅ Valid items: ${validItems.length}`);
+  console.log(`❌ Invalid items: ${invalidItems.length}`);
+
+  // Calculate total first payment amount
+  const totalFirstPayment = validItems.reduce(
+    (sum, item) => sum + item.data.calculatedDailyAmount,
+    0
+  );
+
+  console.log(`💰 Total first payment: ₹${totalFirstPayment}`);
+
+  // For WALLET payment, check balance upfront
+  if (paymentMethod === "WALLET") {
+    const Wallet = require("../models/Wallet");
+    const wallet = await Wallet.findOne({ user: userId });
+    const walletBalance = wallet?.balance || 0;
+
+    if (walletBalance < totalFirstPayment) {
+      throw new BulkOrderError(
+        `Insufficient wallet balance. Required: ₹${totalFirstPayment}, Available: ₹${walletBalance}`,
+        [],
+        [{ error: "INSUFFICIENT_BALANCE", required: totalFirstPayment, available: walletBalance }]
+      );
+    }
+  }
+
+  // Generate bulk order ID
+  const bulkOrderId = generateBulkOrderId();
+  console.log(`🆔 Bulk Order ID: ${bulkOrderId}`);
+
+  // Create orders for valid items
+  const createdOrders = [];
+  const createdPayments = [];
+  const failedOrders = [];
+
+  for (let i = 0; i < validItems.length; i++) {
+    const validItem = validItems[i];
+    const itemData = validItem.data;
+    const originalItem = items[validItem.itemIndex];
+
+    try {
+      console.log(`\n📦 Creating order ${i + 1}/${validItems.length}: ${itemData.product.name}`);
+
+      // Generate payment schedule
+      const couponInfo =
+        itemData.couponType === "REDUCE_DAYS"
+          ? { type: "REDUCE_DAYS", discount: itemData.couponDiscount }
+          : null;
+
+      const paymentSchedule = generatePaymentSchedule(
+        itemData.totalDays,
+        itemData.calculatedDailyAmount,
+        new Date(),
+        couponInfo
+      );
+
+      // Product snapshot
+      const productSnapshot = {
+        productId: itemData.product.productId,
+        name: itemData.product.name,
+        description: itemData.product.description,
+        pricing: itemData.product.pricing,
+        images: itemData.product.images,
+        brand: itemData.product.brand,
+        category: itemData.product.category,
+      };
+
+      // Create order (status will be PENDING for RAZORPAY, ACTIVE for WALLET after payment)
+      const generatedOrderId = generateOrderId();
+
+      const orderDataForModel = {
+        orderId: generatedOrderId,
+        user: userId,
+        product: itemData.product._id,
+        bulkOrderId: bulkOrderId, // Link to bulk order
+
+        quantity: itemData.quantity,
+        pricePerUnit: itemData.pricePerUnit,
+        totalProductPrice: itemData.totalProductPrice,
+        productPrice: itemData.productPrice,
+        productName: itemData.product.name,
+        productSnapshot,
+
+        variantId: itemData.variantId || null,
+        variantDetails: itemData.variantDetails,
+
+        couponCode: itemData.couponCode || null,
+        couponDiscount: itemData.couponDiscount,
+        ...(itemData.couponType && { couponType: itemData.couponType }),
+        originalPrice: itemData.couponDiscount > 0 ? itemData.originalPrice : null,
+        milestonePaymentsRequired: itemData.milestonePaymentsRequired,
+        milestoneFreeDays: itemData.milestoneFreeDays,
+        milestoneRewardApplied: false,
+        milestoneRewardAppliedAt: null,
+
+        totalDays: itemData.totalDays,
+        dailyPaymentAmount: itemData.calculatedDailyAmount,
+        paidInstallments: 0,
+        totalPaidAmount: 0,
+        remainingAmount: itemData.productPrice,
+        paymentSchedule,
+        status: "PENDING", // Will be updated after payment verification
+        deliveryAddress,
+        deliveryStatus: "PENDING",
+
+        referrer: referrer?._id || null,
+        productCommissionPercentage: commissionPercentage,
+        commissionPercentage,
+
+        firstPaymentMethod: paymentMethod,
+        lastPaymentDate: null,
+      };
+
+      const order = new InstallmentOrder(orderDataForModel);
+      await order.save();
+
+      // Create first payment record (PENDING status)
+      const firstPaymentIdempotencyKey = generateIdempotencyKey(
+        order._id.toString(),
+        userId,
+        1
+      );
+
+      const paymentData = {
+        order: order._id,
+        user: userId,
+        amount: itemData.calculatedDailyAmount,
+        installmentNumber: 1,
+        paymentMethod,
+        razorpayOrderId: null, // Will be set after Razorpay order creation
+        status: "PENDING",
+        walletTransactionId: null,
+        idempotencyKey: firstPaymentIdempotencyKey,
+        bulkOrderId: bulkOrderId, // Link to bulk order
+      };
+
+      const firstPayment = new PaymentRecord(paymentData);
+      await firstPayment.save();
+
+      // Link payment to order
+      order.firstPaymentId = firstPayment._id;
+      await order.save();
+
+      createdOrders.push({
+        order: order,
+        orderId: order.orderId,
+        _id: order._id,
+        productName: order.productName,
+        quantity: order.quantity,
+        totalDays: order.totalDays,
+        dailyPaymentAmount: order.dailyPaymentAmount,
+        productPrice: order.productPrice,
+        status: order.status,
+      });
+
+      createdPayments.push({
+        payment: firstPayment,
+        paymentId: firstPayment._id,
+        orderId: order._id,
+        amount: firstPayment.amount,
+      });
+
+      console.log(`✅ Order created: ${order.orderId}`);
+    } catch (orderError) {
+      console.error(`❌ Failed to create order for item ${validItem.itemIndex + 1}:`, orderError.message);
+      failedOrders.push({
+        itemIndex: validItem.itemIndex,
+        productId: originalItem.productId,
+        error: orderError.message,
+      });
+    }
+  }
+
+  // If no orders were created, throw error
+  if (createdOrders.length === 0) {
+    throw new BulkOrderError(
+      "Failed to create any orders",
+      [],
+      [...invalidItems.map((i) => ({ index: i.itemIndex, error: i.error })), ...failedOrders]
+    );
+  }
+
+  // Calculate total amount for created orders
+  const totalAmount = createdPayments.reduce((sum, p) => sum + p.amount, 0);
+
+  let razorpayOrder = null;
+  let walletTransactionIds = [];
+
+  if (paymentMethod === "RAZORPAY") {
+    // Create single Razorpay order for combined amount
+    console.log(`\n💳 Creating Razorpay order for ₹${totalAmount}...`);
+
+    razorpayOrder = await razorpay.orders.create({
+      amount: totalAmount * 100, // In paise
+      currency: "INR",
+      receipt: `bulk_${bulkOrderId}`,
+      payment_capture: 1,
+      notes: {
+        type: "BULK_FIRST_PAYMENT",
+        bulkOrderId: bulkOrderId,
+        orderCount: createdOrders.length,
+        orderIds: createdOrders.map((o) => o.orderId).join(","),
+      },
+    });
+
+    // Update all payment records with Razorpay order ID
+    for (const paymentInfo of createdPayments) {
+      await PaymentRecord.findByIdAndUpdate(paymentInfo.paymentId, {
+        razorpayOrderId: razorpayOrder.id,
+        bulkRazorpayOrderId: razorpayOrder.id,
+      });
+    }
+
+    console.log(`✅ Razorpay order created: ${razorpayOrder.id}`);
+  } else if (paymentMethod === "WALLET") {
+    // Process wallet payments for all orders
+    console.log(`\n👛 Processing wallet payments...`);
+
+    for (let i = 0; i < createdOrders.length; i++) {
+      const orderInfo = createdOrders[i];
+      const paymentInfo = createdPayments[i];
+
+      try {
+        // Deduct from wallet
+        const walletDeduction = await deductFromWallet(
+          userId,
+          paymentInfo.amount,
+          `First installment for ${orderInfo.productName} (Bulk: ${bulkOrderId})`,
+          null,
+          {
+            productId: orderInfo.order.product,
+            installmentNumber: 1,
+            bulkOrderId: bulkOrderId,
+          }
+        );
+
+        walletTransactionIds.push(walletDeduction.walletTransaction._id);
+
+        // Update payment record
+        await PaymentRecord.findByIdAndUpdate(paymentInfo.paymentId, {
+          status: "COMPLETED",
+          walletTransactionId: walletDeduction.walletTransaction._id,
+          processedAt: new Date(),
+          completedAt: new Date(),
+        });
+
+        // Update order
+        const order = orderInfo.order;
+        order.status = "ACTIVE";
+        order.paidInstallments = 1;
+        order.totalPaidAmount = paymentInfo.amount;
+        order.remainingAmount = order.productPrice - paymentInfo.amount;
+        order.firstPaymentCompletedAt = new Date();
+        order.lastPaymentDate = new Date();
+        order.paymentSchedule[0].status = "PAID";
+        order.paymentSchedule[0].paidDate = new Date();
+        order.paymentSchedule[0].paymentId = paymentInfo.paymentId;
+        await order.save();
+
+        // Update order info for response
+        orderInfo.status = "ACTIVE";
+
+        // Process commission
+        if (referrer && commissionPercentage > 0) {
+          const commissionAmount = (paymentInfo.amount * commissionPercentage) / 100;
+
+          try {
+            const commissionResult = await creditCommissionToWallet(
+              referrer._id,
+              commissionAmount,
+              order._id.toString(),
+              paymentInfo.paymentId.toString(),
+              null
+            );
+
+            const payment = await PaymentRecord.findById(paymentInfo.paymentId);
+            await payment.recordCommission(
+              commissionAmount,
+              commissionPercentage,
+              commissionResult.walletTransaction._id
+            );
+
+            order.totalCommissionPaid = commissionAmount;
+            await order.save();
+
+            console.log(`✅ Commission credited: ₹${commissionAmount}`);
+          } catch (commissionError) {
+            console.error(`⚠️ Failed to credit commission:`, commissionError.message);
+          }
+        }
+
+        console.log(`✅ Wallet payment processed for: ${orderInfo.orderId}`);
+      } catch (walletError) {
+        console.error(`❌ Wallet payment failed for ${orderInfo.orderId}:`, walletError.message);
+        // Order remains in PENDING status
+      }
+    }
+  }
+
+  // Prepare response
+  const response = {
+    bulkOrderId,
+    success: true,
+    summary: {
+      totalItems: items.length,
+      successfulOrders: createdOrders.length,
+      failedItems: invalidItems.length + failedOrders.length,
+      totalFirstPayment: totalAmount,
+      paymentMethod,
+    },
+    orders: createdOrders.map((o) => ({
+      orderId: o.orderId,
+      _id: o._id,
+      productName: o.productName,
+      quantity: o.quantity,
+      totalDays: o.totalDays,
+      dailyPaymentAmount: o.dailyPaymentAmount,
+      productPrice: o.productPrice,
+      status: o.status,
+    })),
+    payments: createdPayments.map((p) => ({
+      paymentId: p.paymentId,
+      orderId: p.orderId,
+      amount: p.amount,
+    })),
+    failedItems: [
+      ...invalidItems.map((i) => ({ index: i.itemIndex, error: i.error })),
+      ...failedOrders,
+    ],
+  };
+
+  if (paymentMethod === "RAZORPAY" && razorpayOrder) {
+    response.razorpayOrder = {
+      id: razorpayOrder.id,
+      amount: razorpayOrder.amount,
+      currency: razorpayOrder.currency,
+      keyId: process.env.RAZORPAY_KEY_ID,
+    };
+    response.message = "Bulk order created. Please complete payment via Razorpay.";
+  } else if (paymentMethod === "WALLET") {
+    response.walletTransactionIds = walletTransactionIds;
+    response.message = "Bulk order created and paid successfully via wallet.";
+  }
+
+  console.log("\n========================================");
+  console.log("✅ BULK ORDER: Completed successfully");
+  console.log(`📦 Orders created: ${createdOrders.length}`);
+  console.log(`❌ Failed items: ${response.failedItems.length}`);
+  console.log("========================================\n");
+
+  return response;
+}
+
+/**
+ * Verify bulk order first payment (Razorpay)
+ *
+ * Verifies single Razorpay payment and activates all orders in the bulk order
+ *
+ * @param {Object} data
+ * @param {string} data.bulkOrderId - Bulk order ID
+ * @param {string} data.userId - User ID
+ * @param {string} data.razorpayOrderId - Razorpay order ID
+ * @param {string} data.razorpayPaymentId - Razorpay payment ID
+ * @param {string} data.razorpaySignature - Razorpay signature
+ * @returns {Promise<Object>}
+ */
+async function verifyBulkOrderPayment(data) {
+  const {
+    bulkOrderId,
+    userId,
+    razorpayOrderId,
+    razorpayPaymentId,
+    razorpaySignature,
+  } = data;
+
+  console.log("\n========================================");
+  console.log("🔐 BULK ORDER: Verifying payment");
+  console.log(`🆔 Bulk Order ID: ${bulkOrderId}`);
+  console.log("========================================");
+
+  // Find all orders with this bulk order ID
+  const orders = await InstallmentOrder.find({
+    bulkOrderId: bulkOrderId,
+    user: userId,
+    status: "PENDING",
+  });
+
+  if (!orders || orders.length === 0) {
+    throw new BulkOrderNotFoundError(bulkOrderId);
+  }
+
+  console.log(`📦 Found ${orders.length} orders to verify`);
+
+  // Find all payment records
+  const payments = await PaymentRecord.find({
+    bulkOrderId: bulkOrderId,
+    user: userId,
+    status: "PENDING",
+    installmentNumber: 1,
+  });
+
+  if (!payments || payments.length === 0) {
+    throw new Error("Payment records not found for bulk order");
+  }
+
+  // Verify Razorpay order ID matches
+  const firstPayment = payments[0];
+  if (firstPayment.razorpayOrderId !== razorpayOrderId &&
+      firstPayment.bulkRazorpayOrderId !== razorpayOrderId) {
+    throw new Error("Razorpay order ID mismatch");
+  }
+
+  // Verify Razorpay signature
+  const crypto = require("crypto");
+  const expectedSignature = crypto
+    .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+    .update(`${razorpayOrderId}|${razorpayPaymentId}`)
+    .digest("hex");
+
+  if (expectedSignature !== razorpaySignature) {
+    throw new Error("Invalid payment signature. Payment verification failed.");
+  }
+
+  console.log("✅ Razorpay signature verified");
+
+  // Get referrer info for commission
+  const user = await User.findById(userId);
+  let referrer = null;
+  let commissionPercentage = 10;
+  if (user.referredBy) {
+    referrer = await User.findById(user.referredBy);
+  }
+
+  // Activate all orders and update payments
+  const activatedOrders = [];
+  const processedPayments = [];
+
+  for (let i = 0; i < orders.length; i++) {
+    const order = orders[i];
+    const payment = payments.find((p) => p.order.toString() === order._id.toString());
+
+    if (!payment) {
+      console.error(`⚠️ Payment not found for order: ${order.orderId}`);
+      continue;
+    }
+
+    try {
+      // Update payment record
+      payment.status = "COMPLETED";
+      payment.razorpayPaymentId = razorpayPaymentId;
+      payment.razorpaySignature = razorpaySignature;
+      payment.processedAt = new Date();
+      payment.completedAt = new Date();
+      await payment.save();
+
+      // Update order
+      order.status = "ACTIVE";
+      order.paidInstallments = 1;
+      order.totalPaidAmount = order.dailyPaymentAmount;
+      order.remainingAmount = order.productPrice - order.dailyPaymentAmount;
+      order.firstPaymentCompletedAt = new Date();
+      order.lastPaymentDate = new Date();
+      order.paymentSchedule[0].status = "PAID";
+      order.paymentSchedule[0].paidDate = new Date();
+      order.paymentSchedule[0].paymentId = payment._id;
+      await order.save();
+
+      // Process commission
+      if (referrer && commissionPercentage > 0) {
+        const commissionAmount = (payment.amount * commissionPercentage) / 100;
+
+        try {
+          const commissionResult = await creditCommissionToWallet(
+            referrer._id,
+            commissionAmount,
+            order._id.toString(),
+            payment._id.toString(),
+            null
+          );
+
+          await payment.recordCommission(
+            commissionAmount,
+            commissionPercentage,
+            commissionResult.walletTransaction._id
+          );
+
+          order.totalCommissionPaid = commissionAmount;
+          await order.save();
+
+          console.log(`✅ Commission credited for ${order.orderId}: ₹${commissionAmount}`);
+        } catch (commissionError) {
+          console.error(`⚠️ Commission failed for ${order.orderId}:`, commissionError.message);
+        }
+      }
+
+      // Process referral tracking
+      if (referrer) {
+        try {
+          const referralController = require("../controllers/referralController");
+          const product = await Product.findById(order.product);
+
+          const installmentDetails = {
+            productId: order.product,
+            orderId: order._id,
+            totalAmount: order.productPrice,
+            dailyAmount: order.dailyPaymentAmount,
+            days: order.totalDays,
+            commissionPercentage: commissionPercentage,
+            name: `${product?.name || order.productName} - ${order.totalDays} days installment`,
+          };
+
+          await referralController.processReferral(
+            referrer._id,
+            userId,
+            installmentDetails
+          );
+        } catch (referralError) {
+          console.error(`⚠️ Referral tracking failed:`, referralError.message);
+        }
+      }
+
+      activatedOrders.push({
+        orderId: order.orderId,
+        _id: order._id,
+        productName: order.productName,
+        status: order.status,
+        dailyPaymentAmount: order.dailyPaymentAmount,
+      });
+
+      processedPayments.push({
+        paymentId: payment._id,
+        amount: payment.amount,
+        status: payment.status,
+      });
+
+      console.log(`✅ Order activated: ${order.orderId}`);
+    } catch (orderError) {
+      console.error(`❌ Failed to activate order ${order.orderId}:`, orderError.message);
+    }
+  }
+
+  console.log("\n========================================");
+  console.log("✅ BULK ORDER: Payment verification completed");
+  console.log(`📦 Orders activated: ${activatedOrders.length}`);
+  console.log("========================================\n");
+
+  return {
+    success: true,
+    bulkOrderId,
+    ordersActivated: activatedOrders.length,
+    totalOrdersInBulk: orders.length,
+    orders: activatedOrders,
+    payments: processedPayments,
+    message: `Payment verified. ${activatedOrders.length} orders are now ACTIVE.`,
+  };
+}
+
+/**
+ * Get bulk order details
+ *
+ * @param {string} bulkOrderId - Bulk order ID
+ * @param {string} userId - User ID
+ * @returns {Promise<Object>}
+ */
+async function getBulkOrderDetails(bulkOrderId, userId) {
+  const orders = await InstallmentOrder.find({
+    bulkOrderId: bulkOrderId,
+    user: userId,
+  }).populate("product", "name images pricing");
+
+  if (!orders || orders.length === 0) {
+    throw new BulkOrderNotFoundError(bulkOrderId);
+  }
+
+  const payments = await PaymentRecord.find({
+    bulkOrderId: bulkOrderId,
+    user: userId,
+    installmentNumber: 1,
+  });
+
+  const totalAmount = orders.reduce((sum, o) => sum + o.productPrice, 0);
+  const totalPaid = orders.reduce((sum, o) => sum + o.totalPaidAmount, 0);
+  const totalFirstPayment = orders.reduce((sum, o) => sum + o.dailyPaymentAmount, 0);
+
+  const statusCounts = {
+    PENDING: orders.filter((o) => o.status === "PENDING").length,
+    ACTIVE: orders.filter((o) => o.status === "ACTIVE").length,
+    COMPLETED: orders.filter((o) => o.status === "COMPLETED").length,
+    CANCELLED: orders.filter((o) => o.status === "CANCELLED").length,
+  };
+
+  return {
+    bulkOrderId,
+    summary: {
+      totalOrders: orders.length,
+      totalAmount,
+      totalPaid,
+      totalFirstPayment,
+      remainingAmount: totalAmount - totalPaid,
+      statusCounts,
+    },
+    orders: orders.map((o) => ({
+      orderId: o.orderId,
+      _id: o._id,
+      productName: o.productName,
+      productImage: o.product?.images?.[0] || null,
+      quantity: o.quantity,
+      totalDays: o.totalDays,
+      dailyPaymentAmount: o.dailyPaymentAmount,
+      productPrice: o.productPrice,
+      totalPaidAmount: o.totalPaidAmount,
+      remainingAmount: o.remainingAmount,
+      paidInstallments: o.paidInstallments,
+      status: o.status,
+      createdAt: o.createdAt,
+    })),
+    payments: payments.map((p) => ({
+      paymentId: p._id,
+      orderId: p.order,
+      amount: p.amount,
+      status: p.status,
+      razorpayOrderId: p.razorpayOrderId,
+      completedAt: p.completedAt,
+    })),
+  };
+}
+
 module.exports = {
   createOrder,
   getOrderById,
@@ -992,4 +1960,9 @@ module.exports = {
   getOrderStats,
   getOverallInvestmentStatus,
   verifyFirstPayment,
+  // Bulk Order Functions
+  createBulkOrder,
+  verifyBulkOrderPayment,
+  getBulkOrderDetails,
+  generateBulkOrderId,
 };
