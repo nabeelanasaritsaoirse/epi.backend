@@ -714,6 +714,202 @@ const getDashboardOverview = asyncHandler(async (req, res) => {
   );
 });
 
+/**
+ * ============================================
+ * BULK ORDER APIS
+ * ============================================
+ */
+
+/**
+ * @route   POST /api/installments/orders/bulk
+ * @desc    Create bulk order with multiple products (single payment)
+ * @access  Private
+ *
+ * @body {
+ *   items: [
+ *     { productId, variantId?, quantity?, totalDays, couponCode? },
+ *     ...
+ *   ],
+ *   paymentMethod: 'RAZORPAY' | 'WALLET',
+ *   deliveryAddress: { name, phoneNumber, addressLine1, city, state, pincode, country? }
+ * }
+ */
+const createBulkOrder = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const { items, paymentMethod, deliveryAddress } = req.body;
+
+  console.log('🛒 BULK ORDER: Controller - createBulkOrder called');
+  console.log('🛒 Items count:', items?.length);
+  console.log('🛒 Payment method:', paymentMethod);
+
+  // Basic validation
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'items array is required and must not be empty'
+    });
+  }
+
+  if (!paymentMethod || !['RAZORPAY', 'WALLET'].includes(paymentMethod)) {
+    return res.status(400).json({
+      success: false,
+      message: 'paymentMethod must be RAZORPAY or WALLET'
+    });
+  }
+
+  if (!deliveryAddress) {
+    return res.status(400).json({
+      success: false,
+      message: 'deliveryAddress is required'
+    });
+  }
+
+  const bulkOrderData = {
+    userId,
+    items,
+    paymentMethod,
+    deliveryAddress
+  };
+
+  const result = await orderService.createBulkOrder(bulkOrderData);
+
+  console.log('✅ BULK ORDER: Created successfully');
+  console.log('✅ Bulk Order ID:', result.bulkOrderId);
+
+  successResponse(res, result, result.message, 201);
+});
+
+/**
+ * @route   POST /api/installments/orders/bulk/verify-payment
+ * @desc    Verify Razorpay payment for bulk order and activate all orders
+ * @access  Private
+ *
+ * @body {
+ *   bulkOrderId: string,
+ *   razorpayOrderId: string,
+ *   razorpayPaymentId: string,
+ *   razorpaySignature: string
+ * }
+ */
+const verifyBulkOrderPayment = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const { bulkOrderId, razorpayOrderId, razorpayPaymentId, razorpaySignature } = req.body;
+
+  console.log('🔐 BULK ORDER: Controller - verifyBulkOrderPayment called');
+  console.log('🔐 Bulk Order ID:', bulkOrderId);
+
+  // Validation
+  if (!bulkOrderId) {
+    return res.status(400).json({
+      success: false,
+      message: 'bulkOrderId is required'
+    });
+  }
+
+  if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+    return res.status(400).json({
+      success: false,
+      message: 'razorpayOrderId, razorpayPaymentId, and razorpaySignature are required'
+    });
+  }
+
+  const result = await orderService.verifyBulkOrderPayment({
+    bulkOrderId,
+    userId,
+    razorpayOrderId,
+    razorpayPaymentId,
+    razorpaySignature
+  });
+
+  console.log('✅ BULK ORDER: Payment verified successfully');
+
+  successResponse(res, result, result.message, 200);
+});
+
+/**
+ * @route   GET /api/installments/orders/bulk/:bulkOrderId
+ * @desc    Get bulk order details
+ * @access  Private
+ */
+const getBulkOrderDetails = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const { bulkOrderId } = req.params;
+
+  if (!bulkOrderId) {
+    return res.status(400).json({
+      success: false,
+      message: 'bulkOrderId is required'
+    });
+  }
+
+  const result = await orderService.getBulkOrderDetails(bulkOrderId, userId);
+
+  successResponse(res, result, 'Bulk order details retrieved successfully', 200);
+});
+
+/**
+ * @route   GET /api/installments/orders/my-bulk-orders
+ * @desc    Get user's bulk orders list
+ * @access  Private
+ */
+const getMyBulkOrders = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const InstallmentOrder = require('../models/InstallmentOrder');
+
+  // Get all orders with bulkOrderId
+  const ordersWithBulk = await InstallmentOrder.find({
+    user: userId,
+    bulkOrderId: { $ne: null }
+  })
+    .select('bulkOrderId orderId productName status dailyPaymentAmount totalDays createdAt')
+    .sort({ createdAt: -1 });
+
+  // Group by bulkOrderId
+  const bulkOrdersMap = {};
+  ordersWithBulk.forEach(order => {
+    if (!bulkOrdersMap[order.bulkOrderId]) {
+      bulkOrdersMap[order.bulkOrderId] = {
+        bulkOrderId: order.bulkOrderId,
+        orders: [],
+        totalOrders: 0,
+        totalFirstPayment: 0,
+        createdAt: order.createdAt,
+        statuses: {}
+      };
+    }
+
+    bulkOrdersMap[order.bulkOrderId].orders.push({
+      orderId: order.orderId,
+      productName: order.productName,
+      status: order.status,
+      dailyPaymentAmount: order.dailyPaymentAmount,
+      totalDays: order.totalDays
+    });
+
+    bulkOrdersMap[order.bulkOrderId].totalOrders += 1;
+    bulkOrdersMap[order.bulkOrderId].totalFirstPayment += order.dailyPaymentAmount;
+
+    // Count statuses
+    const status = order.status;
+    bulkOrdersMap[order.bulkOrderId].statuses[status] =
+      (bulkOrdersMap[order.bulkOrderId].statuses[status] || 0) + 1;
+  });
+
+  const bulkOrders = Object.values(bulkOrdersMap).sort(
+    (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+  );
+
+  successResponse(
+    res,
+    {
+      bulkOrders,
+      totalBulkOrders: bulkOrders.length
+    },
+    'Bulk orders retrieved successfully',
+    200
+  );
+});
+
 module.exports = {
   createOrder,
   getOrder,
@@ -726,6 +922,11 @@ module.exports = {
   getInvestmentStatus,
   getOverallInvestmentStatus,
   verifyFirstPayment,
-  getDashboardOverview
+  getDashboardOverview,
+  // Bulk Order APIs
+  createBulkOrder,
+  verifyBulkOrderPayment,
+  getBulkOrderDetails,
+  getMyBulkOrders
 };
 
