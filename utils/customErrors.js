@@ -272,6 +272,41 @@ class TransactionFailedError extends AppError {
   }
 }
 
+/**
+ * Bulk Order Error - 400
+ * Thrown when bulk order creation fails for some items
+ */
+class BulkOrderError extends AppError {
+  constructor(message, successfulOrders = [], failedItems = []) {
+    super(
+      message,
+      400,
+      'BULK_ORDER_ERROR',
+      {
+        successfulOrders,
+        failedItems,
+        successCount: successfulOrders.length,
+        failedCount: failedItems.length
+      }
+    );
+  }
+}
+
+/**
+ * Bulk Order Not Found - 404
+ * Thrown when bulk order doesn't exist
+ */
+class BulkOrderNotFoundError extends AppError {
+  constructor(bulkOrderId = null) {
+    super(
+      'Bulk order not found',
+      404,
+      'BULK_ORDER_NOT_FOUND',
+      bulkOrderId ? { bulkOrderId } : {}
+    );
+  }
+}
+
 module.exports = {
   AppError,
   OrderNotFoundError,
@@ -288,5 +323,7 @@ module.exports = {
   InvalidInstallmentDurationError,
   ValidationError,
   UserNotFoundError,
-  TransactionFailedError
+  TransactionFailedError,
+  BulkOrderError,
+  BulkOrderNotFoundError
 };

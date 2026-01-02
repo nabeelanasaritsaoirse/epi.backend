@@ -204,6 +204,18 @@ const paymentRecordSchema = new mongoose.Schema({
   commissionCreditError: {
     type: String,
     default: null
+  },
+
+  // Bulk Order
+  bulkOrderId: {
+    type: String,
+    default: null,
+    index: true
+  },
+  bulkRazorpayOrderId: {
+    type: String,
+    default: null,
+    index: true
   }
 }, {
   timestamps: true // Adds createdAt and updatedAt
