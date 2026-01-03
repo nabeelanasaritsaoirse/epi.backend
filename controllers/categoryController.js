@@ -136,7 +136,9 @@ exports.getAllCategories = async (req, res) => {
 
     // Filter out soft deleted categories for non-admin users
     // Admin can see deleted categories only when explicitly requested
-    const isAdmin = req.user && (req.user.role === "admin" || req.user.role === "super_admin");
+    const isAdmin =
+      req.user &&
+      (req.user.role === "admin" || req.user.role === "super_admin");
     if (!isAdmin) {
       filter.isDeleted = false;
     }
@@ -260,7 +262,9 @@ exports.getCategoryById = async (req, res) => {
     }
 
     // Check if category is deleted and user is not admin
-    const isAdmin = req.user && (req.user.role === "admin" || req.user.role === "super_admin");
+    const isAdmin =
+      req.user &&
+      (req.user.role === "admin" || req.user.role === "super_admin");
     if (category.isDeleted && !isAdmin) {
       return res.status(404).json({
         success: false,
@@ -1113,43 +1117,51 @@ exports.syncAllProductCounts = async (req, res) => {
  */
 exports.exportCategories = async (req, res) => {
   try {
-    const { format = 'excel', isActive, parentCategoryId } = req.query;
+    const { format = "excel", isActive, parentCategoryId } = req.query;
 
     // Build filter (same as existing response format)
     const filter = { isDeleted: false };
 
-    if (isActive !== undefined && isActive !== 'all') {
-      filter.isActive = isActive === 'true' || isActive === true;
+    if (isActive !== undefined && isActive !== "all") {
+      filter.isActive = isActive === "true" || isActive === true;
     }
 
     if (parentCategoryId) {
-      filter.parentCategoryId = parentCategoryId === 'null' ? null : parentCategoryId;
+      filter.parentCategoryId =
+        parentCategoryId === "null" ? null : parentCategoryId;
     }
 
-    if (format === 'csv') {
+    if (format === "csv") {
       // Export as CSV
       const csvData = await exportCategoriesToCSV(filter);
 
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="categories-${Date.now()}.csv"`);
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="categories-${Date.now()}.csv"`
+      );
       res.send(csvData);
-
     } else {
       // Export as Excel (default)
       const workbook = await exportCategoriesToExcel(filter);
 
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('Content-Disposition', `attachment; filename="categories-${Date.now()}.xlsx"`);
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      );
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="categories-${Date.now()}.xlsx"`
+      );
 
       await workbook.xlsx.write(res);
       res.end();
     }
-
   } catch (error) {
-    console.error('Export error:', error);
+    console.error("Export error:", error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -1165,10 +1177,11 @@ exports.hardDeleteCategory = async (req, res) => {
     const { confirmDelete } = req.query;
 
     // Safety check - require explicit confirmation
-    if (confirmDelete !== 'true') {
+    if (confirmDelete !== "true") {
       return res.status(400).json({
         success: false,
-        message: 'Hard delete requires confirmDelete=true query parameter for safety',
+        message:
+          "Hard delete requires confirmDelete=true query parameter for safety",
       });
     }
 
@@ -1177,7 +1190,7 @@ exports.hardDeleteCategory = async (req, res) => {
     if (!category) {
       return res.status(404).json({
         success: false,
-        message: 'Category not found',
+        message: "Category not found",
       });
     }
 
@@ -1202,7 +1215,7 @@ exports.hardDeleteCategory = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Category permanently deleted from database',
+      message: "Category permanently deleted from database",
       deletedCategory: {
         id: category._id,
         name: category.name,
@@ -1210,10 +1223,79 @@ exports.hardDeleteCategory = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error hard deleting category:', error);
+    console.error("Error hard deleting category:", error);
     res.status(500).json({
       success: false,
       message: error.message,
     });
+  }
+};
+exports.updateCategoryImages = async (req, res) => {
+  if (!req.files || Object.keys(req.files).length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: "No category images uploaded",
+    });
+  }
+
+  try {
+    const { categoryId } = req.params;
+    const category = await Category.findById(categoryId);
+
+    if (!category) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Category not found" });
+    }
+
+    const fieldToTypeMap = {
+      mainImage: "main",
+      illustrationImage: "illustration",
+      subcategoryImage: "subcategory",
+      mobileImage: "mobile",
+      iconImage: "icon",
+    };
+
+    if (!category.categoryImages) {
+      category.categoryImages = [];
+    }
+
+    for (const fieldName of Object.keys(fieldToTypeMap)) {
+      const fileArr = req.files?.[fieldName];
+      if (!fileArr || !fileArr[0]) continue;
+
+      const file = fileArr[0];
+      const type = fieldToTypeMap[fieldName];
+
+      // Upload to S3
+      const uploadResult = await uploadSingleFileToS3(
+        file,
+        "categories/typed/",
+        800
+      );
+
+      // Remove existing image of same type
+      category.categoryImages = category.categoryImages.filter(
+        (img) => img.type !== type
+      );
+
+      // Push new image
+      category.categoryImages.push({
+        type,
+        url: uploadResult.url,
+        altText: req.body?.[`${fieldName}Alt`] || category.name,
+      });
+    }
+
+    await category.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Category images updated successfully",
+      data: category.categoryImages,
+    });
+  } catch (error) {
+    console.error("Error updating category images:", error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };

@@ -22,6 +22,17 @@ const categorySchema = new mongoose.Schema({
 
   image: { url: String, altText: String },
   images: [imageSchema],
+  categoryImages: [
+    {
+      type: {
+        type: String,
+        enum: ["main", "illustration", "subcategory", "mobile", "icon"],
+        required: true,
+      },
+      url: String,
+      altText: String,
+    },
+  ],
 
   banner: {
     url: String,
