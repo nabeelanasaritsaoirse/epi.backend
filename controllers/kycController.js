@@ -7,27 +7,41 @@ const Kyc = require("../models/Kyc");
 exports.submitKyc = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { documents } = req.body;
+    const { documents, aadhaarNumber, panNumber } = req.body;
+
+    if (!aadhaarNumber || !/^\d{12}$/.test(aadhaarNumber)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid Aadhaar number",
+      });
+    }
+
+    if (!panNumber || !/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(panNumber)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid PAN number",
+      });
+    }
 
     // Validate documents
     if (!documents || !Array.isArray(documents) || documents.length === 0) {
       return res.status(400).json({
         success: false,
-        message: "Documents array is required"
+        message: "Documents array is required",
       });
     }
 
     // Required types for your flow
     const requiredTypes = ["selfie", "aadhaar", "pan"];
 
-    const uploadedTypes = documents.map(d => d.type);
+    const uploadedTypes = documents.map((d) => d.type);
 
     // Ensure all required types exist
     for (const t of requiredTypes) {
       if (!uploadedTypes.includes(t)) {
         return res.status(400).json({
           success: false,
-          message: `Missing required document type: ${t}`
+          message: `Missing required document type: ${t}`,
         });
       }
     }
@@ -37,7 +51,7 @@ exports.submitKyc = async (req, res) => {
       if (!doc.type) {
         return res.status(400).json({
           success: false,
-          message: "Each document must contain a 'type'"
+          message: "Each document must contain a 'type'",
         });
       }
 
@@ -46,17 +60,27 @@ exports.submitKyc = async (req, res) => {
         if (!doc.frontUrl) {
           return res.status(400).json({
             success: false,
-            message: "Selfie must have frontUrl"
+            message: "Selfie must have frontUrl",
           });
         }
       }
 
-      // Aadhaar / PAN
-      if (["aadhaar", "pan"].includes(doc.type)) {
+      // Aadhaar → front + back
+      if (doc.type === "aadhaar") {
         if (!doc.frontUrl || !doc.backUrl) {
           return res.status(400).json({
             success: false,
-            message: `${doc.type} must include both frontUrl and backUrl`
+            message: "Aadhaar must include frontUrl and backUrl",
+          });
+        }
+      }
+
+      // PAN → ONLY front
+      if (doc.type === "pan") {
+        if (!doc.frontUrl) {
+          return res.status(400).json({
+            success: false,
+            message: "PAN must include frontUrl",
           });
         }
       }
@@ -69,14 +93,14 @@ exports.submitKyc = async (req, res) => {
       if (["approved", "auto_approved"].includes(existing.status)) {
         return res.status(400).json({
           success: false,
-          message: "KYC already approved. Cannot resubmit."
+          message: "KYC already approved. Cannot resubmit.",
         });
       }
 
       if (existing.status === "pending") {
         return res.status(400).json({
           success: false,
-          message: "KYC already pending. Please wait."
+          message: "KYC already pending. Please wait.",
         });
       }
 
@@ -89,9 +113,11 @@ exports.submitKyc = async (req, res) => {
     const newKyc = new Kyc({
       userId,
       documents,
+      aadhaarNumber,
+      panNumber,
       status: "pending",
       submittedAt: new Date(),
-      updatedAt: new Date()
+      updatedAt: new Date(),
     });
 
     await newKyc.save();
@@ -99,15 +125,13 @@ exports.submitKyc = async (req, res) => {
     return res.json({
       success: true,
       message: "KYC submitted successfully",
-      status: "pending"
+      status: "pending",
     });
-
   } catch (err) {
     console.error("Submit KYC error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
-
 
 /* ============================================================
    📌 USER — GET MY KYC STATUS
@@ -120,7 +144,7 @@ exports.getKycStatus = async (req, res) => {
     if (!kyc) {
       return res.json({
         kycExists: false,
-        status: "not_submitted"
+        status: "not_submitted",
       });
     }
 
@@ -130,15 +154,13 @@ exports.getKycStatus = async (req, res) => {
       rejectionNote: kyc.rejectionNote || null,
       documents: kyc.documents,
       submittedAt: kyc.submittedAt,
-      updatedAt: kyc.updatedAt
+      updatedAt: kyc.updatedAt,
     });
-
   } catch (err) {
     console.log("Get KYC status error:", err);
     res.status(500).json({ success: false, message: "Server error" });
   }
 };
-
 
 /* ============================================================
    📌 ADMIN — GET ALL KYC
@@ -149,11 +171,11 @@ exports.getAllKyc = async (req, res) => {
       .populate("userId", "name email phoneNumber")
       .sort({ submittedAt: -1 });
 
-    list = list.map(item => {
+    list = list.map((item) => {
       if (!item.userId) {
         return {
           ...item._doc,
-          userId: { name: "-", email: "-", phoneNumber: "-" }
+          userId: { name: "-", email: "-", phoneNumber: "-" },
         };
       }
       return item;
@@ -162,13 +184,12 @@ exports.getAllKyc = async (req, res) => {
     return res.json({
       success: true,
       count: list.length,
-      data: list
+      data: list,
     });
   } catch (err) {
     res.status(500).json({ success: false, message: "Server error" });
   }
 };
-
 
 /* ============================================================
    📌 ADMIN — APPROVE
@@ -178,7 +199,8 @@ exports.adminApprove = async (req, res) => {
     const { id } = req.params;
 
     const kyc = await Kyc.findById(id);
-    if (!kyc) return res.status(404).json({ success: false, message: "KYC not found" });
+    if (!kyc)
+      return res.status(404).json({ success: false, message: "KYC not found" });
 
     kyc.status = "approved";
     kyc.rejectionNote = null; // clear rejection note
@@ -188,15 +210,13 @@ exports.adminApprove = async (req, res) => {
     return res.json({
       success: true,
       message: "KYC approved",
-      kyc
+      kyc,
     });
-
   } catch (err) {
     console.log("Admin approve error:", err);
     res.status(500).json({ success: false, message: "Server error" });
   }
 };
-
 
 /* ============================================================
    📌 ADMIN — REJECT KYC WITH NOTE
@@ -207,7 +227,8 @@ exports.adminReject = async (req, res) => {
     const { note } = req.body;
 
     const kyc = await Kyc.findById(id);
-    if (!kyc) return res.status(404).json({ success: false, message: "KYC not found" });
+    if (!kyc)
+      return res.status(404).json({ success: false, message: "KYC not found" });
 
     kyc.status = "rejected";
     kyc.rejectionNote = note || "No reason provided";
@@ -217,9 +238,8 @@ exports.adminReject = async (req, res) => {
     return res.json({
       success: true,
       message: "KYC rejected",
-      kyc
+      kyc,
     });
-
   } catch (err) {
     console.log("Admin reject error:", err);
     res.status(500).json({ success: false, message: "Server error" });
