@@ -1,46 +1,44 @@
 const mongoose = require("mongoose");
 
-const imageSchema = new mongoose.Schema(
+/* --------------------------------
+   COMMON IMAGE OBJECT
+-----------------------------------*/
+const imageObjectSchema = new mongoose.Schema(
   {
-    url: String,
-    altText: String,
+    type: {
+      type: String,
+      enum: ["main", "illustration", "subcategory", "mobile", "icon", "banner"],
+    },
+    url: { type: String, required: true },
+    altText: { type: String, default: "" },
     order: { type: Number, default: 1 },
+    isActive: { type: Boolean, default: true },
   },
-  { _id: false }
+  { timestamps: true }
 );
 
+/* --------------------------------
+   CATEGORY SCHEMA
+-----------------------------------*/
 const categorySchema = new mongoose.Schema({
   categoryId: { type: String, unique: true, required: true },
 
-  // FIXED: removed unique:true
   name: { type: String, required: true, trim: true },
-
   description: { type: String, trim: true },
-
-  // FIXED: removed unique:true from slug
   slug: { type: String, lowercase: true, trim: true },
 
-  image: { url: String, altText: String },
-  images: [imageSchema],
-  categoryImages: [
-    {
-      type: {
-        type: String,
-        enum: ["main", "illustration", "subcategory", "mobile", "icon"],
-        required: true,
-      },
-      url: String,
-      altText: String,
-    },
-  ],
+  /* 🔒 SINGLE IMAGES */
+  mainImage: { type: imageObjectSchema, default: null },
+  illustrationImage: { type: imageObjectSchema, default: null },
+  subcategoryImage: { type: imageObjectSchema, default: null },
+  mobileImage: { type: imageObjectSchema, default: null },
+  iconImage: { type: imageObjectSchema, default: null },
 
-  banner: {
-    url: String,
-    altText: String,
-    link: String,
+  /* 🖼️ BANNER IMAGES */
+  bannerImages: {
+    type: [imageObjectSchema],
+    default: [],
   },
-
-  icon: String,
 
   parentCategoryId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -67,23 +65,11 @@ const categorySchema = new mongoose.Schema({
     keywords: [String],
   },
 
-  // REGIONAL FIELDS
-  availableInRegions: [
-    {
-      type: String,
-      lowercase: true,
-      trim: true,
-    },
-  ],
+  availableInRegions: [{ type: String, lowercase: true, trim: true }],
 
   regionalMeta: [
     {
-      region: {
-        type: String,
-        required: true,
-        lowercase: true,
-        trim: true,
-      },
+      region: { type: String, required: true, lowercase: true, trim: true },
       metaTitle: String,
       metaDescription: String,
       keywords: [String],
@@ -98,7 +84,9 @@ const categorySchema = new mongoose.Schema({
   deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
 });
 
-// Auto-update path + level
+/* --------------------------------
+   AUTO PATH + LEVEL
+-----------------------------------*/
 categorySchema.pre("save", async function (next) {
   this.updatedAt = new Date();
 
@@ -112,7 +100,7 @@ categorySchema.pre("save", async function (next) {
         this.level = 0;
         this.path = [];
       }
-    } catch (e) {
+    } catch {
       this.level = 0;
       this.path = [];
     }
@@ -124,17 +112,11 @@ categorySchema.pre("save", async function (next) {
   next();
 });
 
-/* -------------------------
-   FIXED INDEXES (IMPORTANT)
-   ------------------------- */
-
-// Name must be unique ONLY among non-deleted categories
+/* --------------------------------
+   INDEXES
+-----------------------------------*/
 categorySchema.index({ name: 1, isDeleted: 1 }, { unique: true });
-
-// Slug must also be unique ONLY among non-deleted categories
 categorySchema.index({ slug: 1, isDeleted: 1 }, { unique: true });
-
-// Region index
 categorySchema.index({ availableInRegions: 1 });
 
 module.exports = mongoose.model("Category", categorySchema);

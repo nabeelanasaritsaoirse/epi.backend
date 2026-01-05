@@ -4,6 +4,7 @@ const categoryController = require("../controllers/categoryController");
 const { verifyToken, isAdmin, optionalAuth } = require("../middlewares/auth");
 const { uploadSingle } = require("../middlewares/uploadMiddleware");
 const { uploadCategoryImages } = require("../middlewares/uploadMiddleware");
+const { uploadCategoryBanners } = require("../middlewares/uploadMiddleware");
 
 /**
  * Public routes
@@ -87,6 +88,34 @@ router.put(
   isAdmin,
   uploadCategoryImages,
   categoryController.updateCategoryImages
+);
+/**
+ * CATEGORY BANNER IMAGES (ARRAY)
+ */
+
+// Upload banner images
+router.post(
+  "/:categoryId/banner-images",
+  verifyToken,
+  isAdmin,
+  uploadCategoryBanners,
+  categoryController.uploadCategoryBanners
+);
+
+// Reorder banner images
+router.put(
+  "/:categoryId/banner-images/reorder",
+  verifyToken,
+  isAdmin,
+  categoryController.reorderCategoryBanners
+);
+
+// Delete banner image by id
+router.delete(
+  "/:categoryId/banner-images/:bannerImageId",
+  verifyToken,
+  isAdmin,
+  categoryController.deleteCategoryBannerImage
 );
 
 // Create category
