@@ -28,21 +28,6 @@ router.put(
   categoryController.restoreCategory
 );
 
-// Delete individual image from category
-router.delete(
-  "/:categoryId/images/:imageIndex",
-  verifyToken,
-  isAdmin,
-  categoryController.deleteCategoryImage
-);
-
-// Reorder category images
-router.put(
-  "/:categoryId/images/reorder",
-  verifyToken,
-  isAdmin,
-  categoryController.reorderCategoryImages
-);
 router.put(
   "/:categoryId/category-images",
   verifyToken,
