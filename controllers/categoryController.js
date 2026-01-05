@@ -67,16 +67,11 @@ exports.createCategory = async (req, res) => {
       .replace(/[\s_]+/g, "-")
       .replace(/^-+|-+$/g, "");
 
-    // FINAL IMAGE HANDLING (URL MODE)
-    let finalImages = Array.isArray(images) ? images : [];
-    let finalSingleImage = image || finalImages[0] || {};
-
     const newCategory = new Category({
       categoryId,
       name,
       description,
       slug,
-      image: image || {},
       parentCategoryId: parentCategoryId || null,
       subCategories: [],
       displayOrder: displayOrder || 0,
@@ -357,17 +352,8 @@ exports.getCategoriesForDropdown = async (req, res) => {
 exports.updateCategory = async (req, res) => {
   try {
     const { categoryId } = req.params;
-    const {
-      name,
-      description,
-      image,
-      images,
-      meta,
-      displayOrder,
-      isActive,
-      isFeatured,
-      parentCategoryId,
-    } = req.body;
+    const { name, description, parentCategoryId, meta, displayOrder } =
+      req.body;
 
     const category = await Category.findById(categoryId);
     if (!category)
@@ -400,22 +386,15 @@ exports.updateCategory = async (req, res) => {
     // Description
     if (description !== undefined) category.description = description;
 
-    // IMAGE HANDLING (URL MODE)
-    if (images !== undefined && Array.isArray(images)) {
-      category.images = images;
-      category.image = images[0] || {};
-    } else if (image !== undefined) {
-      category.image = image;
-    }
-
     // Meta
     if (meta !== undefined) category.meta = meta;
+
     // 🌍 Regional Availability
     if (req.body.availableInRegions !== undefined) {
       category.availableInRegions = req.body.availableInRegions;
     }
 
-    // 🌍 Per-Region SEO Meta (SAFE & FIXED)
+    // 🌍 Per-Region SEO Meta
     if (req.body.regionalMeta !== undefined) {
       category.regionalMeta = Array.isArray(req.body.regionalMeta)
         ? req.body.regionalMeta.map((rm) => ({
@@ -431,14 +410,11 @@ exports.updateCategory = async (req, res) => {
                   .filter(Boolean)
               : [],
           }))
-        : []; // ensures no crash when input is invalid
+        : [];
     }
-    // Flags
-    if (displayOrder !== undefined) category.displayOrder = displayOrder;
-    if (isActive !== undefined) category.isActive = isActive;
 
-    // FEATURED (Fixing your bug #2)
-    if (isFeatured !== undefined) category.isFeatured = isFeatured;
+    // Display order
+    if (displayOrder !== undefined) category.displayOrder = displayOrder;
 
     // Parent handling
     if (parentCategoryId !== undefined) {
@@ -1230,25 +1206,27 @@ exports.hardDeleteCategory = async (req, res) => {
     });
   }
 };
-exports.updateCategoryImages = async (req, res) => {
-  if (!req.files || Object.keys(req.files).length === 0) {
-    return res.status(400).json({
-      success: false,
-      message: "No category images uploaded",
-    });
-  }
 
+exports.updateCategoryImages = async (req, res) => {
   try {
     const { categoryId } = req.params;
-    const category = await Category.findById(categoryId);
 
-    if (!category) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Category not found" });
+    if (!req.files || Object.keys(req.files).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No category images uploaded",
+      });
     }
 
-    const fieldToTypeMap = {
+    const category = await Category.findById(categoryId);
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found",
+      });
+    }
+
+    const fieldMap = {
       mainImage: "main",
       illustrationImage: "illustration",
       subcategoryImage: "subcategory",
@@ -1256,35 +1234,21 @@ exports.updateCategoryImages = async (req, res) => {
       iconImage: "icon",
     };
 
-    if (!category.categoryImages) {
-      category.categoryImages = [];
-    }
-
-    for (const fieldName of Object.keys(fieldToTypeMap)) {
-      const fileArr = req.files?.[fieldName];
+    for (const field in fieldMap) {
+      const fileArr = req.files[field];
       if (!fileArr || !fileArr[0]) continue;
 
       const file = fileArr[0];
-      const type = fieldToTypeMap[fieldName];
 
-      // Upload to S3
-      const uploadResult = await uploadSingleFileToS3(
-        file,
-        "categories/typed/",
-        800
-      );
+      const uploadResult = await uploadSingleFileToS3(file, "categories/", 800);
 
-      // Remove existing image of same type
-      category.categoryImages = category.categoryImages.filter(
-        (img) => img.type !== type
-      );
-
-      // Push new image
-      category.categoryImages.push({
-        type,
+      category[field] = {
+        type: fieldMap[field],
         url: uploadResult.url,
-        altText: req.body?.[`${fieldName}Alt`] || category.name,
-      });
+        altText: req.body?.[`${field}Alt`] || category.name,
+        order: 1,
+        isActive: true,
+      };
     }
 
     await category.save();
@@ -1292,10 +1256,159 @@ exports.updateCategoryImages = async (req, res) => {
     res.status(200).json({
       success: true,
       message: "Category images updated successfully",
-      data: category.categoryImages,
+      data: {
+        mainImage: category.mainImage,
+        illustrationImage: category.illustrationImage,
+        subcategoryImage: category.subcategoryImage,
+        mobileImage: category.mobileImage,
+        iconImage: category.iconImage,
+      },
     });
   } catch (error) {
     console.error("Error updating category images:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+exports.uploadCategoryBanners = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No banner images uploaded",
+      });
+    }
+
+    const category = await Category.findById(categoryId);
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found",
+      });
+    }
+
+    if (!Array.isArray(category.bannerImages)) {
+      category.bannerImages = [];
+    }
+
+    let orderStart = category.bannerImages.length + 1;
+
+    for (const file of req.files) {
+      const uploadResult = await uploadSingleFileToS3(
+        file,
+        "categories/banners/",
+        1200
+      );
+
+      category.bannerImages.push({
+        type: "banner",
+        url: uploadResult.url,
+        altText: req.body.altText || category.name,
+        order: orderStart++,
+        isActive: true,
+      });
+    }
+
+    await category.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Banner images uploaded successfully",
+      data: category.bannerImages,
+    });
+  } catch (error) {
+    console.error("Banner upload error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+exports.reorderCategoryBanners = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+    const { orders } = req.body;
+    // orders = [{ id, order }]
+
+    if (!Array.isArray(orders)) {
+      return res.status(400).json({
+        success: false,
+        message: "orders must be an array",
+      });
+    }
+
+    const category = await Category.findById(categoryId);
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found",
+      });
+    }
+
+    orders.forEach(({ id, order }) => {
+      const banner = category.bannerImages.id(id);
+      if (banner) banner.order = order;
+    });
+
+    category.bannerImages.sort((a, b) => a.order - b.order);
+
+    await category.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Banner images reordered successfully",
+      data: category.bannerImages,
+    });
+  } catch (error) {
+    console.error("Banner reorder error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+exports.deleteCategoryBannerImage = async (req, res) => {
+  try {
+    const { categoryId, bannerImageId } = req.params;
+
+    const category = await Category.findById(categoryId);
+    if (!category) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Category not found" });
+    }
+
+    const banner = category.bannerImages.id(bannerImageId);
+    if (!banner) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Banner image not found" });
+    }
+
+    // delete from S3
+    if (banner.url) {
+      await deleteImageFromS3(banner.url);
+    }
+
+    banner.remove();
+    category.bannerImages.forEach((b, i) => (b.order = i + 1));
+
+    await category.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Banner image deleted successfully",
+      data: category.bannerImages,
+    });
+  } catch (error) {
+    console.error("Banner delete error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
