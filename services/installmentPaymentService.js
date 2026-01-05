@@ -564,108 +564,122 @@ async function getPaymentStats(userId = null) {
 
 /**
  * Get daily pending installment payments for user
+ *
+ * Shows NEXT PENDING installment per order (regardless of due date)
+ * If user missed previous installments, still shows next payable one
  */
 async function getDailyPendingPayments(userId) {
-  // Use consistent date handling - get start and end of today
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  try {
+    // Use consistent date handling - get start and end of today
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
-  console.log('getDailyPendingPayments - Date range:', {
-    start: start.toISOString(),
-    end: end.toISOString(),
-    serverTime: now.toISOString(),
-    userId: userId.toString()
-  });
+    console.log('getDailyPendingPayments - Date range:', {
+      start: start.toISOString(),
+      end: end.toISOString(),
+      serverTime: now.toISOString(),
+      userId: userId ? userId.toString() : 'null'
+    });
 
-  // Find ALL active orders for this user (not just those with pending payments today)
-  const allActiveOrders = await InstallmentOrder.find({
-    user: userId,
-    status: "ACTIVE"
-  }).populate('product', 'images');
-
-  console.log('getDailyPendingPayments - Total active orders:', allActiveOrders.length);
-
-  // Filter for orders with pending payments due today
-  const orders = allActiveOrders.filter(order => {
-    const hasPendingToday = order.paymentSchedule.some(inst =>
-      inst.status === "PENDING" &&
-      inst.dueDate >= start &&
-      inst.dueDate <= end
-    );
-
-    if (hasPendingToday) {
-      console.log('getDailyPendingPayments - Order with pending payment today:', {
-        orderId: order.orderId,
-        lastPaymentDate: order.lastPaymentDate ? order.lastPaymentDate.toISOString() : 'null',
-        canPayToday: order.canPayToday()
-      });
+    if (!userId) {
+      throw new Error('User ID is required');
     }
 
-    return hasPendingToday;
-  });
+    // Find ALL active orders for this user
+    const allActiveOrders = await InstallmentOrder.find({
+      user: userId,
+      status: "ACTIVE"
+    }).populate('product', 'images');
 
-  console.log('getDailyPendingPayments - Orders with payments due today:', orders.length);
+    console.log('getDailyPendingPayments - Total active orders:', allActiveOrders.length);
 
-  let pendingList = [];
+    // Filter for orders that have any pending installment (not just today's)
+    const orders = allActiveOrders.filter(order => {
+      if (!order || !order.paymentSchedule) {
+        console.log('getDailyPendingPayments - Invalid order or schedule:', order?.orderId);
+        return false;
+      }
 
-  for (const order of orders) {
-    // Check if user can actually pay today (hasn't already paid today)
-    const canPay = order.canPayToday();
+      const hasPendingInstallment = order.paymentSchedule.some(inst => inst.status === "PENDING");
 
-    // Skip this order if payment already done today
-    if (!canPay) {
-      console.log('getDailyPendingPayments - Skipping order (already paid today):', {
-        orderId: order.orderId,
-        lastPaymentDate: order.lastPaymentDate ? order.lastPaymentDate.toISOString() : 'null'
-      });
-      continue;
-    }
+      if (hasPendingInstallment) {
+        console.log('getDailyPendingPayments - Order with pending installment:', {
+          orderId: order.orderId,
+          lastPaymentDate: order.lastPaymentDate ? order.lastPaymentDate.toISOString() : 'null',
+          canPayToday: order.canPayToday ? order.canPayToday() : false
+        });
+      }
 
-    order.paymentSchedule.forEach((inst) => {
-      if (
-        inst.status === "PENDING" &&
-        inst.dueDate >= start &&
-        inst.dueDate <= end
-      ) {
+      return hasPendingInstallment;
+    });
+
+    console.log('getDailyPendingPayments - Orders with pending installments:', orders.length);
+
+    let pendingList = [];
+
+    for (const order of orders) {
+      // Check if user can actually pay today (hasn't already paid today)
+      const canPay = order.canPayToday ? order.canPayToday() : false;
+
+      // Skip this order if payment already done today
+      if (!canPay) {
+        console.log('getDailyPendingPayments - Skipping order (already paid today):', {
+          orderId: order.orderId,
+          lastPaymentDate: order.lastPaymentDate ? order.lastPaymentDate.toISOString() : 'null'
+        });
+        continue;
+      }
+
+      // Get NEXT pending installment (first PENDING in schedule)
+      const nextPendingInst = order.getNextPendingInstallment ? order.getNextPendingInstallment() : null;
+
+      if (nextPendingInst) {
+        const isOverdue = nextPendingInst.dueDate ? nextPendingInst.dueDate < now : false;
+
         console.log('getDailyPendingPayments - Adding installment:', {
           orderId: order.orderId,
-          installmentNumber: inst.installmentNumber,
-          dueDate: inst.dueDate.toISOString(),
-          status: inst.status,
+          installmentNumber: nextPendingInst.installmentNumber,
+          dueDate: nextPendingInst.dueDate ? nextPendingInst.dueDate.toISOString() : 'null',
+          status: nextPendingInst.status,
+          isOverdue: isOverdue,
           canPayToday: canPay,
           lastPaymentDate: order.lastPaymentDate ? order.lastPaymentDate.toISOString() : 'null'
         });
 
         pendingList.push({
           orderId: order.orderId,
-          productName: order.productName,
+          productName: order.productName || 'Unknown Product',
           productImage: order.product?.images?.[0] || null,
-          installmentNumber: inst.installmentNumber,
-          amount: order.dailyPaymentAmount,
-          dueDate: inst.dueDate,
-          canPayToday: canPay, // Always true here now
+          installmentNumber: nextPendingInst.installmentNumber,
+          amount: order.dailyPaymentAmount || 0,
+          dueDate: nextPendingInst.dueDate,
+          canPayToday: canPay,
+          isOverdue: isOverdue,
         });
       }
-    });
-  }
-
-  console.log('getDailyPendingPayments - Total pending payments:', pendingList.length);
-
-  return {
-    count: pendingList.length,
-    totalAmount: pendingList.reduce((sum, p) => sum + p.amount, 0),
-    payments: pendingList,
-    debug: {
-      serverTime: now.toISOString(),
-      dateRange: {
-        start: start.toISOString(),
-        end: end.toISOString()
-      },
-      totalActiveOrders: allActiveOrders.length,
-      ordersWithPaymentsDueToday: orders.length
     }
-  };
+
+    console.log('getDailyPendingPayments - Total pending payments:', pendingList.length);
+
+    return {
+      count: pendingList.length,
+      totalAmount: pendingList.reduce((sum, p) => sum + (p.amount || 0), 0),
+      payments: pendingList,
+      debug: {
+        serverTime: now.toISOString(),
+        dateRange: {
+          start: start.toISOString(),
+          end: end.toISOString()
+        },
+        totalActiveOrders: allActiveOrders.length,
+        ordersWithPendingPayments: orders.length
+      }
+    };
+  } catch (error) {
+    console.error('getDailyPendingPayments - Error:', error.message);
+    throw new Error(`Failed to get daily pending payments: ${error.message}`);
+  }
 }
 
 /**

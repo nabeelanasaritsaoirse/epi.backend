@@ -195,6 +195,50 @@ router.post('/withdraw', verifyToken, async (req, res) => {
         });
     }
 
+    // Check KYC verification status before allowing withdrawal
+    const userForKyc = await User.findById(req.user._id).select('kycDetails kycDocuments bankDetails');
+
+    const kycDetails = userForKyc.kycDetails || {};
+    const kycDocuments = userForKyc.kycDocuments || [];
+
+    // Check if Aadhar is verified
+    const aadharVerified = kycDetails.aadharVerified ||
+      kycDocuments.some(doc =>
+        doc.docType && doc.docType.toLowerCase().includes('aadhar') && doc.isVerified
+      );
+
+    // Check if PAN is verified
+    const panVerified = kycDetails.panVerified ||
+      kycDocuments.some(doc =>
+        doc.docType && doc.docType.toLowerCase().includes('pan') && doc.isVerified
+      );
+
+    // Check if user has at least one bank account
+    const hasBankAccount = userForKyc.bankDetails && userForKyc.bankDetails.length > 0;
+
+    // KYC verification required: at least Aadhar OR PAN must be verified
+    if (!aadharVerified && !panVerified) {
+      return res.status(403).json({
+        success: false,
+        message: "KYC verification required. Please verify your Aadhar Card or PAN Card to enable withdrawals.",
+        code: "KYC_NOT_VERIFIED",
+        kycStatus: {
+          aadharVerified,
+          panVerified,
+          hasBankAccount
+        }
+      });
+    }
+
+    // Bank account required
+    if (!hasBankAccount) {
+      return res.status(400).json({
+        success: false,
+        message: "Please add at least one bank account before requesting a withdrawal.",
+        code: "BANK_ACCOUNT_REQUIRED"
+      });
+    }
+
     const user = await recalcWallet(req.user._id);
 
     if (user.availableBalance < amount)

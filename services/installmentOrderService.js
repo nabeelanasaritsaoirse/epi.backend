@@ -735,7 +735,9 @@ async function getOverallInvestmentStatus(userId) {
         totalAmount: { $sum: "$productPrice" },
         totalPaidAmount: { $sum: "$totalPaidAmount" },
         totalRemainingAmount: { $sum: "$remainingAmount" },
-        totalDays: { $sum: "$totalDays" },
+        // MAX days (longest order) instead of SUM
+        maxDays: { $max: "$totalDays" },
+        // For remaining calculation, we need max of (totalDays - paidInstallments) per order
         totalPaidInstallments: { $sum: "$paidInstallments" },
       },
     },
@@ -749,6 +751,7 @@ async function getOverallInvestmentStatus(userId) {
       totalPaidAmount: 0,
       totalRemainingAmount: 0,
       totalDays: 0,
+      maxDays: 0,
       totalPaidInstallments: 0,
       remainingDays: 0,
       progressPercent: 0,
@@ -756,6 +759,28 @@ async function getOverallInvestmentStatus(userId) {
       nextDueInstallment: null,
     };
   }
+
+  // Get max remaining days from any single order
+  // (longest order's remaining days)
+  const [maxRemainingResult] = await InstallmentOrder.aggregate([
+    {
+      $match: {
+        user: userObjectId,
+        status: "ACTIVE",
+      },
+    },
+    {
+      $project: {
+        remainingDaysForOrder: { $subtract: ["$totalDays", "$paidInstallments"] },
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        maxRemainingDays: { $max: "$remainingDaysForOrder" },
+      },
+    },
+  ]);
 
   // Status breakdown (sirf ACTIVE orders ka count)
   const statusBreakdown = {
@@ -768,11 +793,12 @@ async function getOverallInvestmentStatus(userId) {
     totalAmount,
     totalPaidAmount,
     totalRemainingAmount,
-    totalDays,
+    maxDays,
     totalPaidInstallments,
   } = totals;
 
-  const remainingDays = Math.max(0, totalDays - totalPaidInstallments);
+  // Use max remaining days from longest order
+  const remainingDays = maxRemainingResult?.maxRemainingDays || 0;
   const progressPercent =
     totalAmount > 0
       ? Math.round((totalPaidAmount / totalAmount) * 100 * 100) / 100 // 2 decimal %
@@ -813,8 +839,12 @@ async function getOverallInvestmentStatus(userId) {
     totalAmount,
     totalPaidAmount,
     totalRemainingAmount,
-    totalDays,
+    // maxDays = longest order ki total days (e.g., 10 din ka order hai toh 10)
+    maxDays,
+    // totalDays = maxDays (for backward compatibility, now shows max instead of sum)
+    totalDays: maxDays,
     totalPaidInstallments,
+    // remainingDays = longest order mein kitne din bache hain
     remainingDays,
     progressPercent,
     statusBreakdown,

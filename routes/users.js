@@ -517,17 +517,269 @@ router.get('/:userId/wishlist/count', async (req, res) => {
 router.get('/:userId/bank-details', async (req, res) => {
   try {
     const user = await User.findById(req.params.userId).select('bankDetails');
-    
+
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
-    
+
     res.status(200).json({
       success: true,
       bankDetails: user.bankDetails
     });
   } catch (error) {
     console.error('Error fetching bank details:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+/**
+ * @route   POST /api/users/:userId/bank-details
+ * @desc    Add a new bank account
+ * @access  Private
+ */
+router.post('/:userId/bank-details', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const {
+      accountNumber,
+      ifscCode,
+      accountHolderName,
+      bankName,
+      branchName,
+      upiId,
+      isDefault
+    } = req.body;
+
+    // Verify user permissions (either the same user or admin)
+    if (req.user._id.toString() !== userId && req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
+    }
+
+    // Validate required fields - at least account details OR UPI is required
+    const hasAccountDetails = accountNumber && ifscCode && accountHolderName && bankName;
+    const hasUpiDetails = upiId;
+
+    if (!hasAccountDetails && !hasUpiDetails) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide either bank account details (accountNumber, ifscCode, accountHolderName, bankName) or UPI ID'
+      });
+    }
+
+    // Validate IFSC code format (if provided)
+    if (ifscCode && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifscCode.toUpperCase())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid IFSC code format. It should be 11 characters (e.g., SBIN0001234)'
+      });
+    }
+
+    // Validate account number (if provided) - must be numeric and 9-18 digits
+    if (accountNumber && !/^\d{9,18}$/.test(accountNumber)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid account number. It should be 9-18 digits'
+      });
+    }
+
+    // Validate UPI ID format (if provided)
+    if (upiId && !/^[\w.-]+@[\w.-]+$/.test(upiId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid UPI ID format (e.g., username@upi)'
+      });
+    }
+
+    // Find user
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Check for duplicate account number
+    if (accountNumber) {
+      const duplicateAccount = user.bankDetails.find(
+        bank => bank.accountNumber === accountNumber
+      );
+      if (duplicateAccount) {
+        return res.status(409).json({
+          success: false,
+          message: 'Bank account with this account number already exists'
+        });
+      }
+    }
+
+    // Check for duplicate UPI ID
+    if (upiId) {
+      const duplicateUpi = user.bankDetails.find(
+        bank => bank.upiId === upiId
+      );
+      if (duplicateUpi) {
+        return res.status(409).json({
+          success: false,
+          message: 'Bank account with this UPI ID already exists'
+        });
+      }
+    }
+
+    // Create new bank details object
+    const newBankDetails = {
+      accountNumber: accountNumber || '',
+      ifscCode: ifscCode ? ifscCode.toUpperCase() : '',
+      accountHolderName: accountHolderName || '',
+      bankName: bankName || '',
+      branchName: branchName || '',
+      upiId: upiId || '',
+      isDefault: isDefault || false,
+      isVerified: false,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    // If this is the first bank account or isDefault is true, update all other accounts
+    if (isDefault || user.bankDetails.length === 0) {
+      if (user.bankDetails.length > 0) {
+        await User.updateOne(
+          { _id: userId },
+          { $set: { "bankDetails.$[].isDefault": false } }
+        );
+      }
+      newBankDetails.isDefault = true;
+    }
+
+    // Add bank details to user
+    user.bankDetails.push(newBankDetails);
+    await user.save();
+
+    res.status(201).json({
+      success: true,
+      message: 'Bank account added successfully',
+      bankDetails: user.bankDetails
+    });
+  } catch (error) {
+    console.error('Error adding bank details:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+/**
+ * @route   PUT /api/users/:userId/bank-details/:bankId
+ * @desc    Update a bank account
+ * @access  Private
+ */
+router.put('/:userId/bank-details/:bankId', verifyToken, async (req, res) => {
+  try {
+    const { userId, bankId } = req.params;
+    const {
+      accountNumber,
+      ifscCode,
+      accountHolderName,
+      bankName,
+      branchName,
+      upiId,
+      isDefault
+    } = req.body;
+
+    // Verify user permissions (either the same user or admin)
+    if (req.user._id.toString() !== userId && req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
+    }
+
+    // Validate IFSC code format (if provided)
+    if (ifscCode && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifscCode.toUpperCase())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid IFSC code format. It should be 11 characters (e.g., SBIN0001234)'
+      });
+    }
+
+    // Validate account number (if provided) - must be numeric and 9-18 digits
+    if (accountNumber && !/^\d{9,18}$/.test(accountNumber)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid account number. It should be 9-18 digits'
+      });
+    }
+
+    // Validate UPI ID format (if provided)
+    if (upiId && !/^[\w.-]+@[\w.-]+$/.test(upiId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid UPI ID format (e.g., username@upi)'
+      });
+    }
+
+    // Find user
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Find bank account index
+    const bankIndex = user.bankDetails.findIndex(bank => bank._id.toString() === bankId);
+    if (bankIndex === -1) {
+      return res.status(404).json({ success: false, message: 'Bank account not found' });
+    }
+
+    // Check for duplicate account number (excluding current account)
+    if (accountNumber) {
+      const duplicateAccount = user.bankDetails.find(
+        (bank, index) => bank.accountNumber === accountNumber && index !== bankIndex
+      );
+      if (duplicateAccount) {
+        return res.status(409).json({
+          success: false,
+          message: 'Another bank account with this account number already exists'
+        });
+      }
+    }
+
+    // Check for duplicate UPI ID (excluding current account)
+    if (upiId) {
+      const duplicateUpi = user.bankDetails.find(
+        (bank, index) => bank.upiId === upiId && index !== bankIndex
+      );
+      if (duplicateUpi) {
+        return res.status(409).json({
+          success: false,
+          message: 'Another bank account with this UPI ID already exists'
+        });
+      }
+    }
+
+    // Update bank details fields if provided
+    if (accountNumber !== undefined) user.bankDetails[bankIndex].accountNumber = accountNumber;
+    if (ifscCode !== undefined) user.bankDetails[bankIndex].ifscCode = ifscCode.toUpperCase();
+    if (accountHolderName !== undefined) user.bankDetails[bankIndex].accountHolderName = accountHolderName;
+    if (bankName !== undefined) user.bankDetails[bankIndex].bankName = bankName;
+    if (branchName !== undefined) user.bankDetails[bankIndex].branchName = branchName;
+    if (upiId !== undefined) user.bankDetails[bankIndex].upiId = upiId;
+
+    // If account number or IFSC changed, reset verification status
+    if (accountNumber !== undefined || ifscCode !== undefined) {
+      user.bankDetails[bankIndex].isVerified = false;
+    }
+
+    // Handle default setting
+    if (isDefault) {
+      // Set all bank accounts to non-default
+      user.bankDetails.forEach((bank, index) => {
+        user.bankDetails[index].isDefault = false;
+      });
+      // Set this account as default
+      user.bankDetails[bankIndex].isDefault = true;
+    }
+
+    user.bankDetails[bankIndex].updatedAt = new Date();
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Bank account updated successfully',
+      bankDetails: user.bankDetails
+    });
+  } catch (error) {
+    console.error('Error updating bank details:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
@@ -1326,6 +1578,101 @@ router.put('/:userId/kyc-details/verify', verifyToken, isAdmin, async (req, res)
     });
   } catch (error) {
     console.error('Error updating KYC verification status:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+/**
+ * @route   GET /api/users/:userId/kyc-withdrawal-status
+ * @desc    Check KYC verification status for withdrawal eligibility
+ * @access  Private
+ */
+router.get('/:userId/kyc-withdrawal-status', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // Verify user permissions (either the same user or admin)
+    if (req.user._id.toString() !== userId && req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
+    }
+
+    // Find user
+    const user = await User.findById(userId).select('kycDetails kycDocuments bankDetails');
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Check KYC verification status
+    const kycDetails = user.kycDetails || {};
+    const kycDocuments = user.kycDocuments || [];
+
+    // Check if Aadhar is verified (either in kycDetails or kycDocuments)
+    const aadharVerified = kycDetails.aadharVerified ||
+      kycDocuments.some(doc =>
+        doc.docType && doc.docType.toLowerCase().includes('aadhar') && doc.isVerified
+      );
+
+    // Check if PAN is verified (either in kycDetails or kycDocuments)
+    const panVerified = kycDetails.panVerified ||
+      kycDocuments.some(doc =>
+        doc.docType && doc.docType.toLowerCase().includes('pan') && doc.isVerified
+      );
+
+    // Check if any KYC document is verified
+    const hasVerifiedDocument = kycDocuments.some(doc => doc.isVerified);
+
+    // Check if user has at least one bank account
+    const hasBankAccount = user.bankDetails && user.bankDetails.length > 0;
+
+    // Check if user has a verified bank account
+    const hasVerifiedBankAccount = user.bankDetails &&
+      user.bankDetails.some(bank => bank.isVerified);
+
+    // Determine overall withdrawal eligibility
+    // Rule: User must have at least Aadhar OR PAN verified AND at least one bank account
+    const isEligibleForWithdrawal = (aadharVerified || panVerified) && hasBankAccount;
+
+    // Build detailed status response
+    const status = {
+      isEligibleForWithdrawal,
+      kycStatus: {
+        aadharVerified,
+        panVerified,
+        hasVerifiedDocument,
+        aadharNumber: kycDetails.aadharCardNumber ?
+          '****' + kycDetails.aadharCardNumber.slice(-4) : null,
+        panNumber: kycDetails.panCardNumber ?
+          kycDetails.panCardNumber.slice(0, 2) + '****' + kycDetails.panCardNumber.slice(-2) : null
+      },
+      bankStatus: {
+        hasBankAccount,
+        hasVerifiedBankAccount,
+        totalBankAccounts: user.bankDetails ? user.bankDetails.length : 0
+      },
+      pendingDocuments: kycDocuments.filter(doc => doc.status === 'pending').length,
+      rejectedDocuments: kycDocuments.filter(doc => doc.status === 'rejected').length
+    };
+
+    // Build requirements message
+    const requirements = [];
+    if (!aadharVerified && !panVerified) {
+      requirements.push('Verify your Aadhar Card or PAN Card');
+    }
+    if (!hasBankAccount) {
+      requirements.push('Add at least one bank account');
+    }
+
+    res.status(200).json({
+      success: true,
+      isEligibleForWithdrawal,
+      status,
+      requirements: requirements.length > 0 ? requirements : null,
+      message: isEligibleForWithdrawal
+        ? 'You are eligible for withdrawal'
+        : 'Complete KYC verification to enable withdrawals'
+    });
+  } catch (error) {
+    console.error('Error checking KYC withdrawal status:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });

@@ -307,6 +307,81 @@ class BulkOrderNotFoundError extends AppError {
   }
 }
 
+/**
+ * Address Not Found - 404
+ * Thrown when requested address doesn't exist
+ */
+class AddressNotFoundError extends AppError {
+  constructor(addressId = null) {
+    super(
+      'Address not found',
+      404,
+      'ADDRESS_NOT_FOUND',
+      addressId ? { addressId } : {}
+    );
+  }
+}
+
+/**
+ * Bank Account Not Found - 404
+ * Thrown when requested bank account doesn't exist
+ */
+class BankAccountNotFoundError extends AppError {
+  constructor(bankAccountId = null) {
+    super(
+      'Bank account not found',
+      404,
+      'BANK_ACCOUNT_NOT_FOUND',
+      bankAccountId ? { bankAccountId } : {}
+    );
+  }
+}
+
+/**
+ * KYC Not Verified - 403
+ * Thrown when user attempts withdrawal without KYC verification
+ */
+class KYCNotVerifiedError extends AppError {
+  constructor(details = {}) {
+    super(
+      'KYC verification required to perform this action',
+      403,
+      'KYC_NOT_VERIFIED',
+      details
+    );
+  }
+}
+
+/**
+ * KYC Document Not Found - 404
+ * Thrown when requested KYC document doesn't exist
+ */
+class KYCDocumentNotFoundError extends AppError {
+  constructor(documentId = null) {
+    super(
+      'KYC document not found',
+      404,
+      'KYC_DOCUMENT_NOT_FOUND',
+      documentId ? { documentId } : {}
+    );
+  }
+}
+
+/**
+ * Duplicate Bank Account - 409
+ * Thrown when user attempts to add a duplicate bank account
+ */
+class DuplicateBankAccountError extends AppError {
+  constructor(accountNumber = null) {
+    super(
+      'Bank account already exists',
+      409,
+      'DUPLICATE_BANK_ACCOUNT',
+      accountNumber ? { accountNumber: accountNumber.slice(-4) } : {}
+    );
+  }
+}
+
 module.exports = {
   AppError,
   OrderNotFoundError,
@@ -325,5 +400,10 @@ module.exports = {
   UserNotFoundError,
   TransactionFailedError,
   BulkOrderError,
-  BulkOrderNotFoundError
+  BulkOrderNotFoundError,
+  AddressNotFoundError,
+  BankAccountNotFoundError,
+  KYCNotVerifiedError,
+  KYCDocumentNotFoundError,
+  DuplicateBankAccountError
 };

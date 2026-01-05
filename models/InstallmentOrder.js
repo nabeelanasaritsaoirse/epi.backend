@@ -232,7 +232,7 @@ const installmentOrderSchema = new mongoose.Schema(
         status: {
           type: String,
           enum: ['SUCCESS', 'FAILED', 'SKIPPED', 'INSUFFICIENT_BALANCE'],
-          default: null
+          default: undefined
         },
         errorMessage: { type: String, default: null },
       },
