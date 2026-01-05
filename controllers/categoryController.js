@@ -1,7 +1,6 @@
 const Category = require("../models/Category");
 const {
   uploadSingleFileToS3,
-  uploadMultipleFilesToS3,
   deleteImageFromS3,
 } = require("../services/awsUploadService");
 const {
@@ -143,7 +142,10 @@ exports.getAllCategories = async (req, res) => {
     }
 
     const categories = await Category.find(filter)
-      .populate("subCategories", "categoryId name slug image displayOrder")
+      .populate(
+        "subCategories",
+        "categoryId name slug displayOrder mainImage iconImage"
+      )
       .sort({ displayOrder: 1, name: 1 })
       .exec();
 
@@ -239,7 +241,10 @@ exports.getCategoryById = async (req, res) => {
   try {
     const category = await Category.findById(req.params.categoryId)
       .populate("parentCategoryId", "categoryId name slug")
-      .populate("subCategories", "categoryId name slug image displayOrder")
+      .populate(
+        "subCategories",
+        "categoryId name slug displayOrder mainImage iconImage"
+      )
       .exec();
 
     if (!category) {
@@ -320,7 +325,7 @@ exports.getCategoriesForDropdown = async (req, res) => {
         match: { isActive: true },
         select: "categoryId name slug",
       })
-      .select("categoryId name slug image")
+      .select("categoryId name slug mainImage iconImage")
       .sort({ displayOrder: 1, name: 1 })
       .exec();
 
@@ -578,7 +583,10 @@ exports.searchCategories = async (req, res) => {
       ],
       isActive: true,
     })
-      .populate("subCategories", "categoryId name slug")
+      .populate(
+        "subCategories",
+        "categoryId name slug displayOrder mainImage iconImage"
+      )
       .limit(20)
       .exec();
 
@@ -771,7 +779,11 @@ exports.getFeaturedCategories = async (req, res) => {
       isFeatured: true,
       isActive: true,
     })
-      .populate("subCategories", "categoryId name slug image")
+      .populate(
+        "subCategories",
+        "categoryId name slug displayOrder mainImage iconImage"
+      )
+
       .sort({ displayOrder: 1, name: 1 })
       .exec();
 
@@ -981,8 +993,12 @@ exports.updateCategoryImages = async (req, res) => {
       const fileArr = req.files[field];
       if (!fileArr || !fileArr[0]) continue;
 
-      const file = fileArr[0];
+      // 🔥 DELETE OLD IMAGE FROM S3 (CRITICAL FIX)
+      if (category[field]?.url) {
+        await deleteImageFromS3(category[field].url);
+      }
 
+      const file = fileArr[0];
       const uploadResult = await uploadSingleFileToS3(file, "categories/", 800);
 
       category[field] = {
