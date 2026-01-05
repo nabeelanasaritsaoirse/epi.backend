@@ -112,6 +112,16 @@ app.use((err, req, res, next) => {
 require("./services/kycAutoApproveService");
 
 // ======================================================================
+// CRON JOBS
+// ======================================================================
+const { startNotificationCron } = require("./jobs/notificationCron");
+const { startAutopayCron } = require("./jobs/autopayCron");
+
+// Start cron jobs
+startNotificationCron();
+startAutopayCron();
+
+// ======================================================================
 // ROUTES
 // ======================================================================
 app.use("/api/auth", authRoutes);

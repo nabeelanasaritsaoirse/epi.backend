@@ -397,7 +397,90 @@ const userSchema = new Schema({
     systemNotifications: {
       type: Boolean,
       default: true
+    },
+    // Autopay specific notifications
+    autopaySuccess: {
+      type: Boolean,
+      default: true
+    },
+    autopayFailed: {
+      type: Boolean,
+      default: true
+    },
+    lowBalanceAlert: {
+      type: Boolean,
+      default: true
+    },
+    dailyReminder: {
+      type: Boolean,
+      default: true
     }
+  },
+
+  // Autopay Settings (Global for user)
+  autopaySettings: {
+    // Global autopay enable/disable
+    enabled: {
+      type: Boolean,
+      default: false
+    },
+    // Preferred payment time: MORNING_6AM, AFTERNOON_12PM, EVENING_6PM
+    timePreference: {
+      type: String,
+      enum: ['MORNING_6AM', 'AFTERNOON_12PM', 'EVENING_6PM'],
+      default: 'MORNING_6AM'
+    },
+    // Minimum balance to keep in wallet (won't use this amount for autopay)
+    minimumBalanceLock: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    // Alert when balance goes below this threshold
+    lowBalanceThreshold: {
+      type: Number,
+      default: 500,
+      min: 0
+    },
+    // Send daily reminder before autopay
+    sendDailyReminder: {
+      type: Boolean,
+      default: true
+    },
+    // Reminder time (hours before autopay)
+    reminderHoursBefore: {
+      type: Number,
+      default: 1,
+      min: 1,
+      max: 12
+    }
+  },
+
+  // Payment Streak Tracking
+  paymentStreak: {
+    current: {
+      type: Number,
+      default: 0
+    },
+    longest: {
+      type: Number,
+      default: 0
+    },
+    lastPaymentDate: {
+      type: Date,
+      default: null
+    },
+    // Streak rewards earned
+    totalRewardsEarned: {
+      type: Number,
+      default: 0
+    },
+    // Milestones achieved [7, 30, 60, 90, etc.]
+    milestonesAchieved: [{
+      days: Number,
+      achievedAt: Date,
+      rewardAmount: Number
+    }]
   },
 
   deletionRequest: {
