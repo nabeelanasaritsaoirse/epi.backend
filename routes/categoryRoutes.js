@@ -2,50 +2,11 @@ const express = require("express");
 const router = express.Router();
 const categoryController = require("../controllers/categoryController");
 const { verifyToken, isAdmin, optionalAuth } = require("../middlewares/auth");
-const { uploadSingle } = require("../middlewares/uploadMiddleware");
-const { uploadCategoryImages } = require("../middlewares/uploadMiddleware");
-const { uploadCategoryBanners } = require("../middlewares/uploadMiddleware");
-
-/**
- * Public routes
- */
-
-// Export categories (admin only - must be BEFORE generic routes)
-router.get(
-  "/export",
-  verifyToken,
-  isAdmin,
-  categoryController.exportCategories
-);
-
-// Get category stats
-router.get("/stats", categoryController.getCategoryStats);
-
-// Get featured categories
-router.get("/featured", categoryController.getFeaturedCategories);
-
-// Get all main categories with subcategories (for dropdown)
-router.get(
-  "/dropdown/all",
-  optionalAuth,
-  categoryController.getCategoriesForDropdown
-);
-
-// Get all categories
-router.get("/", optionalAuth, categoryController.getAllCategories);
-
-// Search categories
-router.get("/search/:query", optionalAuth, categoryController.searchCategories);
-
-// Get category by ID with subcategories
-router.get(
-  "/:categoryId/with-subcategories",
-  optionalAuth,
-  categoryController.getCategoryWithSubcategories
-);
-
-// Get category by ID
-router.get("/:categoryId", optionalAuth, categoryController.getCategoryById);
+const {
+  uploadSingle,
+  uploadCategoryImages,
+  uploadCategoryBanners,
+} = require("../middlewares/uploadMiddleware");
 
 /**
  * Admin routes (With authentication)
@@ -89,6 +50,47 @@ router.put(
   uploadCategoryImages,
   categoryController.updateCategoryImages
 );
+/**
+ * Public routes
+ */
+
+// Export categories (admin only - must be BEFORE generic routes)
+router.get(
+  "/export",
+  verifyToken,
+  isAdmin,
+  categoryController.exportCategories
+);
+
+// Get category stats
+router.get("/stats", categoryController.getCategoryStats);
+
+// Get featured categories
+router.get("/featured", categoryController.getFeaturedCategories);
+
+// Get all main categories with subcategories (for dropdown)
+router.get(
+  "/dropdown/all",
+  optionalAuth,
+  categoryController.getCategoriesForDropdown
+);
+
+// Get all categories
+router.get("/", optionalAuth, categoryController.getAllCategories);
+
+// Search categories
+router.get("/search/:query", optionalAuth, categoryController.searchCategories);
+
+// Get category by ID with subcategories
+router.get(
+  "/:categoryId/with-subcategories",
+  optionalAuth,
+  categoryController.getCategoryWithSubcategories
+);
+
+// Get category by ID
+router.get("/:categoryId", optionalAuth, categoryController.getCategoryById);
+
 /**
  * CATEGORY BANNER IMAGES (ARRAY)
  */

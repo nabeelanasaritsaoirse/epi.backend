@@ -1143,6 +1143,15 @@ exports.deleteCategoryBannerImage = async (req, res) => {
         .status(404)
         .json({ success: false, message: "Category not found" });
     }
+    if (
+      !Array.isArray(category.bannerImages) ||
+      category.bannerImages.length === 0
+    ) {
+      return res.status(404).json({
+        success: false,
+        message: "No banner images found for this category",
+      });
+    }
 
     const banner = category.bannerImages.id(bannerImageId);
     if (!banner) {
