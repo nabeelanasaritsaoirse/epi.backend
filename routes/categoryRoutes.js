@@ -116,23 +116,23 @@ router.put(
   categoryController.updateCategory
 );
 
-// Update category image (with file upload)
-router.put(
-  "/:categoryId/image",
-  verifyToken,
-  isAdmin,
-  uploadSingle,
-  categoryController.updateCategoryImage
-);
+// // Update category image (with file upload)
+// router.put(
+//   "/:categoryId/image",
+//   verifyToken,
+//   isAdmin,
+//   uploadSingle,
+//   categoryController.updateCategoryImage
+// );
 
-// Update category banner (with file upload)
-router.put(
-  "/:categoryId/banner",
-  verifyToken,
-  isAdmin,
-  uploadSingle,
-  categoryController.updateCategoryBanner
-);
+// // Update category banner (with file upload)
+// router.put(
+//   "/:categoryId/banner",
+//   verifyToken,
+//   isAdmin,
+//   uploadSingle,
+//   categoryController.updateCategoryBanner
+// );
 
 // Update category meta/SEO
 router.put(
