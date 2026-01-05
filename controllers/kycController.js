@@ -31,10 +31,16 @@ exports.submitKyc = async (req, res) => {
       });
     }
 
+    // 🔴 FIX: normalize document types (CASE SAFE)
+    const normalizedDocuments = documents.map((doc) => ({
+      ...doc,
+      type: typeof doc.type === "string" ? doc.type.toLowerCase() : doc.type,
+    }));
+
     // Required types for your flow
     const requiredTypes = ["selfie", "aadhaar", "pan"];
 
-    const uploadedTypes = documents.map((d) => d.type);
+    const uploadedTypes = normalizedDocuments.map((d) => d.type);
 
     // Ensure all required types exist
     for (const t of requiredTypes) {
@@ -47,7 +53,7 @@ exports.submitKyc = async (req, res) => {
     }
 
     // Validate structure of each document
-    for (const doc of documents) {
+    for (const doc of normalizedDocuments) {
       if (!doc.type) {
         return res.status(400).json({
           success: false,
@@ -112,7 +118,7 @@ exports.submitKyc = async (req, res) => {
 
     const newKyc = new Kyc({
       userId,
-      documents,
+      documents: normalizedDocuments, // 🔴 use normalized docs
       aadhaarNumber,
       panNumber,
       status: "pending",
