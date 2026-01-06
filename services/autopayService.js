@@ -29,6 +29,25 @@ const { creditCommissionToWallet } = require("./installmentWalletService");
 const StreakConfig = require("../models/StreakConfig");
 
 /**
+ * Build query to find order by ID (handles both ObjectId and string orderId)
+ * @param {string} orderId - Order ID (can be ObjectId or orderId string)
+ * @param {string} userId - User ID
+ * @returns {Object} MongoDB query object
+ */
+function buildOrderQuery(orderId, userId) {
+  const query = { user: userId };
+
+  // Check if it's a valid 24-character hex string (ObjectId format)
+  if (mongoose.Types.ObjectId.isValid(orderId) && String(orderId).match(/^[0-9a-fA-F]{24}$/)) {
+    query.$or = [{ _id: orderId }, { orderId }];
+  } else {
+    query.orderId = orderId;
+  }
+
+  return query;
+}
+
+/**
  * Enable autopay for a specific order
  *
  * @param {string} orderId - Order ID
@@ -38,10 +57,7 @@ const StreakConfig = require("../models/StreakConfig");
  */
 async function enableAutopayForOrder(orderId, userId, options = {}) {
   try {
-    const order = await InstallmentOrder.findOne({
-      $or: [{ _id: orderId }, { orderId }],
-      user: userId,
-    });
+    const order = await InstallmentOrder.findOne(buildOrderQuery(orderId, userId));
 
     if (!order) {
       throw new Error("Order not found");
@@ -93,10 +109,7 @@ async function enableAutopayForOrder(orderId, userId, options = {}) {
  */
 async function disableAutopayForOrder(orderId, userId) {
   try {
-    const order = await InstallmentOrder.findOne({
-      $or: [{ _id: orderId }, { orderId }],
-      user: userId,
-    });
+    const order = await InstallmentOrder.findOne(buildOrderQuery(orderId, userId));
 
     if (!order) {
       throw new Error("Order not found");
@@ -207,10 +220,7 @@ async function disableAutopayForAllOrders(userId) {
  */
 async function pauseAutopay(orderId, userId, pauseUntil) {
   try {
-    const order = await InstallmentOrder.findOne({
-      $or: [{ _id: orderId }, { orderId }],
-      user: userId,
-    });
+    const order = await InstallmentOrder.findOne(buildOrderQuery(orderId, userId));
 
     if (!order) {
       throw new Error("Order not found");
@@ -262,10 +272,7 @@ async function pauseAutopay(orderId, userId, pauseUntil) {
  */
 async function resumeAutopay(orderId, userId) {
   try {
-    const order = await InstallmentOrder.findOne({
-      $or: [{ _id: orderId }, { orderId }],
-      user: userId,
-    });
+    const order = await InstallmentOrder.findOne(buildOrderQuery(orderId, userId));
 
     if (!order) {
       throw new Error("Order not found");
@@ -306,10 +313,7 @@ async function resumeAutopay(orderId, userId) {
  */
 async function addSkipDates(orderId, userId, dates) {
   try {
-    const order = await InstallmentOrder.findOne({
-      $or: [{ _id: orderId }, { orderId }],
-      user: userId,
-    });
+    const order = await InstallmentOrder.findOne(buildOrderQuery(orderId, userId));
 
     if (!order) {
       throw new Error("Order not found");
@@ -381,10 +385,7 @@ async function addSkipDates(orderId, userId, dates) {
  */
 async function removeSkipDate(orderId, userId, date) {
   try {
-    const order = await InstallmentOrder.findOne({
-      $or: [{ _id: orderId }, { orderId }],
-      user: userId,
-    });
+    const order = await InstallmentOrder.findOne(buildOrderQuery(orderId, userId));
 
     if (!order) {
       throw new Error("Order not found");
@@ -589,10 +590,7 @@ async function setAutopayPriority(orderId, userId, priority) {
     }
 
     const order = await InstallmentOrder.findOneAndUpdate(
-      {
-        $or: [{ _id: orderId }, { orderId }],
-        user: userId,
-      },
+      buildOrderQuery(orderId, userId),
       { $set: { "autopay.priority": priority } },
       { new: true }
     );

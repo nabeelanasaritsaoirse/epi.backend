@@ -861,6 +861,27 @@ async function processSelectedDailyPayments(data) {
       const nextInstallment = order.getNextPendingInstallment();
       const paymentAmount = nextInstallment?.amount || order.dailyPaymentAmount;
 
+      // Generate idempotency key
+      const idempotencyKey = generateIdempotencyKey(
+        order._id.toString(),
+        userId,
+        nextInstallment.installmentNumber
+      );
+
+      // Check if payment already exists (idempotency check)
+      const existingPayment = await PaymentRecord.findOne({ idempotencyKey });
+      if (existingPayment) {
+        console.log(`⚠️ Payment already processed for order ${order.orderId}, installment ${nextInstallment.installmentNumber}`);
+        results.push({
+          orderId: order.orderId,
+          installmentNumber: nextInstallment.installmentNumber,
+          amount: paymentAmount,
+          status: "ALREADY_PROCESSED",
+          paymentId: existingPayment._id,
+        });
+        continue; // Skip this order
+      }
+
       // Handle wallet deduction
       let walletTransactionId = null;
       if (paymentMethod === "WALLET") {
@@ -892,11 +913,7 @@ async function processSelectedDailyPayments(data) {
         razorpayVerified: paymentMethod === "RAZORPAY",
         walletTransactionId,
         status: "COMPLETED",
-        idempotencyKey: generateIdempotencyKey(
-          order._id.toString(),
-          userId,
-          nextInstallment.installmentNumber
-        ),
+        idempotencyKey: idempotencyKey,
         processedAt: new Date(),
         completedAt: new Date(),
       });
