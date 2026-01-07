@@ -96,8 +96,8 @@ router.get('/', verifyToken, async (req, res) => {
         quantity: quantity,
         variant: variantInfo,
         installmentPlan: {
-          totalDays: installmentPlan.totalDays || 0,
-          dailyAmount: installmentPlan.dailyAmount || 0,
+          totalDays: installmentPlan.totalDays || null,
+          dailyAmount: installmentPlan.dailyAmount || null,
           totalAmount: totalInstallmentAmount
         },
         addedAt: item.addedAt,
@@ -323,8 +323,8 @@ router.post('/add/:productId', verifyToken, async (req, res) => {
           totalDays: Number(totalDays),
           dailyAmount: Number(dailyAmount)
         } : {
-          totalDays: 0,
-          dailyAmount: 0
+          totalDays: null,
+          dailyAmount: null
         },
         addedAt: new Date(),
         updatedAt: new Date()
