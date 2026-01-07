@@ -3,6 +3,14 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const { generateTokens, verifyToken } = require('../middlewares/auth');
+const { submitRegistrationRequest } = require('../controllers/adminRegistrationController');
+
+/**
+ * @route   POST /api/admin-auth/register-request
+ * @desc    Submit admin registration request
+ * @access  Public
+ */
+router.post('/register-request', submitRegistrationRequest);
 
 /**
  * @route   POST /api/admin-auth/login
@@ -24,10 +32,10 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Find admin user
+    // Find admin user (includes sales_team)
     const adminUser = await User.findOne({
       email,
-      role: { $in: ['admin', 'super_admin'] }
+      role: { $in: ['admin', 'super_admin', 'sales_team'] }
     });
 
     if (!adminUser) {
@@ -79,6 +87,7 @@ router.post('/login', async (req, res) => {
     // Determine user's modules
     let userModules = [];
     let isSuperAdmin = false;
+    let isSalesTeam = false;
 
     if (adminUser.role === 'super_admin') {
       // Super admin gets empty array - frontend shows ALL modules
@@ -87,6 +96,10 @@ router.post('/login', async (req, res) => {
     } else if (adminUser.role === 'admin') {
       // Sub-admin gets assigned modules (whatever frontend sent)
       userModules = adminUser.moduleAccess || [];
+    } else if (adminUser.role === 'sales_team') {
+      // Sales team gets fixed modules
+      isSalesTeam = true;
+      userModules = ['sales-dashboard', 'users'];
     }
 
     // Generate JWT tokens
@@ -104,6 +117,7 @@ router.post('/login', async (req, res) => {
         role: adminUser.role,
         profilePicture: adminUser.profilePicture || '',
         isSuperAdmin,
+        isSalesTeam,
         modules: userModules,
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken

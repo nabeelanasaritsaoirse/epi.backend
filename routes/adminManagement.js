@@ -3,6 +3,12 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const { verifyToken } = require('../middlewares/auth');
 const User = require('../models/User');
+const {
+  getRegistrationRequests,
+  getRegistrationRequestById,
+  approveRegistrationRequest,
+  rejectRegistrationRequest
+} = require('../controllers/adminRegistrationController');
 
 /**
  * Middleware: Require Super Admin role
@@ -450,6 +456,294 @@ router.get('/my-modules', verifyToken, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch module access',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * ADMIN REGISTRATION REQUEST MANAGEMENT ROUTES
+ */
+
+/**
+ * @route   GET /api/admin-mgmt/registration-requests
+ * @desc    Get all registration requests with filtering
+ * @access  Super Admin only
+ */
+router.get('/registration-requests', verifyToken, requireSuperAdmin, getRegistrationRequests);
+
+/**
+ * @route   GET /api/admin-mgmt/registration-requests/:requestId
+ * @desc    Get single registration request details
+ * @access  Super Admin only
+ */
+router.get('/registration-requests/:requestId', verifyToken, requireSuperAdmin, getRegistrationRequestById);
+
+/**
+ * @route   POST /api/admin-mgmt/registration-requests/:requestId/approve
+ * @desc    Approve registration request and create admin
+ * @access  Super Admin only
+ */
+router.post('/registration-requests/:requestId/approve', verifyToken, requireSuperAdmin, approveRegistrationRequest);
+
+/**
+ * @route   POST /api/admin-mgmt/registration-requests/:requestId/reject
+ * @desc    Reject registration request
+ * @access  Super Admin only
+ */
+router.post('/registration-requests/:requestId/reject', verifyToken, requireSuperAdmin, rejectRegistrationRequest);
+
+/**
+ * SALES TEAM MANAGEMENT ROUTES
+ */
+
+/**
+ * @route   GET /api/admin-mgmt/sales-team
+ * @desc    Get all sales team members
+ * @access  Super Admin only
+ */
+router.get('/sales-team', verifyToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const salesTeam = await User.find({
+      role: 'sales_team',
+      _id: { $ne: req.user._id }
+    })
+    .select('name email isActive createdAt createdBy lastLogin')
+    .populate('createdBy', 'name email')
+    .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      data: salesTeam,
+      count: salesTeam.length
+    });
+  } catch (error) {
+    console.error('Error fetching sales team members:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch sales team members',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route   POST /api/admin-mgmt/sales-team
+ * @desc    Create new sales team member
+ * @access  Super Admin only
+ */
+router.post('/sales-team', verifyToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+
+    // Validation
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name, email, and password are required',
+        code: 'MISSING_FIELDS'
+      });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid email format',
+        code: 'INVALID_EMAIL'
+      });
+    }
+
+    // Validate password strength
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters long',
+        code: 'WEAK_PASSWORD'
+      });
+    }
+
+    // Check if email already exists
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email already registered',
+        code: 'EMAIL_EXISTS'
+      });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Generate unique firebaseUid
+    const crypto = require('crypto');
+    const salesFirebaseUid = `sales_${crypto.randomBytes(8).toString('hex')}`;
+
+    // Create sales team member
+    const salesMember = new User({
+      name,
+      email: email.toLowerCase(),
+      firebaseUid: salesFirebaseUid,
+      password: hashedPassword,
+      role: 'sales_team',
+      createdBy: req.user._id,
+      isActive: true
+    });
+
+    await salesMember.save();
+
+    res.status(201).json({
+      success: true,
+      message: 'Sales team member created successfully',
+      data: {
+        salesMemberId: salesMember._id,
+        name: salesMember.name,
+        email: salesMember.email,
+        createdAt: salesMember.createdAt
+      }
+    });
+
+  } catch (error) {
+    console.error('Error creating sales team member:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create sales team member',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route   PUT /api/admin-mgmt/sales-team/:salesId
+ * @desc    Update sales team member
+ * @access  Super Admin only
+ */
+router.put('/sales-team/:salesId', verifyToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { salesId } = req.params;
+    const { name, isActive } = req.body;
+
+    const salesMember = await User.findById(salesId);
+
+    if (!salesMember || salesMember.role !== 'sales_team') {
+      return res.status(404).json({
+        success: false,
+        message: 'Sales team member not found'
+      });
+    }
+
+    // Update fields
+    if (name) salesMember.name = name;
+    if (typeof isActive === 'boolean') salesMember.isActive = isActive;
+
+    await salesMember.save();
+
+    res.json({
+      success: true,
+      message: 'Sales team member updated successfully',
+      data: {
+        salesMemberId: salesMember._id,
+        name: salesMember.name,
+        email: salesMember.email,
+        isActive: salesMember.isActive
+      }
+    });
+
+  } catch (error) {
+    console.error('Error updating sales team member:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update sales team member',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route   DELETE /api/admin-mgmt/sales-team/:salesId
+ * @desc    Deactivate sales team member (soft delete)
+ * @access  Super Admin only
+ */
+router.delete('/sales-team/:salesId', verifyToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { salesId } = req.params;
+
+    const salesMember = await User.findById(salesId);
+
+    if (!salesMember || salesMember.role !== 'sales_team') {
+      return res.status(404).json({
+        success: false,
+        message: 'Sales team member not found'
+      });
+    }
+
+    // Soft delete
+    salesMember.isActive = false;
+    await salesMember.save();
+
+    res.json({
+      success: true,
+      message: 'Sales team member deactivated successfully'
+    });
+
+  } catch (error) {
+    console.error('Error deactivating sales team member:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to deactivate sales team member',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route   POST /api/admin-mgmt/sales-team/:salesId/reset-password
+ * @desc    Reset sales team member password
+ * @access  Super Admin only
+ */
+router.post('/sales-team/:salesId/reset-password', verifyToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { salesId } = req.params;
+    const { newPassword } = req.body;
+
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters long',
+        code: 'WEAK_PASSWORD'
+      });
+    }
+
+    const salesMember = await User.findById(salesId);
+
+    if (!salesMember || salesMember.role !== 'sales_team') {
+      return res.status(404).json({
+        success: false,
+        message: 'Sales team member not found'
+      });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    salesMember.password = hashedPassword;
+    await salesMember.save();
+
+    res.json({
+      success: true,
+      message: 'Password reset successfully',
+      data: {
+        email: salesMember.email,
+        temporaryPassword: newPassword  // Return plaintext for super admin to share
+      }
+    });
+
+  } catch (error) {
+    console.error('Error resetting password:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to reset password',
       error: error.message
     });
   }

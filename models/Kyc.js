@@ -12,24 +12,23 @@ const documentSchema = new mongoose.Schema({
       "pan",
       "voter_id",
       "driving_license",
-      "passport"
+      "passport",
     ],
-    required: true
+    required: true,
   },
 
   // Selfie: only frontUrl
   // Aadhaar/PAN: both front + back
   frontUrl: {
     type: String,
-    required: true
+    required: true,
   },
 
   backUrl: {
     type: String,
-    default: null
-  }
+    default: null,
+  },
 });
-
 
 /**
  * Full KYC Entry
@@ -39,38 +38,46 @@ const kycSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",
     required: true,
-    unique: true
+    unique: true,
+  },
+  aadhaarNumber: {
+    type: String,
+    required: true,
   },
 
+  panNumber: {
+    type: String,
+    required: true,
+  },
   documents: {
     type: [documentSchema],
     validate: {
-      validator: docs => Array.isArray(docs) && docs.length > 0,
-      message: "At least 1 document is required"
-    }
+      validator: (docs) => Array.isArray(docs) && docs.length > 0,
+      message: "At least 1 document is required",
+    },
   },
 
   status: {
     type: String,
     enum: ["pending", "approved", "rejected", "auto_approved"],
-    default: "pending"
+    default: "pending",
   },
 
   // IMPORTANT: Matches controller field name
   rejectionNote: {
     type: String,
-    default: null
+    default: null,
   },
 
   submittedAt: {
     type: Date,
-    default: Date.now
+    default: Date.now,
   },
 
   updatedAt: {
     type: Date,
-    default: Date.now
-  }
+    default: Date.now,
+  },
 });
 
 /**

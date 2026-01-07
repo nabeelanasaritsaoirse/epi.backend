@@ -389,4 +389,147 @@ exports.getUserReferralDetailsById = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Update user's referral relationship (change who referred them)
+ * @route   PUT /api/admin/referrals/user/:userId/referrer
+ * @access  Admin
+ */
+exports.updateUserReferrer = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { newReferrerId, reason } = req.body;
+
+    // Validate inputs
+    if (!newReferrerId && newReferrerId !== null) {
+      return res.status(400).json({
+        success: false,
+        error: "Please provide newReferrerId (or null to remove referral)",
+      });
+    }
+
+    // Find the user
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    // Store old referrer for logging
+    const oldReferrerId = user.referredBy;
+
+    // If newReferrerId is provided (not null), validate it
+    if (newReferrerId) {
+      // Check if new referrer exists
+      const newReferrer = await User.findById(newReferrerId);
+      if (!newReferrer) {
+        return res.status(404).json({
+          success: false,
+          error: "New referrer user not found",
+        });
+      }
+
+      // Prevent self-referral
+      if (newReferrerId === userId) {
+        return res.status(400).json({
+          success: false,
+          error: "User cannot refer themselves",
+        });
+      }
+
+      // Check if user already has this referrer
+      if (oldReferrerId && oldReferrerId.toString() === newReferrerId.toString()) {
+        return res.status(400).json({
+          success: false,
+          error: "User is already referred by this referrer",
+        });
+      }
+    }
+
+    // Start transaction-like operations
+    // 1. Delete old referral record if exists
+    if (oldReferrerId) {
+      const oldReferral = await Referral.findOne({
+        referrer: oldReferrerId,
+        referredUser: userId,
+      });
+
+      if (oldReferral) {
+        // Check if there are any purchases
+        if (oldReferral.purchases && oldReferral.purchases.length > 0) {
+          return res.status(400).json({
+            success: false,
+            error: "Cannot change referrer: User has active purchases under current referral. Please contact technical team.",
+            details: {
+              totalPurchases: oldReferral.purchases.length,
+              totalCommission: oldReferral.totalCommission,
+            },
+          });
+        }
+
+        // Safe to delete - no purchases
+        await Referral.deleteOne({ _id: oldReferral._id });
+      }
+    }
+
+    // 2. Update user's referredBy field
+    user.referredBy = newReferrerId || null;
+    await user.save();
+
+    // 3. Create new referral record if newReferrerId is provided
+    let newReferral = null;
+    if (newReferrerId) {
+      newReferral = new Referral({
+        referrer: newReferrerId,
+        referredUser: userId,
+        status: "PENDING",
+        totalPurchases: 0,
+        totalPurchaseValue: 0,
+        totalCommission: 0,
+        commissionEarned: 0,
+        purchases: [],
+      });
+      await newReferral.save();
+    }
+
+    // Log the change for audit trail
+    console.log("🔄 Referral Updated by Admin:", {
+      userId,
+      userName: user.name,
+      oldReferrerId: oldReferrerId ? oldReferrerId.toString() : "None",
+      newReferrerId: newReferrerId || "None",
+      reason: reason || "No reason provided",
+      timestamp: new Date().toISOString(),
+      adminId: req.user._id,
+    });
+
+    res.json({
+      success: true,
+      message: "Referral relationship updated successfully",
+      data: {
+        userId: user._id,
+        userName: user.name,
+        previousReferrer: oldReferrerId
+          ? {
+              id: oldReferrerId,
+            }
+          : null,
+        newReferrer: newReferrerId
+          ? {
+              id: newReferrerId,
+            }
+          : null,
+        referralRecordCreated: !!newReferral,
+      },
+    });
+  } catch (error) {
+    console.error("Error in updateUserReferrer:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message || "Failed to update referral relationship",
+    });
+  }
+};
+
 module.exports = exports;

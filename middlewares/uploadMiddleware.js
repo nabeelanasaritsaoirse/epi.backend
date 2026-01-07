@@ -1,56 +1,73 @@
-const multer = require('multer');
+const multer = require("multer");
 
-// Memory storage - files will be available as req.file.buffer
+// Memory storage
 const storage = multer.memoryStorage();
 
-// File filter - only allow images
+// Image-only filter
 const fileFilter = (req, file, cb) => {
-  const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+  const allowedMimeTypes = [
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/webp",
+  ];
 
   if (allowedMimeTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error('Invalid file type. Only JPEG, PNG, and WebP images are allowed.'), false);
+    cb(
+      new Error(
+        "Invalid file type. Only JPEG, PNG, and WebP images are allowed."
+      ),
+      false
+    );
   }
 };
 
-/**
- * Single file upload handler
- * Supports both middleware and callback modes
- * Field names: "image" or "file"
- */
 const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
-  limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB max
-  }
+  storage,
+  fileFilter,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
 });
 
-// ✅ FIXED — uploadSingle now accepts BOTH "image" and "file"
+/* --------------------------------
+   SINGLE IMAGE (GENERIC)
+-----------------------------------*/
 const uploadSingle = upload.fields([
-  { name: 'image', maxCount: 1 },
-  { name: 'file', maxCount: 1 }
+  { name: "image", maxCount: 1 },
+  { name: "file", maxCount: 1 },
 ]);
 
-// Alternative middleware for routes that use it in middleware mode
-// Maps to fields to accept both "image" and "file"
 const uploadSingleMiddleware = upload.fields([
-  { name: 'image', maxCount: 1 },
-  { name: 'file', maxCount: 1 }
+  { name: "image", maxCount: 1 },
+  { name: "file", maxCount: 1 },
 ]);
 
-// Multiple files upload (unchanged)
-const uploadMultiple = multer({
-  storage: storage,
-  fileFilter: fileFilter,
-  limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB each
-  }
-}).array('images', 10);
+/* --------------------------------
+   MULTIPLE GENERIC IMAGES
+-----------------------------------*/
+const uploadMultiple = upload.array("images", 10);
+
+/* --------------------------------
+   FIXED CATEGORY IMAGES (SINGLE)
+-----------------------------------*/
+const uploadCategoryImages = upload.fields([
+  { name: "mainImage", maxCount: 1 },
+  { name: "illustrationImage", maxCount: 1 },
+  { name: "subcategoryImage", maxCount: 1 },
+  { name: "mobileImage", maxCount: 1 },
+  { name: "iconImage", maxCount: 1 },
+]);
+
+/* --------------------------------
+   🆕 BANNER IMAGES (ARRAY)
+-----------------------------------*/
+const uploadCategoryBanners = upload.array("bannerImages", 10);
 
 module.exports = {
   uploadSingle,
   uploadSingleMiddleware,
-  uploadMultiple
+  uploadMultiple,
+  uploadCategoryImages,
+  uploadCategoryBanners, // ✅ NEW
 };

@@ -202,6 +202,67 @@ const installmentOrderSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+
+    /** AUTOPAY SETTINGS (Order Level) **/
+    autopay: {
+      // Autopay enabled for this specific order
+      enabled: {
+        type: Boolean,
+        default: false,
+      },
+      // Priority for payment (lower = higher priority)
+      priority: {
+        type: Number,
+        default: 1,
+        min: 1,
+        max: 100,
+      },
+      // Pause autopay until this date
+      pausedUntil: {
+        type: Date,
+        default: null,
+      },
+      // Specific dates to skip autopay
+      skipDates: [{
+        type: Date,
+      }],
+      // Last autopay attempt info
+      lastAttempt: {
+        date: { type: Date, default: null },
+        status: {
+          type: String,
+          enum: ['SUCCESS', 'FAILED', 'SKIPPED', 'INSUFFICIENT_BALANCE'],
+          default: undefined
+        },
+        errorMessage: { type: String, default: null },
+      },
+      // Autopay history (last 10 entries)
+      history: [{
+        date: Date,
+        status: String,
+        amount: Number,
+        errorMessage: String,
+        paymentId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'PaymentRecord',
+        },
+      }],
+      // When autopay was enabled
+      enabledAt: {
+        type: Date,
+        default: null,
+      },
+      // Total successful autopayments
+      successCount: {
+        type: Number,
+        default: 0,
+      },
+      // Total failed autopayments
+      failedCount: {
+        type: Number,
+        default: 0,
+      },
+    },
   },
   { timestamps: true }
 );
@@ -212,6 +273,9 @@ installmentOrderSchema.index({ user: 1, createdAt: -1 });
 installmentOrderSchema.index({ status: 1, deliveryStatus: 1 });
 installmentOrderSchema.index({ referrer: 1, createdAt: -1 });
 installmentOrderSchema.index({ "paymentSchedule.status": 1 });
+// Autopay indexes
+installmentOrderSchema.index({ "autopay.enabled": 1, status: 1 });
+installmentOrderSchema.index({ "autopay.priority": 1 });
 
 /** PRE-SAVE **/
 installmentOrderSchema.pre("save", function (next) {
@@ -279,6 +343,77 @@ installmentOrderSchema.methods.markAsCompleted = async function () {
   this.status = "COMPLETED";
   this.completedAt = new Date();
   await this.save();
+};
+
+/** AUTOPAY METHODS **/
+
+/**
+ * Check if autopay is currently active for this order
+ */
+installmentOrderSchema.methods.isAutopayActive = function () {
+  if (!this.autopay?.enabled) return false;
+  if (this.status !== "ACTIVE") return false;
+
+  // Check if paused
+  if (this.autopay.pausedUntil) {
+    const now = new Date();
+    if (now < this.autopay.pausedUntil) return false;
+  }
+
+  return true;
+};
+
+/**
+ * Check if today is a skip date for autopay
+ */
+installmentOrderSchema.methods.isSkipDate = function (date = new Date()) {
+  if (!this.autopay?.skipDates?.length) return false;
+
+  const checkDate = new Date(date);
+  checkDate.setHours(0, 0, 0, 0);
+
+  return this.autopay.skipDates.some(skipDate => {
+    const skip = new Date(skipDate);
+    skip.setHours(0, 0, 0, 0);
+    return skip.getTime() === checkDate.getTime();
+  });
+};
+
+/**
+ * Check if order can process autopay today
+ */
+installmentOrderSchema.methods.canProcessAutopay = function () {
+  if (!this.isAutopayActive()) return false;
+  if (!this.canPayToday()) return false;
+  if (this.isSkipDate()) return false;
+  if (this.isFullyPaid()) return false;
+
+  return true;
+};
+
+/**
+ * Add entry to autopay history (keeps last 10)
+ */
+installmentOrderSchema.methods.addAutopayHistory = function (entry) {
+  if (!this.autopay) {
+    this.autopay = { history: [] };
+  }
+  if (!this.autopay.history) {
+    this.autopay.history = [];
+  }
+
+  this.autopay.history.unshift({
+    date: new Date(),
+    status: entry.status,
+    amount: entry.amount,
+    errorMessage: entry.errorMessage || null,
+    paymentId: entry.paymentId || null,
+  });
+
+  // Keep only last 10 entries
+  if (this.autopay.history.length > 10) {
+    this.autopay.history = this.autopay.history.slice(0, 10);
+  }
 };
 
 /** SUMMARY **/
