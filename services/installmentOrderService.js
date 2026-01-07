@@ -1365,9 +1365,7 @@ async function createBulkOrder(bulkOrderData) {
 
   // For WALLET payment, check balance upfront
   if (paymentMethod === "WALLET") {
-    const Wallet = require("../models/Wallet");
-    const wallet = await Wallet.findOne({ user: userId });
-    const walletBalance = wallet?.balance || 0;
+    const walletBalance = user.wallet?.balance || 0;
 
     if (walletBalance < totalFirstPayment) {
       throw new BulkOrderError(
@@ -1672,11 +1670,6 @@ async function createBulkOrder(bulkOrderData) {
       productPrice: o.productPrice,
       status: o.status,
     })),
-    payments: createdPayments.map((p) => ({
-      paymentId: p.paymentId,
-      orderId: p.orderId,
-      amount: p.amount,
-    })),
     failedItems: [
       ...invalidItems.map((i) => ({ index: i.itemIndex, error: i.error })),
       ...failedOrders,
@@ -1684,6 +1677,12 @@ async function createBulkOrder(bulkOrderData) {
   };
 
   if (paymentMethod === "RAZORPAY" && razorpayOrder) {
+    // For RAZORPAY: Return single payment ID for the combined payment
+    response.payment = {
+      razorpayOrderId: razorpayOrder.id,
+      amount: razorpayOrder.amount / 100, // Convert paise to rupees
+      currency: razorpayOrder.currency,
+    };
     response.razorpayOrder = {
       id: razorpayOrder.id,
       amount: razorpayOrder.amount,
@@ -1692,6 +1691,12 @@ async function createBulkOrder(bulkOrderData) {
     };
     response.message = "Bulk order created. Please complete payment via Razorpay.";
   } else if (paymentMethod === "WALLET") {
+    // For WALLET: Return multiple transaction IDs (one per order)
+    response.payments = createdPayments.map((p) => ({
+      paymentId: p.paymentId,
+      orderId: p.orderId,
+      amount: p.amount,
+    }));
     response.walletTransactionIds = walletTransactionIds;
     response.message = "Bulk order created and paid successfully via wallet.";
   }
@@ -1979,6 +1984,189 @@ async function getBulkOrderDetails(bulkOrderId, userId) {
   };
 }
 
+/**
+ * Preview Bulk Order (without creating orders)
+ *
+ * Validates all items and calculates totals without creating actual orders.
+ * Useful for showing users what they'll pay before committing to the order.
+ *
+ * @param {Object} bulkPreviewData
+ * @param {string} bulkPreviewData.userId - User ID
+ * @param {Array} bulkPreviewData.items - Array of order items
+ * @param {Object} bulkPreviewData.deliveryAddress - Delivery address
+ * @returns {Promise<Object>} Preview data with all calculations
+ */
+async function previewBulkOrder(bulkPreviewData) {
+  const { userId, items, deliveryAddress } = bulkPreviewData;
+
+  console.log("\n========================================");
+  console.log("🔍 BULK ORDER PREVIEW: Starting validation");
+  console.log("========================================");
+  console.log(`📦 Items count: ${items.length}`);
+
+  // Validate items array
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    throw new ValidationError([{ field: "items", message: "Items array is required and must not be empty" }]);
+  }
+
+  if (items.length > 10) {
+    throw new ValidationError([{ field: "items", message: "Maximum 10 items allowed per bulk order" }]);
+  }
+
+  // Find user
+  const user = await User.findById(userId);
+  if (!user) throw new UserNotFoundError(userId);
+
+  // Validate all items
+  console.log("🔍 Validating all items...");
+  const validationResults = await Promise.all(
+    items.map((item, index) => validateBulkOrderItem(item, index, user))
+  );
+
+  const validItems = validationResults.filter((r) => r.valid);
+  const invalidItems = validationResults.filter((r) => !r.valid);
+
+  console.log(`✅ Valid items: ${validItems.length}`);
+  console.log(`❌ Invalid items: ${invalidItems.length}`);
+
+  // Calculate totals for valid items
+  let totalFirstPayment = 0;
+  let totalProductPrice = 0;
+  let totalOriginalPrice = 0;
+  let totalCouponDiscount = 0;
+
+  const itemsPreview = validItems.map((validItem) => {
+    const itemData = validItem.data;
+    const originalItem = items[validItem.itemIndex];
+
+    totalFirstPayment += itemData.calculatedDailyAmount;
+    totalProductPrice += itemData.productPrice;
+    totalOriginalPrice += itemData.originalPrice;
+    totalCouponDiscount += itemData.couponDiscount;
+
+    // Calculate coupon benefits
+    let freeDays = 0;
+    let reducedDays = 0;
+    let savingsMessage = '';
+    let howItWorksMessage = '';
+
+    if (itemData.couponType === 'INSTANT') {
+      savingsMessage = `Save ₹${itemData.couponDiscount} instantly!`;
+      howItWorksMessage = `Price reduced from ₹${itemData.originalPrice} to ₹${itemData.productPrice}. Pay ₹${itemData.calculatedDailyAmount}/day for ${itemData.totalDays} days.`;
+    } else if (itemData.couponType === 'REDUCE_DAYS') {
+      freeDays = Math.floor(itemData.couponDiscount / itemData.calculatedDailyAmount);
+      reducedDays = itemData.totalDays - freeDays;
+      savingsMessage = `Get ${freeDays} FREE days!`;
+      howItWorksMessage = `Pay for only ${reducedDays} days instead of ${itemData.totalDays} days. Last ${freeDays} payment(s) will be free.`;
+    } else if (itemData.couponType === 'MILESTONE_REWARD') {
+      const milestoneValue = itemData.milestoneFreeDays * itemData.calculatedDailyAmount;
+      savingsMessage = `Complete ${itemData.milestonePaymentsRequired} payments and get ${itemData.milestoneFreeDays} FREE days!`;
+      howItWorksMessage = `Reward worth ₹${milestoneValue} after ${itemData.milestonePaymentsRequired} payments.`;
+    }
+
+    return {
+      itemIndex: validItem.itemIndex,
+      product: {
+        id: itemData.product.productId || itemData.product._id,
+        name: itemData.product.name,
+        images: itemData.product.images || [],
+        brand: itemData.product.brand,
+      },
+      variant: itemData.variantDetails,
+      quantity: itemData.quantity,
+      pricing: {
+        pricePerUnit: itemData.pricePerUnit,
+        totalProductPrice: itemData.totalProductPrice,
+        originalPrice: itemData.originalPrice,
+        couponDiscount: itemData.couponDiscount,
+        finalPrice: itemData.productPrice,
+      },
+      installment: {
+        totalDays: itemData.totalDays,
+        dailyAmount: itemData.calculatedDailyAmount,
+        firstPayment: itemData.calculatedDailyAmount,
+        totalPayable: itemData.calculatedDailyAmount * itemData.totalDays,
+        freeDays: freeDays,
+        reducedDays: reducedDays,
+      },
+      coupon: itemData.couponCode ? {
+        code: itemData.couponCode,
+        type: itemData.couponType,
+        discount: itemData.couponDiscount,
+        savingsMessage: savingsMessage,
+        howItWorksMessage: howItWorksMessage,
+      } : null,
+    };
+  });
+
+  // Get wallet balance
+  const walletBalance = user.wallet?.balance || 0;
+  const hasEnoughWalletBalance = walletBalance >= totalFirstPayment;
+
+  // Get referrer info
+  let referrerInfo = null;
+  let totalCommissionEstimate = 0;
+  const commissionPercentage = 10;
+
+  if (user.referredBy) {
+    const referrer = await User.findById(user.referredBy).select('name email');
+    if (referrer) {
+      totalCommissionEstimate = (totalFirstPayment * commissionPercentage) / 100;
+      referrerInfo = {
+        referrerName: referrer.name,
+        referrerEmail: referrer.email,
+        commissionPercentage: commissionPercentage,
+        commissionOnFirstPayment: totalCommissionEstimate,
+      };
+    }
+  }
+
+  // Build preview response
+  const previewResponse = {
+    success: true,
+    summary: {
+      totalItems: items.length,
+      validItems: validItems.length,
+      invalidItems: invalidItems.length,
+      totalFirstPayment: totalFirstPayment,
+      totalProductPrice: totalProductPrice,
+      totalOriginalPrice: totalOriginalPrice,
+      totalCouponDiscount: totalCouponDiscount,
+      totalSavings: totalOriginalPrice - totalProductPrice,
+    },
+    items: itemsPreview,
+    invalidItems: invalidItems.map((i) => ({
+      itemIndex: i.itemIndex,
+      error: i.error,
+    })),
+    payment: {
+      firstPaymentRequired: totalFirstPayment,
+      totalOrderValue: totalProductPrice,
+      remainingAfterFirstPayment: totalProductPrice - totalFirstPayment,
+    },
+    wallet: {
+      balance: walletBalance,
+      canPayWithWallet: hasEnoughWalletBalance,
+      shortfall: hasEnoughWalletBalance ? 0 : totalFirstPayment - walletBalance,
+    },
+    deliveryAddress: deliveryAddress,
+    referrer: referrerInfo,
+    validation: {
+      allItemsValid: invalidItems.length === 0,
+      hasValidItems: validItems.length > 0,
+      canProceed: validItems.length > 0,
+    },
+  };
+
+  console.log("\n========================================");
+  console.log("✅ BULK ORDER PREVIEW: Completed");
+  console.log(`📦 Valid items: ${validItems.length}/${items.length}`);
+  console.log(`💰 Total first payment: ₹${totalFirstPayment}`);
+  console.log("========================================\n");
+
+  return previewResponse;
+}
+
 module.exports = {
   createOrder,
   getOrderById,
@@ -1995,4 +2183,5 @@ module.exports = {
   verifyBulkOrderPayment,
   getBulkOrderDetails,
   generateBulkOrderId,
+  previewBulkOrder,
 };

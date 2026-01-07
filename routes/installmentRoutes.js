@@ -177,6 +177,27 @@ router.post(
 );
 
 /**
+ * @route   POST /api/installments/orders/bulk/preview
+ * @desc    Preview bulk order with multiple products without creating orders
+ * @access  Private
+ *
+ * @body {
+ *   items: [
+ *     { productId: string, variantId?: string, quantity?: number, totalDays: number, couponCode?: string }
+ *   ],
+ *   deliveryAddress: { name, phoneNumber, addressLine1, city, state, pincode }
+ * }
+ *
+ * @returns Complete bulk order preview with all items validated and totals calculated
+ */
+router.post(
+  "/orders/bulk/preview",
+  verifyToken,
+  sanitizeInput,
+  orderController.previewBulkOrder
+);
+
+/**
  * @route   GET /api/installment-orders/:orderId
  * @desc    Get order details
  * @access  Private
