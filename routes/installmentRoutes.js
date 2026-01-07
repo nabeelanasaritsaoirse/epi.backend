@@ -154,6 +154,29 @@ router.get(
 router.post("/validate-coupon", sanitizeInput, orderController.validateCoupon);
 
 /**
+ * @route   POST /api/installments/orders/preview
+ * @desc    Preview order details without creating the order
+ * @access  Private
+ *
+ * @body {
+ *   productId: string (required) - Product ID or MongoDB _id
+ *   variantId: string (optional) - Product variant ID
+ *   quantity: number (optional, default: 1) - Product quantity (1-10)
+ *   totalDays: number (required) - Total installment days
+ *   couponCode: string (optional) - Coupon code to apply
+ *   deliveryAddress: object (required) - Delivery address object
+ * }
+ *
+ * @returns Complete order preview with validations, pricing, and calculations
+ */
+router.post(
+  "/orders/preview",
+  verifyToken,
+  sanitizeInput,
+  orderController.previewOrder
+);
+
+/**
  * @route   GET /api/installment-orders/:orderId
  * @desc    Get order details
  * @access  Private
