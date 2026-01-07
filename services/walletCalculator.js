@@ -44,13 +44,14 @@ module.exports = async function recalcWallet(userId) {
 
     switch (t) {
       case "bonus":
-        // used for "add money" or promo bonuses
+        // Free credits/promo bonuses (system generated)
         if (tx.status === "completed") completedDeposits += Number(tx.amount || 0);
         else pendingDeposits += Number(tx.amount || 0);
         bonusAmount += Number(tx.amount || 0);
         break;
 
       case "deposit":
+        // User wallet load via Razorpay
         if (tx.status === "completed") completedDeposits += Number(tx.amount || 0);
         else pendingDeposits += Number(tx.amount || 0);
         break;
