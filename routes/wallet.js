@@ -110,12 +110,12 @@ router.post('/add-money', verifyToken, async (req, res) => {
 
     const tx = new Transaction({
       user: req.user._id,
-      type: "bonus",                      // FIXED
+      type: "deposit",                    // User wallet load via Razorpay
       amount,
       status: 'pending',
       paymentMethod: 'razorpay',
       paymentDetails: { orderId: order.id },
-      description: 'Wallet load'
+      description: 'Wallet load via Razorpay'
     });
 
     await tx.save();
@@ -403,11 +403,26 @@ router.get('/transactions', verifyToken, async (req, res) => {
     const walletTx = await WalletTransaction.find({ user: req.user._id })
       .sort({ createdAt: -1 });
 
+    // Helper function to get display type for frontend
+    const getDisplayType = (type, amount) => {
+      // Credit types (money added to wallet)
+      if (['deposit', 'bonus', 'refund', 'referral_commission', 'installment_commission', 'commission', 'referral_bonus'].includes(type)) {
+        return 'CREDIT';
+      }
+      // Debit types (money deducted from wallet)
+      if (['withdrawal', 'purchase', 'emi_payment', 'investment'].includes(type)) {
+        return 'DEBIT';
+      }
+      // Fallback: check amount sign
+      return amount >= 0 ? 'CREDIT' : 'DEBIT';
+    };
+
     // Combine all transactions
     const allTransactions = [
       ...legacyTx.map(t => ({
         _id: t._id,
         type: t.type,
+        displayType: getDisplayType(t.type, t.amount),  // For frontend display
         amount: t.amount,
         status: t.status,
         description: t.description,
@@ -421,6 +436,7 @@ router.get('/transactions', verifyToken, async (req, res) => {
       ...walletTx.map(t => ({
         _id: t._id,
         type: t.type,
+        displayType: getDisplayType(t.type, t.amount),  // For frontend display
         amount: t.amount,
         status: t.status,
         description: t.description,
