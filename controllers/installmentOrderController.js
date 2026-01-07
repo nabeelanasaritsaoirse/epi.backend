@@ -1363,6 +1363,65 @@ const previewOrder = asyncHandler(async (req, res) => {
   );
 });
 
+/**
+ * @route   POST /api/installments/orders/bulk/preview
+ * @desc    Preview bulk order with multiple products without creating orders
+ * @access  Private
+ *
+ * @body {
+ *   items: [
+ *     { productId, variantId?, quantity?, totalDays, couponCode? },
+ *     ...
+ *   ],
+ *   deliveryAddress: { name, phoneNumber, addressLine1, city, state, pincode, country? }
+ * }
+ */
+const previewBulkOrder = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const { items, deliveryAddress } = req.body;
+
+  console.log('\n========================================');
+  console.log('🛒 BULK ORDER PREVIEW: Controller called');
+  console.log('========================================');
+  console.log(`📦 Items count: ${items?.length}`);
+
+  // Basic validation
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'items array is required and must not be empty'
+    });
+  }
+
+  if (items.length > 10) {
+    return res.status(400).json({
+      success: false,
+      message: 'Maximum 10 items allowed per bulk order'
+    });
+  }
+
+  if (!deliveryAddress) {
+    return res.status(400).json({
+      success: false,
+      message: 'deliveryAddress is required'
+    });
+  }
+
+  const bulkPreviewData = {
+    userId,
+    items,
+    deliveryAddress
+  };
+
+  const result = await orderService.previewBulkOrder(bulkPreviewData);
+
+  console.log('✅ BULK ORDER PREVIEW: Generated successfully');
+  console.log(`✅ Valid items: ${result.summary.validItems}`);
+  console.log(`✅ Total first payment: ₹${result.summary.totalFirstPayment}\n`);
+
+  successResponse(res, result, 'Bulk order preview generated successfully', 200);
+});
+
 module.exports = {
   createOrder,
   getOrder,
@@ -1381,7 +1440,8 @@ module.exports = {
   verifyBulkOrderPayment,
   getBulkOrderDetails,
   getMyBulkOrders,
-  // Order Preview API
-  previewOrder
+  // Order Preview APIs
+  previewOrder,
+  previewBulkOrder
 };
 
