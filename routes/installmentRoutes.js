@@ -43,6 +43,64 @@ router.post(
   orderController.createOrder
 );
 
+// ============================================
+// BULK ORDER ROUTES
+// ============================================
+
+/**
+ * @route   POST /api/installments/orders/bulk
+ * @desc    Create bulk order with multiple products (single Razorpay payment)
+ * @access  Private
+ *
+ * @body {
+ *   items: [
+ *     { productId: string, variantId?: string, quantity?: number, totalDays: number, couponCode?: string }
+ *   ],
+ *   paymentMethod: 'RAZORPAY' | 'WALLET',
+ *   deliveryAddress: { name, phoneNumber, addressLine1, city, state, pincode }
+ * }
+ */
+router.post(
+  "/orders/bulk",
+  verifyToken,
+  sanitizeInput,
+  orderController.createBulkOrder
+);
+
+/**
+ * @route   POST /api/installments/orders/bulk/verify-payment
+ * @desc    Verify Razorpay payment for bulk order
+ * @access  Private
+ */
+router.post(
+  "/orders/bulk/verify-payment",
+  verifyToken,
+  sanitizeInput,
+  orderController.verifyBulkOrderPayment
+);
+
+/**
+ * @route   GET /api/installments/orders/my-bulk-orders
+ * @desc    Get user's bulk orders list
+ * @access  Private
+ */
+router.get(
+  "/orders/my-bulk-orders",
+  verifyToken,
+  orderController.getMyBulkOrders
+);
+
+/**
+ * @route   GET /api/installments/orders/bulk/:bulkOrderId
+ * @desc    Get bulk order details
+ * @access  Private
+ */
+router.get(
+  "/orders/bulk/:bulkOrderId",
+  verifyToken,
+  orderController.getBulkOrderDetails
+);
+
 /**
  * @route   POST /api/installment-orders/verify-first-payment
  * @desc    Verify first Razorpay payment and activate the order

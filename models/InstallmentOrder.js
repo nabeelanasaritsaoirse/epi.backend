@@ -195,6 +195,13 @@ const installmentOrderSchema = new mongoose.Schema(
       default: null,
     },
     createdByAdminEmail: { type: String, default: null },
+
+    /** BULK ORDER **/
+    bulkOrderId: {
+      type: String,
+      default: null,
+      index: true,
+    },
   },
   { timestamps: true }
 );

@@ -406,9 +406,12 @@ exports.getReferralList = async (referrerId) => {
       }).populate('purchases.product', 'productId name');
 
       // Get installment orders data (NEW - this is the primary source now)
+      // IMPORTANT: Only include orders where first payment has been made (status !== 'PENDING' AND paidInstallments > 0)
       const installmentOrders = await InstallmentOrder.find({
         referrer: referrerId,
-        user: user._id
+        user: user._id,
+        status: { $ne: 'PENDING' },  // Exclude orders where first payment not completed
+        paidInstallments: { $gt: 0 } // Ensure at least one installment has been paid
       }).populate('product', 'name images productId');
 
       let totalProducts = 0;
@@ -429,7 +432,7 @@ exports.getReferralList = async (referrerId) => {
 
       // Include legacy referral data (only if NOT already in InstallmentOrder)
       if (referral && referral.purchases && referral.purchases.length > 0) {
-        // Filter out legacy purchases that have a matching InstallmentOrder
+        // Filter out legacy purchases that have a matching InstallmentOrder OR have no payments made
         const uniqueLegacyPurchases = referral.purchases.filter((p) => {
           const legacyProductId = p.productSnapshot?.productId || (p.product ? p.product.productId : null);
           const legacyOrderId = p.orderId ? p.orderId.toString() : null;
@@ -440,6 +443,10 @@ exports.getReferralList = async (referrerId) => {
           }
           // Skip if this orderId already exists in InstallmentOrder
           if (legacyOrderId && installmentOrderIds.has(legacyOrderId)) {
+            return false;
+          }
+          // Skip if no payments have been made (paidDays === 0 or status is PENDING)
+          if ((p.paidDays || 0) === 0 || p.status === 'PENDING') {
             return false;
           }
           return true;
@@ -531,9 +538,12 @@ exports.getReferredUserDetails = async (referredUserId, referrerId = null) => {
     const installmentOrderIds = new Set();
 
     if (actualReferrerId) {
+      // IMPORTANT: Only include orders where first payment has been made (status !== 'PENDING' AND paidInstallments > 0)
       installmentOrders = await InstallmentOrder.find({
         referrer: actualReferrerId,
-        user: referredUserId
+        user: referredUserId,
+        status: { $ne: 'PENDING' },  // Exclude orders where first payment not completed
+        paidInstallments: { $gt: 0 } // Ensure at least one installment has been paid
       }).populate('product', 'name images productId');
 
       // Build sets for duplicate detection
@@ -549,7 +559,7 @@ exports.getReferredUserDetails = async (referredUserId, referrerId = null) => {
 
     // Include legacy referral data (only if NOT already in InstallmentOrder)
     if (referral && referral.purchases && referral.purchases.length > 0) {
-      // Filter out legacy purchases that have a matching InstallmentOrder
+      // Filter out legacy purchases that have a matching InstallmentOrder OR have no payments made
       const uniqueLegacyPurchases = referral.purchases.filter((p) => {
         const legacyProductId = p.productSnapshot?.productId || (p.product ? p.product.productId : null);
         const legacyOrderId = p.orderId ? p.orderId.toString() : null;
@@ -560,6 +570,10 @@ exports.getReferredUserDetails = async (referredUserId, referrerId = null) => {
         }
         // Skip if this orderId already exists in InstallmentOrder
         if (legacyOrderId && installmentOrderIds.has(legacyOrderId)) {
+          return false;
+        }
+        // Skip if no payments have been made (paidDays === 0 or status is PENDING)
+        if ((p.paidDays || 0) === 0 || p.status === 'PENDING') {
           return false;
         }
         return true;
