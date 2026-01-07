@@ -49,4 +49,21 @@ router.get(
   adminReferralController.getAllUsersWithReferrals
 );
 
+/**
+ * @route   PUT /api/admin/referrals/user/:userId/referrer
+ * @desc    Update user's referral relationship (change who referred them)
+ * @access  Admin
+ * @param   userId - MongoDB ObjectId of the user whose referrer needs to be changed
+ * @body    newReferrerId - MongoDB ObjectId of the new referrer (or null to remove)
+ * @body    reason - Reason for changing the referrer (optional, for audit logging)
+ * @example PUT /api/admin/referrals/user/507f1f77bcf86cd799439011/referrer
+ *          Body: { "newReferrerId": "507f1f77bcf86cd799439012", "reason": "Correcting user mistake" }
+ */
+router.put(
+  "/user/:userId/referrer",
+  verifyToken,
+  isAdmin,
+  adminReferralController.updateUserReferrer
+);
+
 module.exports = router;
