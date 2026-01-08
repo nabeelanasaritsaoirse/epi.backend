@@ -16,7 +16,8 @@ const transactionSchema = new Schema({
       "installment_commission",   // your own 10% per EMI
       "withdrawal",
       "refund",
-      "bonus",
+      "bonus",                    // Free credits/promo only
+      "deposit",                  // User wallet load via Razorpay
       "investment",
       "commission",
       "purchase",

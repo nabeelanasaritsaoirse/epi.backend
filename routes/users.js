@@ -1602,7 +1602,12 @@ router.get('/:userId/kyc-withdrawal-status', verifyToken, async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // Check KYC verification status
+    // Check new KYC system (separate Kyc model)
+    const Kyc = require('../models/Kyc');
+    const newKyc = await Kyc.findOne({ userId });
+    const isNewKycApproved = newKyc && ['approved', 'auto_approved'].includes(newKyc.status);
+
+    // Check KYC verification status from old system
     const kycDetails = user.kycDetails || {};
     const kycDocuments = user.kycDocuments || [];
 
@@ -1629,20 +1634,25 @@ router.get('/:userId/kyc-withdrawal-status', verifyToken, async (req, res) => {
       user.bankDetails.some(bank => bank.isVerified);
 
     // Determine overall withdrawal eligibility
-    // Rule: User must have at least Aadhar OR PAN verified AND at least one bank account
-    const isEligibleForWithdrawal = (aadharVerified || panVerified) && hasBankAccount;
+    // Rule: User must have KYC approved (NEW system OR OLD system) AND at least one bank account
+    const isKycApproved = isNewKycApproved || aadharVerified || panVerified;
+    const isEligibleForWithdrawal = isKycApproved && hasBankAccount;
 
     // Build detailed status response
     const status = {
       isEligibleForWithdrawal,
       kycStatus: {
+        // New KYC system status
+        newKycStatus: newKyc ? newKyc.status : 'not_submitted',
+        isNewKycApproved,
+        // Old KYC system status
         aadharVerified,
         panVerified,
         hasVerifiedDocument,
-        aadharNumber: kycDetails.aadharCardNumber ?
-          '****' + kycDetails.aadharCardNumber.slice(-4) : null,
-        panNumber: kycDetails.panCardNumber ?
-          kycDetails.panCardNumber.slice(0, 2) + '****' + kycDetails.panCardNumber.slice(-2) : null
+        aadharNumber: (newKyc?.aadhaarNumber ? '****' + newKyc.aadhaarNumber.slice(-4) : null) ||
+          (kycDetails.aadharCardNumber ? '****' + kycDetails.aadharCardNumber.slice(-4) : null),
+        panNumber: (newKyc?.panNumber ? newKyc.panNumber.slice(0, 2) + '****' + newKyc.panNumber.slice(-2) : null) ||
+          (kycDetails.panCardNumber ? kycDetails.panCardNumber.slice(0, 2) + '****' + kycDetails.panCardNumber.slice(-2) : null)
       },
       bankStatus: {
         hasBankAccount,
@@ -1655,7 +1665,7 @@ router.get('/:userId/kyc-withdrawal-status', verifyToken, async (req, res) => {
 
     // Build requirements message
     const requirements = [];
-    if (!aadharVerified && !panVerified) {
+    if (!isKycApproved) {
       requirements.push('Verify your Aadhar Card or PAN Card');
     }
     if (!hasBankAccount) {
