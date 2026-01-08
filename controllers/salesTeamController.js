@@ -247,7 +247,8 @@ exports.getUserOrders = async (req, res) => {
       .limit(parseInt(limit))
       .lean();
 
-    const total = await InstallmentOrder.countDocuments({ userId });
+    // ✅ FIX: use SAME FIELD as find()
+    const total = await InstallmentOrder.countDocuments({ user: userId });
 
     res.json({
       success: true,
