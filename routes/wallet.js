@@ -110,12 +110,12 @@ router.post('/add-money', verifyToken, async (req, res) => {
 
     const tx = new Transaction({
       user: req.user._id,
-      type: "bonus",                      // FIXED
+      type: "deposit",                    // User wallet load via Razorpay
       amount,
       status: 'pending',
       paymentMethod: 'razorpay',
       paymentDetails: { orderId: order.id },
-      description: 'Wallet load'
+      description: 'Wallet load via Razorpay'
     });
 
     await tx.save();
@@ -193,6 +193,60 @@ router.post('/withdraw', verifyToken, async (req, res) => {
           success: false,
           message: "Bank details required: bankName, accountNumber, ifscCode, accountHolderName"
         });
+    }
+
+    // Check KYC verification status before allowing withdrawal
+    const userForKyc = await User.findById(req.user._id).select('kycDetails kycDocuments bankDetails');
+
+    // Check new KYC system (separate Kyc model)
+    const Kyc = require('../models/Kyc');
+    const newKyc = await Kyc.findOne({ userId: req.user._id });
+    const isNewKycApproved = newKyc && ['approved', 'auto_approved'].includes(newKyc.status);
+
+    // Check old KYC system
+    const kycDetails = userForKyc.kycDetails || {};
+    const kycDocuments = userForKyc.kycDocuments || [];
+
+    // Check if Aadhar is verified (old system)
+    const aadharVerified = kycDetails.aadharVerified ||
+      kycDocuments.some(doc =>
+        doc.docType && doc.docType.toLowerCase().includes('aadhar') && doc.isVerified
+      );
+
+    // Check if PAN is verified (old system)
+    const panVerified = kycDetails.panVerified ||
+      kycDocuments.some(doc =>
+        doc.docType && doc.docType.toLowerCase().includes('pan') && doc.isVerified
+      );
+
+    // Check if user has at least one bank account
+    const hasBankAccount = userForKyc.bankDetails && userForKyc.bankDetails.length > 0;
+
+    // KYC verification: NEW system OR OLD system must be approved
+    const isKycApproved = isNewKycApproved || aadharVerified || panVerified;
+
+    if (!isKycApproved) {
+      return res.status(403).json({
+        success: false,
+        message: "KYC verification required. Please verify your Aadhar Card or PAN Card to enable withdrawals.",
+        code: "KYC_NOT_VERIFIED",
+        kycStatus: {
+          newKycStatus: newKyc ? newKyc.status : 'not_submitted',
+          isNewKycApproved,
+          aadharVerified,
+          panVerified,
+          hasBankAccount
+        }
+      });
+    }
+
+    // Bank account required
+    if (!hasBankAccount) {
+      return res.status(400).json({
+        success: false,
+        message: "Please add at least one bank account before requesting a withdrawal.",
+        code: "BANK_ACCOUNT_REQUIRED"
+      });
     }
 
     const user = await recalcWallet(req.user._id);
@@ -359,11 +413,26 @@ router.get('/transactions', verifyToken, async (req, res) => {
     const walletTx = await WalletTransaction.find({ user: req.user._id })
       .sort({ createdAt: -1 });
 
+    // Helper function to get display type for frontend
+    const getDisplayType = (type, amount) => {
+      // Credit types (money added to wallet)
+      if (['deposit', 'bonus', 'refund', 'referral_commission', 'installment_commission', 'commission', 'referral_bonus'].includes(type)) {
+        return 'CREDIT';
+      }
+      // Debit types (money deducted from wallet)
+      if (['withdrawal', 'purchase', 'emi_payment', 'investment'].includes(type)) {
+        return 'DEBIT';
+      }
+      // Fallback: check amount sign
+      return amount >= 0 ? 'CREDIT' : 'DEBIT';
+    };
+
     // Combine all transactions
     const allTransactions = [
       ...legacyTx.map(t => ({
         _id: t._id,
         type: t.type,
+        displayType: getDisplayType(t.type, t.amount),  // For frontend display
         amount: t.amount,
         status: t.status,
         description: t.description,
@@ -377,6 +446,7 @@ router.get('/transactions', verifyToken, async (req, res) => {
       ...walletTx.map(t => ({
         _id: t._id,
         type: t.type,
+        displayType: getDisplayType(t.type, t.amount),  // For frontend display
         amount: t.amount,
         status: t.status,
         description: t.description,

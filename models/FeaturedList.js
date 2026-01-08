@@ -80,6 +80,19 @@ const featuredListSchema = new mongoose.Schema({
     default: 0,
   },
 
+  // Design type for frontend rendering (1, 2, 3, 4, 5)
+  design: {
+    type: Number,
+    required: true,
+    default: 1,
+    min: [1, "Design must be at least 1"],
+    max: [5, "Design cannot exceed 5"],
+    validate: {
+      validator: Number.isInteger,
+      message: "Design must be an integer",
+    },
+  },
+
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",

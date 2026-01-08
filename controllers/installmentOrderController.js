@@ -910,6 +910,518 @@ const getMyBulkOrders = asyncHandler(async (req, res) => {
   );
 });
 
+/**
+ * @route   POST /api/installments/orders/preview
+ * @desc    Preview order details without creating the order
+ * @access  Private
+ *
+ * @body {
+ *   productId: string (required) - Product ID or MongoDB _id
+ *   variantId: string (optional) - Product variant ID
+ *   quantity: number (optional, default: 1) - Product quantity (1-10)
+ *   totalDays: number (required) - Total installment days
+ *   couponCode: string (optional) - Coupon code to apply
+ *   deliveryAddress: object (required) - Delivery address object
+ * }
+ *
+ * @returns Order preview with all validations and calculations
+ */
+const previewOrder = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const {
+    productId,
+    variantId,
+    quantity = 1,
+    totalDays,
+    couponCode,
+    deliveryAddress,
+  } = req.body;
+
+  console.log('\n========================================');
+  console.log('🔍 ORDER PREVIEW: Controller called');
+  console.log('========================================');
+  console.log(`🔍 Product ID: ${productId}, Variant ID: ${variantId}, Quantity: ${quantity}`);
+  console.log(`🔍 Total Days: ${totalDays}, Coupon: ${couponCode || 'None'}`);
+
+  // ===================================
+  // VALIDATION
+  // ===================================
+
+  if (!productId) {
+    return res.status(400).json({
+      success: false,
+      message: 'productId is required',
+    });
+  }
+
+  if (!totalDays || isNaN(totalDays) || totalDays < 1) {
+    return res.status(400).json({
+      success: false,
+      message: 'totalDays is required and must be a positive number',
+    });
+  }
+
+  if (quantity < 1 || quantity > 10) {
+    return res.status(400).json({
+      success: false,
+      message: 'quantity must be between 1 and 10',
+    });
+  }
+
+  if (!deliveryAddress) {
+    return res.status(400).json({
+      success: false,
+      message: 'deliveryAddress is required',
+    });
+  }
+
+  // ===================================
+  // GET USER
+  // ===================================
+
+  const User = require('../models/User');
+  const user = await User.findById(userId);
+
+  if (!user) {
+    return res.status(404).json({
+      success: false,
+      message: 'User not found',
+    });
+  }
+
+  // ===================================
+  // GET PRODUCT
+  // ===================================
+
+  const Product = require('../models/Product');
+  const mongoose = require('mongoose');
+
+  let product;
+  if (mongoose.Types.ObjectId.isValid(productId) && productId.length === 24) {
+    product = await Product.findById(productId);
+  }
+  if (!product) {
+    product = await Product.findOne({ productId });
+  }
+
+  if (!product) {
+    return res.status(404).json({
+      success: false,
+      message: `Product '${productId}' not found`,
+    });
+  }
+
+  // Check product availability
+  if (
+    product.availability?.stockStatus === 'out_of_stock' ||
+    product.availability?.isAvailable === false
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: `Product '${product.name}' is currently out of stock`,
+    });
+  }
+
+  // ===================================
+  // GET VARIANT & PRICE
+  // ===================================
+
+  let selectedVariant = null;
+  let pricePerUnit = product.pricing?.finalPrice || product.pricing?.regularPrice || 0;
+  let variantDetails = null;
+
+  if (variantId && product.variants && product.variants.length > 0) {
+    selectedVariant = product.variants.find((v) => v.variantId === variantId);
+
+    if (!selectedVariant) {
+      return res.status(404).json({
+        success: false,
+        message: `Variant '${variantId}' not found for this product`,
+      });
+    }
+
+    if (!selectedVariant.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: `Variant '${variantId}' is not available`,
+      });
+    }
+
+    pricePerUnit = selectedVariant.salePrice || selectedVariant.price;
+
+    variantDetails = {
+      variantId: selectedVariant.variantId,
+      sku: selectedVariant.sku,
+      attributes: selectedVariant.attributes,
+      price: pricePerUnit,
+    };
+  }
+
+  if (!pricePerUnit || pricePerUnit <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'Product price is invalid or not configured properly',
+    });
+  }
+
+  // ===================================
+  // CALCULATE BASE PRICING
+  // ===================================
+
+  const {
+    calculateTotalProductPrice,
+    applyInstantCoupon,
+    calculateDailyAmount,
+    validateInstallmentDuration,
+  } = require('../utils/installmentHelpers');
+
+  const totalProductPrice = calculateTotalProductPrice(pricePerUnit, quantity);
+  let productPrice = totalProductPrice;
+  let originalPrice = totalProductPrice;
+
+  let couponDiscount = 0;
+  let appliedCouponCode = null;
+  let couponType = null;
+  let couponDetails = null;
+
+  let milestonePaymentsRequired = null;
+  let milestoneFreeDays = null;
+
+  // ===================================
+  // APPLY COUPON (IF PROVIDED)
+  // ===================================
+
+  if (couponCode) {
+    const Coupon = require('../models/Coupon');
+
+    const coupon = await Coupon.findOne({
+      couponCode: couponCode.toUpperCase(),
+      isActive: true,
+    });
+
+    if (!coupon) {
+      return res.status(404).json({
+        success: false,
+        message: `Coupon '${couponCode}' not found or inactive`,
+      });
+    }
+
+    // Expiry check
+    if (new Date() > coupon.expiryDate) {
+      return res.status(400).json({
+        success: false,
+        message: `Coupon '${couponCode}' expired on ${coupon.expiryDate.toDateString()}`,
+      });
+    }
+
+    // Minimum order value check
+    if (totalProductPrice < coupon.minOrderValue) {
+      return res.status(400).json({
+        success: false,
+        message: `Minimum order value of ₹${coupon.minOrderValue} required. Current order value: ₹${totalProductPrice}`,
+      });
+    }
+
+    // Max usage check
+    if (
+      coupon.maxUsageCount !== null &&
+      coupon.currentUsageCount >= coupon.maxUsageCount
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Coupon usage limit reached',
+      });
+    }
+
+    // Calculate discount
+    if (coupon.discountType === 'flat') {
+      couponDiscount = coupon.discountValue;
+    } else if (coupon.discountType === 'percentage') {
+      couponDiscount = Math.round((totalProductPrice * coupon.discountValue) / 100);
+    }
+
+    couponDiscount = Math.min(couponDiscount, totalProductPrice);
+    couponType = coupon.couponType || 'INSTANT';
+    appliedCouponCode = coupon.couponCode;
+
+    // Apply coupon based on type
+    if (couponType === 'INSTANT') {
+      const result = applyInstantCoupon(totalProductPrice, couponDiscount);
+      productPrice = result.finalPrice;
+    } else if (couponType === 'REDUCE_DAYS') {
+      productPrice = totalProductPrice;
+    }
+
+    if (couponType === 'MILESTONE_REWARD') {
+      milestonePaymentsRequired = coupon.rewardCondition;
+      milestoneFreeDays = coupon.rewardValue;
+
+      if (!milestonePaymentsRequired || !milestoneFreeDays) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid milestone coupon configuration',
+        });
+      }
+    }
+
+    couponDetails = {
+      code: coupon.couponCode,
+      type: couponType,
+      description: coupon.description || '',
+      discountType: coupon.discountType,
+      discountValue: coupon.discountValue,
+      discountAmount: couponDiscount,
+      expiryDate: coupon.expiryDate,
+    };
+  }
+
+  // ===================================
+  // VALIDATE INSTALLMENT DURATION
+  // ===================================
+
+  const durationValidation = validateInstallmentDuration(totalDays, productPrice);
+
+  if (!durationValidation.valid) {
+    return res.status(400).json({
+      success: false,
+      message: `Invalid installment duration. Must be between ${durationValidation.min} and ${durationValidation.max} days for product price ₹${productPrice}`,
+      validRange: {
+        min: durationValidation.min,
+        max: durationValidation.max,
+      },
+    });
+  }
+
+  // ===================================
+  // CALCULATE DAILY AMOUNT
+  // ===================================
+
+  let dailyAmount;
+
+  if (couponType === 'INSTANT') {
+    // For INSTANT coupons, recalculate based on discounted price
+    dailyAmount = Math.ceil(productPrice / totalDays);
+  } else {
+    // Calculate normally
+    dailyAmount = calculateDailyAmount(productPrice, totalDays);
+  }
+
+  if (dailyAmount < 50) {
+    return res.status(400).json({
+      success: false,
+      message: 'Daily payment amount must be at least ₹50',
+    });
+  }
+
+  // ===================================
+  // CALCULATE COUPON BENEFITS
+  // ===================================
+
+  let freeDays = 0;
+  let reducedDays = 0;
+  let milestoneDetails = null;
+  let savingsMessage = '';
+  let howItWorksMessage = '';
+
+  if (couponType === 'INSTANT') {
+    savingsMessage = `You will save ₹${couponDiscount} instantly!`;
+    howItWorksMessage = `The product price will be reduced from ₹${originalPrice} to ₹${productPrice}. You will pay ₹${dailyAmount} per day for ${totalDays} days.`;
+  } else if (couponType === 'REDUCE_DAYS') {
+    freeDays = Math.floor(couponDiscount / dailyAmount);
+    reducedDays = totalDays - freeDays;
+
+    savingsMessage = `You will get ${freeDays} FREE days! Pay for only ${reducedDays} days instead of ${totalDays} days.`;
+    howItWorksMessage = `Your last ${freeDays} installment payment(s) will be marked as FREE. You pay ₹${dailyAmount}/day for ${reducedDays} days, and get ${freeDays} days free (worth ₹${freeDays * dailyAmount}).`;
+  } else if (couponType === 'MILESTONE_REWARD') {
+    const milestoneValue = milestoneFreeDays * dailyAmount;
+
+    milestoneDetails = {
+      paymentsRequired: milestonePaymentsRequired,
+      freeDaysReward: milestoneFreeDays,
+      milestoneValue: milestoneValue,
+    };
+
+    savingsMessage = `Complete ${milestonePaymentsRequired} payments and get ${milestoneFreeDays} FREE days (worth ₹${milestoneValue})!`;
+    howItWorksMessage = `After you successfully pay ${milestonePaymentsRequired} installments, you will receive ${milestoneFreeDays} free day(s) as a reward. The total reward value is ₹${milestoneValue}.`;
+  }
+
+  // ===================================
+  // CALCULATE TOTAL PAYABLE
+  // ===================================
+
+  const totalPayableAmount = dailyAmount * totalDays;
+  const totalSavings = originalPrice - totalPayableAmount;
+
+  // ===================================
+  // GET REFERRER INFO
+  // ===================================
+
+  let referrerInfo = null;
+  let commissionPercentage = 10; // Default 10%
+
+  if (user.referredBy) {
+    const referrer = await User.findById(user.referredBy).select('name email');
+
+    if (referrer) {
+      const commissionAmount = (dailyAmount * commissionPercentage) / 100;
+
+      referrerInfo = {
+        referrerName: referrer.name,
+        referrerEmail: referrer.email,
+        commissionPercentage: commissionPercentage,
+        commissionPerPayment: commissionAmount,
+        totalCommissionEstimate: commissionAmount * totalDays,
+      };
+    }
+  }
+
+  // ===================================
+  // BUILD PREVIEW RESPONSE
+  // ===================================
+
+  const previewData = {
+    // Product Info
+    product: {
+      id: product.productId || product._id,
+      name: product.name,
+      description: product.description?.short || product.description?.long || '',
+      images: product.images || [],
+      brand: product.brand,
+      category: product.category,
+      variant: variantDetails,
+    },
+
+    // Pricing Breakdown
+    pricing: {
+      pricePerUnit: pricePerUnit,
+      quantity: quantity,
+      totalProductPrice: totalProductPrice,
+      originalPrice: originalPrice,
+      couponDiscount: couponDiscount,
+      finalProductPrice: productPrice,
+      savingsPercentage: originalPrice > 0 ? Math.round((couponDiscount / originalPrice) * 100) : 0,
+    },
+
+    // Installment Details
+    installment: {
+      totalDays: totalDays,
+      dailyAmount: dailyAmount,
+      totalPayableAmount: totalPayableAmount,
+      totalSavings: totalSavings > 0 ? totalSavings : 0,
+      freeDays: freeDays,
+      reducedDays: reducedDays > 0 ? reducedDays : totalDays,
+      minimumDailyAmount: 50,
+    },
+
+    // Coupon Info (if applied)
+    coupon: couponDetails ? {
+      ...couponDetails,
+      benefits: {
+        savingsMessage: savingsMessage,
+        howItWorksMessage: howItWorksMessage,
+      },
+      milestoneDetails: milestoneDetails,
+    } : null,
+
+    // Delivery Address
+    deliveryAddress: deliveryAddress,
+
+    // Referrer Commission Info
+    referrer: referrerInfo,
+
+    // Order Summary
+    summary: {
+      orderType: 'INSTALLMENT',
+      status: 'PREVIEW',
+      totalAmount: productPrice,
+      dailyPayment: dailyAmount,
+      duration: totalDays,
+      firstPaymentAmount: dailyAmount,
+      estimatedCompletionDate: new Date(Date.now() + totalDays * 24 * 60 * 60 * 1000),
+    },
+
+    // Validation Status
+    validation: {
+      isValid: true,
+      productAvailable: true,
+      durationValid: durationValidation.valid,
+      dailyAmountValid: dailyAmount >= 50,
+      couponValid: couponCode ? true : null,
+    },
+  };
+
+  console.log('✅ ORDER PREVIEW: Generated successfully');
+  console.log(`✅ Product: ${product.name}`);
+  console.log(`✅ Total Days: ${totalDays}, Daily Amount: ₹${dailyAmount}`);
+  console.log(`✅ Total Payable: ₹${totalPayableAmount}\n`);
+
+  successResponse(
+    res,
+    previewData,
+    'Order preview generated successfully',
+    200
+  );
+});
+
+/**
+ * @route   POST /api/installments/orders/bulk/preview
+ * @desc    Preview bulk order with multiple products without creating orders
+ * @access  Private
+ *
+ * @body {
+ *   items: [
+ *     { productId, variantId?, quantity?, totalDays, couponCode? },
+ *     ...
+ *   ],
+ *   deliveryAddress: { name, phoneNumber, addressLine1, city, state, pincode, country? }
+ * }
+ */
+const previewBulkOrder = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const { items, deliveryAddress } = req.body;
+
+  console.log('\n========================================');
+  console.log('🛒 BULK ORDER PREVIEW: Controller called');
+  console.log('========================================');
+  console.log(`📦 Items count: ${items?.length}`);
+
+  // Basic validation
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'items array is required and must not be empty'
+    });
+  }
+
+  if (items.length > 10) {
+    return res.status(400).json({
+      success: false,
+      message: 'Maximum 10 items allowed per bulk order'
+    });
+  }
+
+  if (!deliveryAddress) {
+    return res.status(400).json({
+      success: false,
+      message: 'deliveryAddress is required'
+    });
+  }
+
+  const bulkPreviewData = {
+    userId,
+    items,
+    deliveryAddress
+  };
+
+  const result = await orderService.previewBulkOrder(bulkPreviewData);
+
+  console.log('✅ BULK ORDER PREVIEW: Generated successfully');
+  console.log(`✅ Valid items: ${result.summary.validItems}`);
+  console.log(`✅ Total first payment: ₹${result.summary.totalFirstPayment}\n`);
+
+  successResponse(res, result, 'Bulk order preview generated successfully', 200);
+});
+
 module.exports = {
   createOrder,
   getOrder,
@@ -927,6 +1439,9 @@ module.exports = {
   createBulkOrder,
   verifyBulkOrderPayment,
   getBulkOrderDetails,
-  getMyBulkOrders
+  getMyBulkOrders,
+  // Order Preview APIs
+  previewOrder,
+  previewBulkOrder
 };
 

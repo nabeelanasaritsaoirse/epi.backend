@@ -25,6 +25,7 @@ const {
 const orderController = require("../controllers/installmentOrderController");
 const paymentController = require("../controllers/installmentPaymentController");
 const adminController = require("../controllers/installmentAdminController");
+const autopayController = require("../controllers/autopayController");
 
 // ============================================
 // USER ROUTES - Order Management
@@ -151,6 +152,50 @@ router.get(
  * @access  Public
  */
 router.post("/validate-coupon", sanitizeInput, orderController.validateCoupon);
+
+/**
+ * @route   POST /api/installments/orders/preview
+ * @desc    Preview order details without creating the order
+ * @access  Private
+ *
+ * @body {
+ *   productId: string (required) - Product ID or MongoDB _id
+ *   variantId: string (optional) - Product variant ID
+ *   quantity: number (optional, default: 1) - Product quantity (1-10)
+ *   totalDays: number (required) - Total installment days
+ *   couponCode: string (optional) - Coupon code to apply
+ *   deliveryAddress: object (required) - Delivery address object
+ * }
+ *
+ * @returns Complete order preview with validations, pricing, and calculations
+ */
+router.post(
+  "/orders/preview",
+  verifyToken,
+  sanitizeInput,
+  orderController.previewOrder
+);
+
+/**
+ * @route   POST /api/installments/orders/bulk/preview
+ * @desc    Preview bulk order with multiple products without creating orders
+ * @access  Private
+ *
+ * @body {
+ *   items: [
+ *     { productId: string, variantId?: string, quantity?: number, totalDays: number, couponCode?: string }
+ *   ],
+ *   deliveryAddress: { name, phoneNumber, addressLine1, city, state, pincode }
+ * }
+ *
+ * @returns Complete bulk order preview with all items validated and totals calculated
+ */
+router.post(
+  "/orders/bulk/preview",
+  verifyToken,
+  sanitizeInput,
+  orderController.previewBulkOrder
+);
 
 /**
  * @route   GET /api/installment-orders/:orderId
@@ -328,6 +373,224 @@ router.post(
   "/payments/:paymentId/retry",
   verifyToken,
   paymentController.retryPayment
+);
+
+// ============================================
+// USER ROUTES - Autopay Management
+// ============================================
+
+/**
+ * @route   POST /api/installments/autopay/enable/:orderId
+ * @desc    Enable autopay for a specific order
+ * @access  Private
+ */
+router.post(
+  "/autopay/enable/:orderId",
+  verifyToken,
+  sanitizeInput,
+  autopayController.enableAutopay
+);
+
+/**
+ * @route   POST /api/installments/autopay/disable/:orderId
+ * @desc    Disable autopay for a specific order
+ * @access  Private
+ */
+router.post(
+  "/autopay/disable/:orderId",
+  verifyToken,
+  autopayController.disableAutopay
+);
+
+/**
+ * @route   POST /api/installments/autopay/enable-all
+ * @desc    Enable autopay for all active orders
+ * @access  Private
+ */
+router.post(
+  "/autopay/enable-all",
+  verifyToken,
+  autopayController.enableAutopayForAll
+);
+
+/**
+ * @route   POST /api/installments/autopay/disable-all
+ * @desc    Disable autopay for all orders
+ * @access  Private
+ */
+router.post(
+  "/autopay/disable-all",
+  verifyToken,
+  autopayController.disableAutopayForAll
+);
+
+/**
+ * @route   POST /api/installments/autopay/pause/:orderId
+ * @desc    Pause autopay for an order until a specific date
+ * @access  Private
+ * @body    { pauseUntil: Date }
+ */
+router.post(
+  "/autopay/pause/:orderId",
+  verifyToken,
+  sanitizeInput,
+  autopayController.pauseAutopay
+);
+
+/**
+ * @route   POST /api/installments/autopay/resume/:orderId
+ * @desc    Resume autopay for an order
+ * @access  Private
+ */
+router.post(
+  "/autopay/resume/:orderId",
+  verifyToken,
+  autopayController.resumeAutopay
+);
+
+/**
+ * @route   POST /api/installments/autopay/skip-dates/:orderId
+ * @desc    Add skip dates for autopay
+ * @access  Private
+ * @body    { dates: [Date] }
+ */
+router.post(
+  "/autopay/skip-dates/:orderId",
+  verifyToken,
+  sanitizeInput,
+  autopayController.addSkipDates
+);
+
+/**
+ * @route   DELETE /api/installments/autopay/skip-dates/:orderId
+ * @desc    Remove a skip date
+ * @access  Private
+ * @body    { date: Date }
+ */
+router.delete(
+  "/autopay/skip-dates/:orderId",
+  verifyToken,
+  sanitizeInput,
+  autopayController.removeSkipDate
+);
+
+/**
+ * @route   PUT /api/installments/autopay/settings
+ * @desc    Update autopay settings
+ * @access  Private
+ * @body    { enabled, timePreference, minimumBalanceLock, lowBalanceThreshold, sendDailyReminder, reminderHoursBefore }
+ */
+router.put(
+  "/autopay/settings",
+  verifyToken,
+  sanitizeInput,
+  autopayController.updateSettings
+);
+
+/**
+ * @route   GET /api/installments/autopay/settings
+ * @desc    Get autopay settings
+ * @access  Private
+ */
+router.get(
+  "/autopay/settings",
+  verifyToken,
+  autopayController.getSettings
+);
+
+/**
+ * @route   GET /api/installments/autopay/status
+ * @desc    Get autopay status for all orders
+ * @access  Private
+ */
+router.get(
+  "/autopay/status",
+  verifyToken,
+  autopayController.getStatus
+);
+
+/**
+ * @route   PUT /api/installments/autopay/priority/:orderId
+ * @desc    Set autopay priority for an order
+ * @access  Private
+ * @body    { priority: number (1-100) }
+ */
+router.put(
+  "/autopay/priority/:orderId",
+  verifyToken,
+  sanitizeInput,
+  autopayController.setPriority
+);
+
+/**
+ * @route   GET /api/installments/autopay/dashboard
+ * @desc    Get autopay dashboard data
+ * @access  Private
+ */
+router.get(
+  "/autopay/dashboard",
+  verifyToken,
+  autopayController.getDashboard
+);
+
+/**
+ * @route   GET /api/installments/autopay/forecast
+ * @desc    Get balance forecast
+ * @access  Private
+ * @query   { days?: number (1-90, default 30) }
+ */
+router.get(
+  "/autopay/forecast",
+  verifyToken,
+  autopayController.getForecast
+);
+
+/**
+ * @route   GET /api/installments/autopay/history
+ * @desc    Get autopay payment history
+ * @access  Private
+ * @query   { page?: number, limit?: number }
+ */
+router.get(
+  "/autopay/history",
+  verifyToken,
+  autopayController.getHistory
+);
+
+/**
+ * @route   GET /api/installments/autopay/streak
+ * @desc    Get payment streak information
+ * @access  Private
+ */
+router.get(
+  "/autopay/streak",
+  verifyToken,
+  autopayController.getStreak
+);
+
+/**
+ * @route   GET /api/installments/autopay/suggested-topup
+ * @desc    Get suggested wallet top-up amount
+ * @access  Private
+ * @query   { days?: number (default 7) }
+ */
+router.get(
+  "/autopay/suggested-topup",
+  verifyToken,
+  autopayController.getSuggestedTopup
+);
+
+/**
+ * @route   PUT /api/installments/autopay/notification-preferences
+ * @desc    Update autopay notification preferences
+ * @access  Private
+ * @body    { autopaySuccess, autopayFailed, lowBalanceAlert, dailyReminder }
+ */
+router.put(
+  "/autopay/notification-preferences",
+  verifyToken,
+  sanitizeInput,
+  autopayController.updateNotificationPreferences
 );
 
 // ============================================
@@ -691,6 +954,568 @@ router.get(
   verifyToken,
   isAdmin,
   adminController.getForecast
+);
+
+// ============================================
+// ADMIN ROUTES - Autopay Management
+// ============================================
+
+/**
+ * @route   POST /api/installments/admin/autopay/trigger
+ * @desc    Manually trigger autopay processing for a time slot (for testing)
+ * @access  Private (Admin)
+ * @body    { timeSlot: 'MORNING_6AM' | 'AFTERNOON_12PM' | 'EVENING_6PM' }
+ */
+router.post(
+  "/admin/autopay/trigger",
+  verifyToken,
+  isAdmin,
+  sanitizeInput,
+  async (req, res) => {
+    try {
+      const { timeSlot } = req.body;
+      const { manualTriggerAutopay } = require("../jobs/autopayCron");
+
+      if (!timeSlot) {
+        return res.status(400).json({
+          success: false,
+          message: "timeSlot is required (MORNING_6AM, AFTERNOON_12PM, or EVENING_6PM)",
+        });
+      }
+
+      const result = await manualTriggerAutopay(timeSlot);
+
+      res.status(200).json({
+        success: true,
+        message: `Autopay triggered for ${timeSlot}`,
+        data: result,
+      });
+    } catch (error) {
+      console.error("[Admin] Autopay trigger error:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to trigger autopay",
+      });
+    }
+  }
+);
+
+/**
+ * @route   GET /api/installments/admin/autopay/cron-status
+ * @desc    Get autopay cron job status
+ * @access  Private (Admin)
+ */
+router.get(
+  "/admin/autopay/cron-status",
+  verifyToken,
+  isAdmin,
+  async (req, res) => {
+    try {
+      const { getCronStatus } = require("../jobs/autopayCron");
+      const status = getCronStatus();
+
+      res.status(200).json({
+        success: true,
+        data: status,
+      });
+    } catch (error) {
+      console.error("[Admin] Cron status error:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to get cron status",
+      });
+    }
+  }
+);
+
+/**
+ * @route   GET /api/installments/admin/autopay/users
+ * @desc    Get all users with autopay enabled
+ * @access  Private (Admin)
+ */
+router.get(
+  "/admin/autopay/users",
+  verifyToken,
+  isAdmin,
+  async (req, res) => {
+    try {
+      const User = require("../models/User");
+      const InstallmentOrder = require("../models/InstallmentOrder");
+
+      const users = await User.find({
+        "autopaySettings.enabled": true,
+      }).select("name email autopaySettings wallet.balance");
+
+      // Get order counts for each user
+      const usersWithOrders = await Promise.all(
+        users.map(async (user) => {
+          const orderCount = await InstallmentOrder.countDocuments({
+            user: user._id,
+            status: "ACTIVE",
+            "autopay.enabled": true,
+          });
+
+          return {
+            _id: user._id,
+            name: user.name,
+            email: user.email,
+            autopaySettings: user.autopaySettings,
+            walletBalance: user.wallet?.balance || 0,
+            autopayOrderCount: orderCount,
+          };
+        })
+      );
+
+      res.status(200).json({
+        success: true,
+        data: {
+          totalUsers: usersWithOrders.length,
+          users: usersWithOrders,
+        },
+      });
+    } catch (error) {
+      console.error("[Admin] Get autopay users error:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to get autopay users",
+      });
+    }
+  }
+);
+
+/**
+ * @route   GET /api/installments/admin/autopay/stats
+ * @desc    Get autopay statistics
+ * @access  Private (Admin)
+ */
+router.get(
+  "/admin/autopay/stats",
+  verifyToken,
+  isAdmin,
+  async (req, res) => {
+    try {
+      const User = require("../models/User");
+      const InstallmentOrder = require("../models/InstallmentOrder");
+
+      // Count users with autopay enabled
+      const usersWithAutopay = await User.countDocuments({
+        "autopaySettings.enabled": true,
+      });
+
+      // Count orders with autopay enabled
+      const ordersWithAutopay = await InstallmentOrder.countDocuments({
+        status: "ACTIVE",
+        "autopay.enabled": true,
+      });
+
+      // Get time preference distribution
+      const timePreferences = await User.aggregate([
+        { $match: { "autopaySettings.enabled": true } },
+        { $group: { _id: "$autopaySettings.timePreference", count: { $sum: 1 } } },
+      ]);
+
+      // Get recent autopay history
+      const recentOrders = await InstallmentOrder.find({
+        "autopay.history.0": { $exists: true },
+      })
+        .select("orderId productName autopay.history autopay.successCount autopay.failedCount")
+        .sort({ "autopay.history.0.date": -1 })
+        .limit(20);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          usersWithAutopay,
+          ordersWithAutopay,
+          timePreferences: timePreferences.reduce((acc, item) => {
+            acc[item._id || "MORNING_6AM"] = item.count;
+            return acc;
+          }, {}),
+          recentActivity: recentOrders.map((o) => ({
+            orderId: o.orderId,
+            productName: o.productName,
+            successCount: o.autopay?.successCount || 0,
+            failedCount: o.autopay?.failedCount || 0,
+            lastActivity: o.autopay?.history?.[0] || null,
+          })),
+        },
+      });
+    } catch (error) {
+      console.error("[Admin] Get autopay stats error:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to get autopay stats",
+      });
+    }
+  }
+);
+
+// ============================================
+// ADMIN ROUTES - Streak Configuration
+// ============================================
+
+/**
+ * @route   GET /api/installments/admin/streak/config
+ * @desc    Get streak configuration
+ * @access  Private (Admin)
+ */
+router.get(
+  "/admin/streak/config",
+  verifyToken,
+  isAdmin,
+  async (req, res) => {
+    try {
+      const StreakConfig = require("../models/StreakConfig");
+      const config = await StreakConfig.getConfig();
+
+      res.status(200).json({
+        success: true,
+        data: config,
+      });
+    } catch (error) {
+      console.error("[Admin] Get streak config error:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to get streak config",
+      });
+    }
+  }
+);
+
+/**
+ * @route   PUT /api/installments/admin/streak/config
+ * @desc    Update streak configuration (enable/disable, update all milestones)
+ * @access  Private (Admin)
+ * @body    { enabled: boolean, milestones: [{days, reward, badge, description, isActive}] }
+ */
+router.put(
+  "/admin/streak/config",
+  verifyToken,
+  isAdmin,
+  sanitizeInput,
+  async (req, res) => {
+    try {
+      const StreakConfig = require("../models/StreakConfig");
+      const { enabled, milestones } = req.body;
+
+      const config = await StreakConfig.updateConfig(
+        { enabled, milestones },
+        req.user._id,
+        req.user.email
+      );
+
+      res.status(200).json({
+        success: true,
+        message: "Streak configuration updated",
+        data: {
+          enabled: config.enabled,
+          milestones: config.milestones,
+          updatedAt: config.updatedAt,
+        },
+      });
+    } catch (error) {
+      console.error("[Admin] Update streak config error:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to update streak config",
+      });
+    }
+  }
+);
+
+/**
+ * @route   PUT /api/installments/admin/streak/enable
+ * @desc    Enable or disable streak system
+ * @access  Private (Admin)
+ * @body    { enabled: boolean }
+ */
+router.put(
+  "/admin/streak/enable",
+  verifyToken,
+  isAdmin,
+  sanitizeInput,
+  async (req, res) => {
+    try {
+      const StreakConfig = require("../models/StreakConfig");
+      const { enabled } = req.body;
+
+      if (enabled === undefined) {
+        return res.status(400).json({
+          success: false,
+          message: "enabled field is required",
+        });
+      }
+
+      const config = await StreakConfig.setEnabled(
+        enabled,
+        req.user._id,
+        req.user.email
+      );
+
+      res.status(200).json({
+        success: true,
+        message: enabled ? "Streak system enabled" : "Streak system disabled",
+        data: {
+          enabled: config.enabled,
+        },
+      });
+    } catch (error) {
+      console.error("[Admin] Enable streak error:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to update streak status",
+      });
+    }
+  }
+);
+
+/**
+ * @route   POST /api/installments/admin/streak/milestone
+ * @desc    Add a new milestone
+ * @access  Private (Admin)
+ * @body    { days: number, reward: number, badge: string, description?: string }
+ */
+router.post(
+  "/admin/streak/milestone",
+  verifyToken,
+  isAdmin,
+  sanitizeInput,
+  async (req, res) => {
+    try {
+      const StreakConfig = require("../models/StreakConfig");
+      const { days, reward, badge, description } = req.body;
+
+      if (!days || reward === undefined || !badge) {
+        return res.status(400).json({
+          success: false,
+          message: "days, reward, and badge are required",
+        });
+      }
+
+      const config = await StreakConfig.addMilestone(
+        { days, reward, badge, description: description || "", isActive: true },
+        req.user._id,
+        req.user.email
+      );
+
+      res.status(201).json({
+        success: true,
+        message: `Milestone for ${days} days added`,
+        data: {
+          milestones: config.milestones,
+        },
+      });
+    } catch (error) {
+      console.error("[Admin] Add milestone error:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to add milestone",
+      });
+    }
+  }
+);
+
+/**
+ * @route   PUT /api/installments/admin/streak/milestone/:days
+ * @desc    Update a specific milestone
+ * @access  Private (Admin)
+ * @body    { days?: number, reward?: number, badge?: string, description?: string, isActive?: boolean }
+ */
+router.put(
+  "/admin/streak/milestone/:days",
+  verifyToken,
+  isAdmin,
+  sanitizeInput,
+  async (req, res) => {
+    try {
+      const StreakConfig = require("../models/StreakConfig");
+      const targetDays = parseInt(req.params.days);
+      const updates = req.body;
+
+      if (isNaN(targetDays)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid days parameter",
+        });
+      }
+
+      const config = await StreakConfig.updateMilestone(
+        targetDays,
+        updates,
+        req.user._id,
+        req.user.email
+      );
+
+      res.status(200).json({
+        success: true,
+        message: `Milestone for ${targetDays} days updated`,
+        data: {
+          milestones: config.milestones,
+        },
+      });
+    } catch (error) {
+      console.error("[Admin] Update milestone error:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to update milestone",
+      });
+    }
+  }
+);
+
+/**
+ * @route   DELETE /api/installments/admin/streak/milestone/:days
+ * @desc    Delete a milestone
+ * @access  Private (Admin)
+ */
+router.delete(
+  "/admin/streak/milestone/:days",
+  verifyToken,
+  isAdmin,
+  async (req, res) => {
+    try {
+      const StreakConfig = require("../models/StreakConfig");
+      const targetDays = parseInt(req.params.days);
+
+      if (isNaN(targetDays)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid days parameter",
+        });
+      }
+
+      const config = await StreakConfig.deleteMilestone(
+        targetDays,
+        req.user._id,
+        req.user.email
+      );
+
+      res.status(200).json({
+        success: true,
+        message: `Milestone for ${targetDays} days deleted`,
+        data: {
+          milestones: config.milestones,
+        },
+      });
+    } catch (error) {
+      console.error("[Admin] Delete milestone error:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to delete milestone",
+      });
+    }
+  }
+);
+
+/**
+ * @route   DELETE /api/installments/admin/streak/config
+ * @desc    Delete all streak configuration (reset)
+ * @access  Private (Admin)
+ */
+router.delete(
+  "/admin/streak/config",
+  verifyToken,
+  isAdmin,
+  async (req, res) => {
+    try {
+      const StreakConfig = require("../models/StreakConfig");
+      await StreakConfig.deleteConfig();
+
+      res.status(200).json({
+        success: true,
+        message: "Streak configuration deleted",
+      });
+    } catch (error) {
+      console.error("[Admin] Delete streak config error:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to delete streak config",
+      });
+    }
+  }
+);
+
+/**
+ * @route   GET /api/installments/admin/streak/stats
+ * @desc    Get streak statistics across all users
+ * @access  Private (Admin)
+ */
+router.get(
+  "/admin/streak/stats",
+  verifyToken,
+  isAdmin,
+  async (req, res) => {
+    try {
+      const User = require("../models/User");
+      const StreakConfig = require("../models/StreakConfig");
+
+      // Get streak config
+      const config = await StreakConfig.getConfig();
+
+      // Get users with active streaks
+      const usersWithStreaks = await User.find({
+        "paymentStreak.current": { $gt: 0 },
+      })
+        .select("name email paymentStreak")
+        .sort({ "paymentStreak.current": -1 })
+        .limit(50);
+
+      // Aggregate stats
+      const streakStats = await User.aggregate([
+        { $match: { "paymentStreak.current": { $gt: 0 } } },
+        {
+          $group: {
+            _id: null,
+            totalUsersWithStreak: { $sum: 1 },
+            totalRewardsGiven: { $sum: "$paymentStreak.totalRewardsEarned" },
+            avgCurrentStreak: { $avg: "$paymentStreak.current" },
+            maxCurrentStreak: { $max: "$paymentStreak.current" },
+            maxLongestStreak: { $max: "$paymentStreak.longest" },
+          },
+        },
+      ]);
+
+      const stats = streakStats[0] || {
+        totalUsersWithStreak: 0,
+        totalRewardsGiven: 0,
+        avgCurrentStreak: 0,
+        maxCurrentStreak: 0,
+        maxLongestStreak: 0,
+      };
+
+      res.status(200).json({
+        success: true,
+        data: {
+          config: {
+            isConfigured: config.isConfigured,
+            enabled: config.enabled,
+            milestonesCount: config.milestones?.length || 0,
+          },
+          stats: {
+            totalUsersWithStreak: stats.totalUsersWithStreak,
+            totalRewardsGiven: Math.round(stats.totalRewardsGiven || 0),
+            avgCurrentStreak: Math.round(stats.avgCurrentStreak || 0),
+            maxCurrentStreak: stats.maxCurrentStreak || 0,
+            maxLongestStreak: stats.maxLongestStreak || 0,
+          },
+          topUsers: usersWithStreaks.map((u) => ({
+            name: u.name,
+            email: u.email,
+            currentStreak: u.paymentStreak?.current || 0,
+            longestStreak: u.paymentStreak?.longest || 0,
+            totalRewardsEarned: u.paymentStreak?.totalRewardsEarned || 0,
+            milestonesAchieved: u.paymentStreak?.milestonesAchieved?.length || 0,
+          })),
+        },
+      });
+    } catch (error) {
+      console.error("[Admin] Get streak stats error:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to get streak stats",
+      });
+    }
+  }
 );
 
 module.exports = router;

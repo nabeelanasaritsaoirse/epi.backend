@@ -1,7 +1,6 @@
 const Category = require("../models/Category");
 const {
   uploadSingleFileToS3,
-  uploadMultipleFilesToS3,
   deleteImageFromS3,
 } = require("../services/awsUploadService");
 const {
@@ -16,15 +15,8 @@ const {
  */
 exports.createCategory = async (req, res) => {
   try {
-    const {
-      name,
-      description,
-      parentCategoryId,
-      image,
-      images,
-      meta,
-      displayOrder,
-    } = req.body;
+    const { name, description, parentCategoryId, meta, displayOrder } =
+      req.body;
 
     if (!name) {
       return res
@@ -67,16 +59,11 @@ exports.createCategory = async (req, res) => {
       .replace(/[\s_]+/g, "-")
       .replace(/^-+|-+$/g, "");
 
-    // FINAL IMAGE HANDLING (URL MODE)
-    let finalImages = Array.isArray(images) ? images : [];
-    let finalSingleImage = image || finalImages[0] || {};
-
     const newCategory = new Category({
       categoryId,
       name,
       description,
       slug,
-      image: image || {},
       parentCategoryId: parentCategoryId || null,
       subCategories: [],
       displayOrder: displayOrder || 0,
@@ -136,7 +123,9 @@ exports.getAllCategories = async (req, res) => {
 
     // Filter out soft deleted categories for non-admin users
     // Admin can see deleted categories only when explicitly requested
-    const isAdmin = req.user && (req.user.role === "admin" || req.user.role === "super_admin");
+    const isAdmin =
+      req.user &&
+      (req.user.role === "admin" || req.user.role === "super_admin");
     if (!isAdmin) {
       filter.isDeleted = false;
     }
@@ -153,7 +142,10 @@ exports.getAllCategories = async (req, res) => {
     }
 
     const categories = await Category.find(filter)
-      .populate("subCategories", "categoryId name slug image displayOrder")
+      .populate(
+        "subCategories",
+        "categoryId name slug displayOrder mainImage iconImage"
+      )
       .sort({ displayOrder: 1, name: 1 })
       .exec();
 
@@ -249,7 +241,10 @@ exports.getCategoryById = async (req, res) => {
   try {
     const category = await Category.findById(req.params.categoryId)
       .populate("parentCategoryId", "categoryId name slug")
-      .populate("subCategories", "categoryId name slug image displayOrder")
+      .populate(
+        "subCategories",
+        "categoryId name slug displayOrder mainImage iconImage"
+      )
       .exec();
 
     if (!category) {
@@ -260,7 +255,9 @@ exports.getCategoryById = async (req, res) => {
     }
 
     // Check if category is deleted and user is not admin
-    const isAdmin = req.user && (req.user.role === "admin" || req.user.role === "super_admin");
+    const isAdmin =
+      req.user &&
+      (req.user.role === "admin" || req.user.role === "super_admin");
     if (category.isDeleted && !isAdmin) {
       return res.status(404).json({
         success: false,
@@ -328,7 +325,7 @@ exports.getCategoriesForDropdown = async (req, res) => {
         match: { isActive: true },
         select: "categoryId name slug",
       })
-      .select("categoryId name slug image")
+      .select("categoryId name slug mainImage iconImage")
       .sort({ displayOrder: 1, name: 1 })
       .exec();
 
@@ -353,17 +350,8 @@ exports.getCategoriesForDropdown = async (req, res) => {
 exports.updateCategory = async (req, res) => {
   try {
     const { categoryId } = req.params;
-    const {
-      name,
-      description,
-      image,
-      images,
-      meta,
-      displayOrder,
-      isActive,
-      isFeatured,
-      parentCategoryId,
-    } = req.body;
+    const { name, description, parentCategoryId, meta, displayOrder } =
+      req.body;
 
     const category = await Category.findById(categoryId);
     if (!category)
@@ -396,22 +384,15 @@ exports.updateCategory = async (req, res) => {
     // Description
     if (description !== undefined) category.description = description;
 
-    // IMAGE HANDLING (URL MODE)
-    if (images !== undefined && Array.isArray(images)) {
-      category.images = images;
-      category.image = images[0] || {};
-    } else if (image !== undefined) {
-      category.image = image;
-    }
-
     // Meta
     if (meta !== undefined) category.meta = meta;
+
     // 🌍 Regional Availability
     if (req.body.availableInRegions !== undefined) {
       category.availableInRegions = req.body.availableInRegions;
     }
 
-    // 🌍 Per-Region SEO Meta (SAFE & FIXED)
+    // 🌍 Per-Region SEO Meta
     if (req.body.regionalMeta !== undefined) {
       category.regionalMeta = Array.isArray(req.body.regionalMeta)
         ? req.body.regionalMeta.map((rm) => ({
@@ -427,14 +408,11 @@ exports.updateCategory = async (req, res) => {
                   .filter(Boolean)
               : [],
           }))
-        : []; // ensures no crash when input is invalid
+        : [];
     }
-    // Flags
-    if (displayOrder !== undefined) category.displayOrder = displayOrder;
-    if (isActive !== undefined) category.isActive = isActive;
 
-    // FEATURED (Fixing your bug #2)
-    if (isFeatured !== undefined) category.isFeatured = isFeatured;
+    // Display order
+    if (displayOrder !== undefined) category.displayOrder = displayOrder;
 
     // Parent handling
     if (parentCategoryId !== undefined) {
@@ -605,7 +583,10 @@ exports.searchCategories = async (req, res) => {
       ],
       isActive: true,
     })
-      .populate("subCategories", "categoryId name slug")
+      .populate(
+        "subCategories",
+        "categoryId name slug displayOrder mainImage iconImage"
+      )
       .limit(20)
       .exec();
 
@@ -710,117 +691,6 @@ exports.getCategoryStats = async (req, res) => {
 };
 
 /**
- * @desc    Update category image (with file upload to S3)
- * @route   PUT /api/categories/:categoryId/image
- * @access  Admin
- */
-exports.updateCategoryImage = async (req, res) => {
-  try {
-    const { categoryId } = req.params;
-    const file = req.file;
-
-    if (!file) {
-      return res.status(400).json({
-        success: false,
-        message: "Image file is required",
-      });
-    }
-
-    const category = await Category.findById(categoryId);
-
-    if (!category) {
-      return res.status(404).json({
-        success: false,
-        message: "Category not found",
-      });
-    }
-
-    // Upload to S3
-    const uploadResult = await uploadSingleFileToS3(file, "categories/", 800);
-
-    category.image = {
-      url: uploadResult.url,
-      altText: req.body.altText || category.name,
-    };
-
-    await category.save();
-
-    res.status(200).json({
-      success: true,
-      message: "Category image uploaded and updated successfully",
-      data: {
-        categoryId: category._id,
-        image: category.image,
-      },
-    });
-  } catch (error) {
-    console.error("Error updating category image:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-/**
- * @desc    Update category banner (with file upload to S3)
- * @route   PUT /api/categories/:categoryId/banner
- * @access  Admin
- */
-exports.updateCategoryBanner = async (req, res) => {
-  try {
-    const { categoryId } = req.params;
-    const file = req.file;
-
-    if (!file) {
-      return res.status(400).json({
-        success: false,
-        message: "Banner image file is required",
-      });
-    }
-
-    const category = await Category.findById(categoryId);
-
-    if (!category) {
-      return res.status(404).json({
-        success: false,
-        message: "Category not found",
-      });
-    }
-
-    // Upload to S3 (larger size for banner)
-    const uploadResult = await uploadSingleFileToS3(
-      file,
-      "categories/banners/",
-      1200
-    );
-
-    category.banner = {
-      url: uploadResult.url,
-      altText: req.body.altText || category.name,
-      link: req.body.link || "",
-    };
-
-    await category.save();
-
-    res.status(200).json({
-      success: true,
-      message: "Category banner uploaded and updated successfully",
-      data: {
-        categoryId: category._id,
-        banner: category.banner,
-      },
-    });
-  } catch (error) {
-    console.error("Error updating category banner:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-/**
  * @desc    Update category meta/SEO (after creation)
  * @route   PUT /api/categories/:categoryId/meta
  * @access  Admin
@@ -909,7 +779,11 @@ exports.getFeaturedCategories = async (req, res) => {
       isFeatured: true,
       isActive: true,
     })
-      .populate("subCategories", "categoryId name slug image")
+      .populate(
+        "subCategories",
+        "categoryId name slug displayOrder mainImage iconImage"
+      )
+
       .sort({ displayOrder: 1, name: 1 })
       .exec();
 
@@ -920,145 +794,6 @@ exports.getFeaturedCategories = async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching featured categories:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-/**
- * @desc    Delete individual image from category
- * @route   DELETE /api/categories/:categoryId/images/:imageIndex
- * @access  Admin
- */
-exports.deleteCategoryImage = async (req, res) => {
-  try {
-    const { categoryId, imageIndex } = req.params;
-
-    const category = await Category.findById(categoryId);
-
-    if (!category) {
-      return res.status(404).json({
-        success: false,
-        message: "Category not found",
-      });
-    }
-
-    // Convert imageIndex to number (1-based)
-    const index = parseInt(imageIndex);
-
-    if (isNaN(index) || index < 1) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Invalid image index. Index must be a positive number starting from 1",
-      });
-    }
-
-    // Convert to 0-based index for array
-    const arrayIndex = index - 1;
-
-    if (!category.images || arrayIndex >= category.images.length) {
-      return res.status(400).json({
-        success: false,
-        message: "Image index out of range",
-      });
-    }
-
-    // Get the image to delete
-    const imageToDelete = category.images[arrayIndex];
-
-    // Delete image from S3
-    if (imageToDelete.url) {
-      try {
-        await deleteImageFromS3(imageToDelete.url);
-      } catch (error) {
-        console.error("Error deleting image from S3:", error);
-        // Continue with deletion even if S3 delete fails
-      }
-    }
-
-    // Remove image from array
-    category.images.splice(arrayIndex, 1);
-
-    // Re-index remaining images (1-based)
-    category.images.forEach((img, idx) => {
-      img.order = idx + 1;
-    });
-
-    await category.save();
-
-    res.status(200).json({
-      success: true,
-      message: "Image deleted successfully",
-      data: category,
-    });
-  } catch (error) {
-    console.error("Error deleting category image:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-/**
- * @desc    Reorder category images
- * @route   PUT /api/categories/:categoryId/images/reorder
- * @access  Admin
- */
-exports.reorderCategoryImages = async (req, res) => {
-  try {
-    const { categoryId } = req.params;
-    const { imageOrders } = req.body;
-
-    const category = await Category.findById(categoryId);
-
-    if (!category) {
-      return res.status(404).json({
-        success: false,
-        message: "Category not found",
-      });
-    }
-
-    if (!imageOrders || !Array.isArray(imageOrders)) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "imageOrders must be an array of {index: number, order: number}",
-      });
-    }
-
-    // Validate all indices are within range
-    for (const item of imageOrders) {
-      const arrayIndex = item.index - 1; // Convert from 1-based to 0-based
-      if (arrayIndex < 0 || arrayIndex >= category.images.length) {
-        return res.status(400).json({
-          success: false,
-          message: `Invalid index ${item.index}. Must be between 1 and ${category.images.length}`,
-        });
-      }
-    }
-
-    // Update order for each image
-    imageOrders.forEach((item) => {
-      const arrayIndex = item.index - 1;
-      category.images[arrayIndex].order = item.order;
-    });
-
-    // Sort images by order
-    category.images.sort((a, b) => a.order - b.order);
-
-    await category.save();
-
-    res.status(200).json({
-      success: true,
-      message: "Images reordered successfully",
-      data: category,
-    });
-  } catch (error) {
-    console.error("Error reordering category images:", error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -1113,43 +848,51 @@ exports.syncAllProductCounts = async (req, res) => {
  */
 exports.exportCategories = async (req, res) => {
   try {
-    const { format = 'excel', isActive, parentCategoryId } = req.query;
+    const { format = "excel", isActive, parentCategoryId } = req.query;
 
     // Build filter (same as existing response format)
     const filter = { isDeleted: false };
 
-    if (isActive !== undefined && isActive !== 'all') {
-      filter.isActive = isActive === 'true' || isActive === true;
+    if (isActive !== undefined && isActive !== "all") {
+      filter.isActive = isActive === "true" || isActive === true;
     }
 
     if (parentCategoryId) {
-      filter.parentCategoryId = parentCategoryId === 'null' ? null : parentCategoryId;
+      filter.parentCategoryId =
+        parentCategoryId === "null" ? null : parentCategoryId;
     }
 
-    if (format === 'csv') {
+    if (format === "csv") {
       // Export as CSV
       const csvData = await exportCategoriesToCSV(filter);
 
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="categories-${Date.now()}.csv"`);
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="categories-${Date.now()}.csv"`
+      );
       res.send(csvData);
-
     } else {
       // Export as Excel (default)
       const workbook = await exportCategoriesToExcel(filter);
 
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('Content-Disposition', `attachment; filename="categories-${Date.now()}.xlsx"`);
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      );
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="categories-${Date.now()}.xlsx"`
+      );
 
       await workbook.xlsx.write(res);
       res.end();
     }
-
   } catch (error) {
-    console.error('Export error:', error);
+    console.error("Export error:", error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -1165,10 +908,11 @@ exports.hardDeleteCategory = async (req, res) => {
     const { confirmDelete } = req.query;
 
     // Safety check - require explicit confirmation
-    if (confirmDelete !== 'true') {
+    if (confirmDelete !== "true") {
       return res.status(400).json({
         success: false,
-        message: 'Hard delete requires confirmDelete=true query parameter for safety',
+        message:
+          "Hard delete requires confirmDelete=true query parameter for safety",
       });
     }
 
@@ -1177,7 +921,7 @@ exports.hardDeleteCategory = async (req, res) => {
     if (!category) {
       return res.status(404).json({
         success: false,
-        message: 'Category not found',
+        message: "Category not found",
       });
     }
 
@@ -1202,7 +946,7 @@ exports.hardDeleteCategory = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Category permanently deleted from database',
+      message: "Category permanently deleted from database",
       deletedCategory: {
         id: category._id,
         name: category.name,
@@ -1210,10 +954,229 @@ exports.hardDeleteCategory = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error hard deleting category:', error);
+    console.error("Error hard deleting category:", error);
     res.status(500).json({
       success: false,
       message: error.message,
     });
+  }
+};
+
+exports.updateCategoryImages = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+
+    if (!req.files || Object.keys(req.files).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No category images uploaded",
+      });
+    }
+
+    const category = await Category.findById(categoryId);
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found",
+      });
+    }
+
+    const fieldMap = {
+      mainImage: "main",
+      illustrationImage: "illustration",
+      subcategoryImage: "subcategory",
+      mobileImage: "mobile",
+      iconImage: "icon",
+    };
+
+    for (const field in fieldMap) {
+      const fileArr = req.files[field];
+      if (!fileArr || !fileArr[0]) continue;
+
+      // 🔥 DELETE OLD IMAGE FROM S3 (CRITICAL FIX)
+      if (category[field]?.url) {
+        await deleteImageFromS3(category[field].url);
+      }
+
+      const file = fileArr[0];
+      const uploadResult = await uploadSingleFileToS3(file, "categories/", 800);
+
+      category[field] = {
+        type: fieldMap[field],
+        url: uploadResult.url,
+        altText: req.body?.[`${field}Alt`] || category.name,
+        order: 1,
+        isActive: true,
+      };
+    }
+
+    await category.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Category images updated successfully",
+      data: {
+        mainImage: category.mainImage,
+        illustrationImage: category.illustrationImage,
+        subcategoryImage: category.subcategoryImage,
+        mobileImage: category.mobileImage,
+        iconImage: category.iconImage,
+      },
+    });
+  } catch (error) {
+    console.error("Error updating category images:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+exports.uploadCategoryBanners = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No banner images uploaded",
+      });
+    }
+
+    const category = await Category.findById(categoryId);
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found",
+      });
+    }
+
+    if (!Array.isArray(category.bannerImages)) {
+      category.bannerImages = [];
+    }
+
+    let orderStart = category.bannerImages.length + 1;
+
+    for (const file of req.files) {
+      const uploadResult = await uploadSingleFileToS3(
+        file,
+        "categories/banners/",
+        1200
+      );
+
+      category.bannerImages.push({
+        type: "banner",
+        url: uploadResult.url,
+        altText: req.body.altText || category.name,
+        order: orderStart++,
+        isActive: true,
+      });
+    }
+
+    await category.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Banner images uploaded successfully",
+      data: category.bannerImages,
+    });
+  } catch (error) {
+    console.error("Banner upload error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+exports.reorderCategoryBanners = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+    const { orders } = req.body;
+    // orders = [{ id, order }]
+
+    if (!Array.isArray(orders)) {
+      return res.status(400).json({
+        success: false,
+        message: "orders must be an array",
+      });
+    }
+
+    const category = await Category.findById(categoryId);
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found",
+      });
+    }
+
+    orders.forEach(({ id, order }) => {
+      const banner = category.bannerImages.id(id);
+      if (banner) banner.order = order;
+    });
+
+    category.bannerImages.sort((a, b) => a.order - b.order);
+
+    await category.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Banner images reordered successfully",
+      data: category.bannerImages,
+    });
+  } catch (error) {
+    console.error("Banner reorder error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+exports.deleteCategoryBannerImage = async (req, res) => {
+  try {
+    const { categoryId, bannerImageId } = req.params;
+
+    const category = await Category.findById(categoryId);
+    if (!category) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Category not found" });
+    }
+    if (
+      !Array.isArray(category.bannerImages) ||
+      category.bannerImages.length === 0
+    ) {
+      return res.status(404).json({
+        success: false,
+        message: "No banner images found for this category",
+      });
+    }
+
+    const banner = category.bannerImages.id(bannerImageId);
+    if (!banner) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Banner image not found" });
+    }
+
+    // delete from S3
+    if (banner.url) {
+      await deleteImageFromS3(banner.url);
+    }
+
+    banner.remove();
+    category.bannerImages.forEach((b, i) => (b.order = i + 1));
+
+    await category.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Banner image deleted successfully",
+      data: category.bannerImages,
+    });
+  } catch (error) {
+    console.error("Banner delete error:", error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };

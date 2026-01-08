@@ -96,8 +96,8 @@ router.get('/', verifyToken, async (req, res) => {
         quantity: quantity,
         variant: variantInfo,
         installmentPlan: {
-          totalDays: installmentPlan.totalDays || 0,
-          dailyAmount: installmentPlan.dailyAmount || 0,
+          totalDays: installmentPlan.totalDays || null,
+          dailyAmount: installmentPlan.dailyAmount || null,
           totalAmount: totalInstallmentAmount
         },
         addedAt: item.addedAt,
@@ -186,17 +186,18 @@ router.post('/add/:productId', verifyToken, async (req, res) => {
       });
     }
 
-    if (!totalDays || totalDays < 5) {
+    // Validate installment plan only if provided
+    if (totalDays && totalDays < 5) {
       return res.status(400).json({
         success: false,
-        message: 'totalDays is required and must be at least 5'
+        message: 'totalDays must be at least 5'
       });
     }
 
-    if (!dailyAmount || dailyAmount < 50) {
+    if (dailyAmount && dailyAmount < 50) {
       return res.status(400).json({
         success: false,
-        message: 'dailyAmount is required and must be at least ₹50'
+        message: 'dailyAmount must be at least ₹50'
       });
     }
 
@@ -279,8 +280,14 @@ router.post('/add/:productId', verifyToken, async (req, res) => {
     const existingIndex = cart.products.findIndex(p => {
       const sameProduct = p.productId.toString() === productId;
       const sameVariant = (p.variantId || null) === (variantId || null);
-      const samePlan = p.installmentPlan.totalDays === totalDays &&
-                       p.installmentPlan.dailyAmount === dailyAmount;
+
+      // Handle plan comparison - if both have no plan or both have same plan
+      const currentPlanDays = p.installmentPlan?.totalDays || null;
+      const currentPlanAmount = p.installmentPlan?.dailyAmount || null;
+      const newPlanDays = totalDays || null;
+      const newPlanAmount = dailyAmount || null;
+
+      const samePlan = currentPlanDays === newPlanDays && currentPlanAmount === newPlanAmount;
       return sameProduct && sameVariant && samePlan;
     });
 
@@ -312,9 +319,12 @@ router.post('/add/:productId', verifyToken, async (req, res) => {
         quantity: Number(quantity),
         variantId: variantId || null,
         variantDetails: variantDetailsSnapshot,
-        installmentPlan: {
+        installmentPlan: (totalDays && dailyAmount) ? {
           totalDays: Number(totalDays),
           dailyAmount: Number(dailyAmount)
+        } : {
+          totalDays: null,
+          dailyAmount: null
         },
         addedAt: new Date(),
         updatedAt: new Date()
@@ -487,10 +497,15 @@ router.put('/update-plan', verifyToken, async (req, res) => {
     const {
       productId,
       variantId = null,
-      oldPlan,
-      newPlan
+      totalDays,
+      dailyAmount,
+      installmentPlan
     } = req.body;
     const userId = req.user._id;
+
+    // Support both nested and flat structure
+    const planDays = installmentPlan?.totalDays || totalDays;
+    const planAmount = installmentPlan?.dailyAmount || dailyAmount;
 
     // Validate inputs
     if (!productId) {
@@ -500,28 +515,21 @@ router.put('/update-plan', verifyToken, async (req, res) => {
       });
     }
 
-    if (!oldPlan || !oldPlan.totalDays || !oldPlan.dailyAmount) {
+    if (!planDays || !planAmount) {
       return res.status(400).json({
         success: false,
-        message: 'oldPlan with totalDays and dailyAmount is required to identify cart item'
+        message: 'totalDays and dailyAmount are required'
       });
     }
 
-    if (!newPlan || !newPlan.totalDays || !newPlan.dailyAmount) {
-      return res.status(400).json({
-        success: false,
-        message: 'newPlan with totalDays and dailyAmount is required'
-      });
-    }
-
-    if (newPlan.totalDays < 5) {
+    if (planDays < 5) {
       return res.status(400).json({
         success: false,
         message: 'totalDays must be at least 5'
       });
     }
 
-    if (newPlan.dailyAmount < 50) {
+    if (planAmount < 50) {
       return res.status(400).json({
         success: false,
         message: 'dailyAmount must be at least ₹50'
@@ -536,26 +544,24 @@ router.put('/update-plan', verifyToken, async (req, res) => {
       });
     }
 
-    // Find the cart item to update
+    // Find the cart item to update - match by product and variant only
     const itemIndex = cart.products.findIndex(p => {
       const sameProduct = p.productId.toString() === productId;
       const sameVariant = (p.variantId || null) === (variantId || null);
-      const samePlan = p.installmentPlan.totalDays === oldPlan.totalDays &&
-                       p.installmentPlan.dailyAmount === oldPlan.dailyAmount;
-      return sameProduct && sameVariant && samePlan;
+      return sameProduct && sameVariant;
     });
 
     if (itemIndex === -1) {
       return res.status(404).json({
         success: false,
-        message: 'Cart item not found with specified product, variant, and plan'
+        message: 'Cart item not found with specified product and variant'
       });
     }
 
     // Update the installment plan
     cart.products[itemIndex].installmentPlan = {
-      totalDays: Number(newPlan.totalDays),
-      dailyAmount: Number(newPlan.dailyAmount)
+      totalDays: Number(planDays),
+      dailyAmount: Number(planAmount)
     };
     cart.products[itemIndex].updatedAt = new Date();
 
@@ -568,9 +574,9 @@ router.put('/update-plan', verifyToken, async (req, res) => {
         productId,
         variantId: variantId || null,
         updatedPlan: {
-          totalDays: newPlan.totalDays,
-          dailyAmount: newPlan.dailyAmount,
-          totalAmount: newPlan.totalDays * newPlan.dailyAmount
+          totalDays: Number(planDays),
+          dailyAmount: Number(planAmount),
+          totalAmount: Number(planDays) * Number(planAmount)
         }
       }
     });

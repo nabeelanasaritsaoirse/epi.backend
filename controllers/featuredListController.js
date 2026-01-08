@@ -9,13 +9,23 @@ const { v4: uuidv4 } = require("uuid");
 // Create a new featured list
 exports.createList = async (req, res) => {
   try {
-    const { listName, slug, description, isActive, displayOrder } = req.body;
+    const { listName, slug, description, isActive, displayOrder, design } = req.body;
 
     if (!listName || !slug) {
       return res.status(400).json({
         success: false,
         message: "listName and slug are required",
       });
+    }
+
+    // Validate design field if provided
+    if (design !== undefined) {
+      if (!Number.isInteger(design) || design < 1 || design > 5) {
+        return res.status(400).json({
+          success: false,
+          message: "design must be an integer between 1 and 5",
+        });
+      }
     }
 
     // Check if slug already exists
@@ -36,6 +46,7 @@ exports.createList = async (req, res) => {
       description,
       isActive: isActive !== undefined ? isActive : true,
       displayOrder: displayOrder || 0,
+      design: design !== undefined ? design : 1,
       products: [],
       createdBy: req.user._id,
       createdByEmail: req.user.email,
@@ -134,7 +145,7 @@ exports.getListByIdAdmin = async (req, res) => {
 exports.updateList = async (req, res) => {
   try {
     const { listId } = req.params;
-    const { listName, slug, description, isActive, displayOrder } = req.body;
+    const { listName, slug, description, isActive, displayOrder, design } = req.body;
 
     const list = await FeaturedList.findOne({
       $or: [{ listId }, { slug: listId }],
@@ -146,6 +157,16 @@ exports.updateList = async (req, res) => {
         success: false,
         message: "Featured list not found",
       });
+    }
+
+    // Validate design field if provided
+    if (design !== undefined) {
+      if (!Number.isInteger(design) || design < 1 || design > 5) {
+        return res.status(400).json({
+          success: false,
+          message: "design must be an integer between 1 and 5",
+        });
+      }
     }
 
     // Check if new slug conflicts with another list
@@ -170,6 +191,7 @@ exports.updateList = async (req, res) => {
     if (description !== undefined) list.description = description;
     if (isActive !== undefined) list.isActive = isActive;
     if (displayOrder !== undefined) list.displayOrder = displayOrder;
+    if (design !== undefined) list.design = design;
 
     list.updatedBy = req.user._id;
     list.updatedByEmail = req.user.email;
@@ -507,7 +529,7 @@ exports.getAllListsPublic = async (req, res) => {
       isActive: true,
       isDeleted: false,
     })
-      .select("listId listName slug description displayOrder products")
+      .select("listId listName slug description displayOrder design products")
       .sort({ displayOrder: 1, createdAt: -1 });
 
     // Filter products by region availability if region is detected
@@ -558,6 +580,7 @@ exports.getAllListsPublic = async (req, res) => {
           slug: list.slug,
           description: list.description,
           displayOrder: list.displayOrder,
+          design: list.design,
           products: limitedProducts,
           totalProducts: totalCount,
         };
@@ -588,7 +611,7 @@ exports.getListBySlugPublic = async (req, res) => {
       slug,
       isActive: true,
       isDeleted: false,
-    }).select("listId listName slug description displayOrder products");
+    }).select("listId listName slug description displayOrder design products");
 
     if (!list) {
       return res.status(404).json({
@@ -641,6 +664,7 @@ exports.getListBySlugPublic = async (req, res) => {
         listName: list.listName,
         slug: list.slug,
         description: list.description,
+        design: list.design,
         products: paginatedProducts,
       },
       pagination: {

@@ -26,6 +26,7 @@ const adminRoutes = require("./routes/admin");
 // New admin management routes
 const adminAuthRoutes = require("./routes/adminAuth");
 const adminManagementRoutes = require("./routes/adminManagement");
+const salesTeamRoutes = require("./routes/salesTeam");
 
 const referralRoutes = require("./routes/referralRoutes");
 const planRoutes = require("./routes/plans");
@@ -112,6 +113,16 @@ app.use((err, req, res, next) => {
 require("./services/kycAutoApproveService");
 
 // ======================================================================
+// CRON JOBS
+// ======================================================================
+const { startNotificationCron } = require("./jobs/notificationCron");
+const { startAutopayCron } = require("./jobs/autopayCron");
+
+// Start cron jobs
+startNotificationCron();
+startAutopayCron();
+
+// ======================================================================
 // ROUTES
 // ======================================================================
 app.use("/api/auth", authRoutes);
@@ -157,6 +168,9 @@ app.use("/api/featured-lists", featuredListRoutes);
 // ADMIN MANAGEMENT ROUTES (Super admin only)
 app.use("/api/admin-auth", adminAuthRoutes);
 app.use("/api/admin-mgmt", adminManagementRoutes);
+
+// SALES TEAM ROUTES
+app.use("/api/sales", salesTeamRoutes);
 
 // ADMIN REFERRAL ROUTES
 app.use("/api/admin/referrals", adminReferralRoutes);
