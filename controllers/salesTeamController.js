@@ -74,9 +74,7 @@ exports.getAllUsersWithReferrals = async (req, res) => {
 
     // Get users with pagination
     const users = await User.find(query)
-      .select(
-        "name email phoneNumber profilePicture referralCode createdAt wallet.balance"
-      )
+      .select('name email phoneNumber profilePicture referralCode createdAt wallet.balance autopaySettings')
       .sort({ createdAt: -1 })
       .skip((parseInt(page) - 1) * parseInt(limit))
       .limit(parseInt(limit))
