@@ -8,7 +8,7 @@ const NotificationLike = require('../models/NotificationLike');
 
 /**
  * Generate unique notification ID
- * Format: NOTIF-YYYYMMDD-XXXX
+ * Format: NOTIF-YYYYMMDD-XXXXXXXXXX (timestamp + random)
  * @returns {string} Unique notification ID
  */
 function generateNotificationId() {
@@ -16,14 +16,17 @@ function generateNotificationId() {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
-  const random = Math.floor(1000 + Math.random() * 9000);
 
-  return `NOTIF-${year}${month}${day}-${random}`;
+  // Use timestamp (milliseconds) + random for uniqueness
+  const timestamp = Date.now().toString().slice(-6); // Last 6 digits of timestamp
+  const random = Math.floor(1000 + Math.random() * 9000); // 4-digit random
+
+  return `NOTIF-${year}${month}${day}-${timestamp}${random}`;
 }
 
 /**
  * Generate unique comment ID
- * Format: CMT-YYYYMMDD-XXXX
+ * Format: CMT-YYYYMMDD-XXXXXXXXXX (timestamp + random)
  * @returns {string} Unique comment ID
  */
 function generateCommentId() {
@@ -31,9 +34,12 @@ function generateCommentId() {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
-  const random = Math.floor(1000 + Math.random() * 9000);
 
-  return `CMT-${year}${month}${day}-${random}`;
+  // Use timestamp (milliseconds) + random for uniqueness
+  const timestamp = Date.now().toString().slice(-6); // Last 6 digits of timestamp
+  const random = Math.floor(1000 + Math.random() * 9000); // 4-digit random
+
+  return `CMT-${year}${month}${day}-${timestamp}${random}`;
 }
 
 /**
