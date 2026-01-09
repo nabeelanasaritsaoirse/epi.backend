@@ -9,6 +9,69 @@ const {
 } = require("../services/exportService");
 
 /**
+ * Helper: Apply parent image fallback to subcategories
+ * If a subcategory has no image, use parent's mainImage
+ */
+function applyParentImageFallback(parentCategory, subcategories) {
+  if (!subcategories || subcategories.length === 0) return subcategories;
+
+  const parentImage = parentCategory.mainImage || parentCategory.image;
+  const parentIcon = parentCategory.iconImage || parentCategory.icon;
+
+  return subcategories.map(subcat => {
+    const subcatObj = subcat.toObject ? subcat.toObject() : { ...subcat };
+
+    // If subcategory has no mainImage, use parent's mainImage
+    if (!subcatObj.mainImage && parentImage) {
+      if (parentImage.url) {
+        // Parent has new schema mainImage
+        subcatObj.mainImage = {
+          type: "main",
+          url: parentImage.url,
+          altText: parentImage.altText || `${subcatObj.name} image`,
+          order: 1,
+          isActive: true
+        };
+      } else if (typeof parentImage === 'string') {
+        // Parent has old schema image (string URL)
+        subcatObj.mainImage = {
+          type: "main",
+          url: parentImage,
+          altText: `${subcatObj.name} image`,
+          order: 1,
+          isActive: true
+        };
+      }
+    }
+
+    // If subcategory has no iconImage, use parent's iconImage
+    if (!subcatObj.iconImage && parentIcon) {
+      if (parentIcon.url) {
+        // Parent has new schema iconImage
+        subcatObj.iconImage = {
+          type: "icon",
+          url: parentIcon.url,
+          altText: parentIcon.altText || "",
+          order: 1,
+          isActive: true
+        };
+      } else if (typeof parentIcon === 'string') {
+        // Parent has old schema icon (string URL)
+        subcatObj.iconImage = {
+          type: "icon",
+          url: parentIcon,
+          altText: "",
+          order: 1,
+          isActive: true
+        };
+      }
+    }
+
+    return subcatObj;
+  });
+}
+
+/**
  * @desc    Create a new category
  * @route   POST /api/categories
  * @access  Admin
@@ -144,15 +207,24 @@ exports.getAllCategories = async (req, res) => {
     const categories = await Category.find(filter)
       .populate(
         "subCategories",
-        "categoryId name slug displayOrder mainImage iconImage"
+        "categoryId name slug displayOrder mainImage iconImage image icon"
       )
       .sort({ displayOrder: 1, name: 1 })
       .exec();
 
+    // Apply parent image fallback for subcategories
+    const categoriesWithFallback = categories.map(cat => {
+      const catObj = cat.toObject();
+      if (catObj.subCategories && catObj.subCategories.length > 0) {
+        catObj.subCategories = applyParentImageFallback(catObj, catObj.subCategories);
+      }
+      return catObj;
+    });
+
     res.status(200).json({
       success: true,
-      count: categories.length,
-      data: categories,
+      count: categoriesWithFallback.length,
+      data: categoriesWithFallback,
     });
   } catch (error) {
     console.error("Error fetching categories:", error);
@@ -205,16 +277,25 @@ exports.getAllCategoriesForAdmin = async (req, res) => {
     const categories = await Category.find(filter)
       .populate(
         "subCategories",
-        "categoryId name slug image displayOrder isDeleted"
+        "categoryId name slug image mainImage iconImage icon displayOrder isDeleted"
       )
       .populate("deletedBy", "name email")
       .sort({ displayOrder: 1, name: 1 })
       .exec();
 
+    // Apply parent image fallback for subcategories
+    const categoriesWithFallback = categories.map(cat => {
+      const catObj = cat.toObject();
+      if (catObj.subCategories && catObj.subCategories.length > 0) {
+        catObj.subCategories = applyParentImageFallback(catObj, catObj.subCategories);
+      }
+      return catObj;
+    });
+
     res.status(200).json({
       success: true,
-      count: categories.length,
-      data: categories,
+      count: categoriesWithFallback.length,
+      data: categoriesWithFallback,
       // Include applied filters for debugging
       appliedFilters: {
         parentCategoryId: parentCategoryId || "all",
@@ -296,9 +377,15 @@ exports.getCategoryWithSubcategories = async (req, res) => {
       });
     }
 
+    // Apply parent image fallback for subcategories
+    const categoryObj = category.toObject();
+    if (categoryObj.subCategories && categoryObj.subCategories.length > 0) {
+      categoryObj.subCategories = applyParentImageFallback(categoryObj, categoryObj.subCategories);
+    }
+
     res.status(200).json({
       success: true,
-      data: category,
+      data: categoryObj,
     });
   } catch (error) {
     console.error("Error fetching category with subcategories:", error);
@@ -323,15 +410,24 @@ exports.getCategoriesForDropdown = async (req, res) => {
       .populate({
         path: "subCategories",
         match: { isActive: true },
-        select: "categoryId name slug",
+        select: "categoryId name slug mainImage iconImage image icon",
       })
-      .select("categoryId name slug mainImage iconImage")
+      .select("categoryId name slug mainImage iconImage image icon")
       .sort({ displayOrder: 1, name: 1 })
       .exec();
 
+    // Apply parent image fallback for subcategories
+    const categoriesWithFallback = categories.map(cat => {
+      const catObj = cat.toObject();
+      if (catObj.subCategories && catObj.subCategories.length > 0) {
+        catObj.subCategories = applyParentImageFallback(catObj, catObj.subCategories);
+      }
+      return catObj;
+    });
+
     res.status(200).json({
       success: true,
-      data: categories,
+      data: categoriesWithFallback,
     });
   } catch (error) {
     console.error("Error fetching categories for dropdown:", error);
@@ -781,16 +877,24 @@ exports.getFeaturedCategories = async (req, res) => {
     })
       .populate(
         "subCategories",
-        "categoryId name slug displayOrder mainImage iconImage"
+        "categoryId name slug displayOrder mainImage iconImage image icon"
       )
-
       .sort({ displayOrder: 1, name: 1 })
       .exec();
 
+    // Apply parent image fallback for subcategories
+    const categoriesWithFallback = categories.map(cat => {
+      const catObj = cat.toObject();
+      if (catObj.subCategories && catObj.subCategories.length > 0) {
+        catObj.subCategories = applyParentImageFallback(catObj, catObj.subCategories);
+      }
+      return catObj;
+    });
+
     res.status(200).json({
       success: true,
-      count: categories.length,
-      data: categories,
+      count: categoriesWithFallback.length,
+      data: categoriesWithFallback,
     });
   } catch (error) {
     console.error("Error fetching featured categories:", error);

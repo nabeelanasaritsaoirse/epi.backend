@@ -40,6 +40,25 @@ const categorySchema = new mongoose.Schema({
     default: [],
   },
 
+  /* ⚠️ OLD SCHEMA FIELDS - For backward compatibility */
+  image: {
+    url: String,
+    altText: String,
+  },
+  images: [
+    {
+      url: String,
+      altText: String,
+      order: { type: Number, default: 1 },
+    },
+  ],
+  banner: {
+    url: String,
+    altText: String,
+    link: String,
+  },
+  icon: String,
+
   parentCategoryId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Category",
@@ -111,6 +130,104 @@ categorySchema.pre("save", async function (next) {
 
   next();
 });
+
+/* --------------------------------
+   BACKWARD COMPATIBILITY TRANSFORM
+   Auto-populate new fields from old fields in API responses
+-----------------------------------*/
+categorySchema.methods.toJSON = function () {
+  const obj = this.toObject();
+
+  // OLD → NEW: image → mainImage (if mainImage is null/missing and image exists)
+  if (obj.image && obj.image.url && !obj.mainImage) {
+    obj.mainImage = {
+      type: "main",
+      url: obj.image.url,
+      altText: obj.image.altText || "",
+      order: 1,
+      isActive: true,
+    };
+  }
+
+  // OLD → NEW: images[0] → illustrationImage
+  if (
+    obj.images &&
+    Array.isArray(obj.images) &&
+    obj.images.length > 0 &&
+    !obj.illustrationImage
+  ) {
+    obj.illustrationImage = {
+      type: "illustration",
+      url: obj.images[0].url,
+      altText: obj.images[0].altText || "",
+      order: obj.images[0].order || 1,
+      isActive: true,
+    };
+  }
+
+  // OLD → NEW: banner → bannerImages
+  if (
+    obj.banner &&
+    obj.banner.url &&
+    (!obj.bannerImages || obj.bannerImages.length === 0)
+  ) {
+    obj.bannerImages = [
+      {
+        type: "banner",
+        url: obj.banner.url,
+        altText: obj.banner.altText || "",
+        order: 1,
+        isActive: true,
+      },
+    ];
+  }
+
+  // OLD → NEW: icon → iconImage
+  if (obj.icon && !obj.iconImage) {
+    obj.iconImage = {
+      type: "icon",
+      url: obj.icon,
+      altText: "",
+      order: 1,
+      isActive: true,
+    };
+  }
+
+  // NEW → OLD: mainImage → image (for backward compatibility with old clients)
+  if (obj.mainImage && obj.mainImage.url && !obj.image) {
+    obj.image = {
+      url: obj.mainImage.url,
+      altText: obj.mainImage.altText || "",
+    };
+  }
+
+  // NEW → OLD: illustrationImage → images[0] (for backward compatibility)
+  if (obj.illustrationImage && obj.illustrationImage.url && (!obj.images || obj.images.length === 0)) {
+    obj.images = [
+      {
+        url: obj.illustrationImage.url,
+        altText: obj.illustrationImage.altText || "",
+        order: obj.illustrationImage.order || 1,
+      },
+    ];
+  }
+
+  // NEW → OLD: bannerImages[0] → banner (for backward compatibility)
+  if (obj.bannerImages && obj.bannerImages.length > 0 && !obj.banner) {
+    obj.banner = {
+      url: obj.bannerImages[0].url,
+      altText: obj.bannerImages[0].altText || "",
+    };
+  }
+
+  // NEW → OLD: iconImage → icon (for backward compatibility)
+  if (obj.iconImage && obj.iconImage.url && !obj.icon) {
+    obj.icon = obj.iconImage.url;
+  }
+
+  // Keep both old and new fields for backward compatibility
+  return obj;
+};
 
 /* --------------------------------
    INDEXES
