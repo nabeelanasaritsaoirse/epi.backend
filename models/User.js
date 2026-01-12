@@ -45,6 +45,10 @@ const userSchema = new Schema({
       message: props => `${props.value} is not a valid phone number!`
     }
   },
+  phoneVerified: {
+    type: Boolean,
+    default: false
+  },
   deviceToken: {
     type: String,
     default: ""
