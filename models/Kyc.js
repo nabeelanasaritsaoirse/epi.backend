@@ -69,6 +69,21 @@ const kycSchema = new mongoose.Schema({
     default: null,
   },
 
+  // Duplicate tracking fields
+  isDuplicate: {
+    type: Boolean,
+    default: false,
+  },
+  duplicateOf: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Kyc",
+    default: null,
+  },
+  duplicateNote: {
+    type: String,
+    default: null,
+  },
+
   submittedAt: {
     type: Date,
     default: Date.now,
@@ -87,5 +102,10 @@ kycSchema.pre("save", function (next) {
   this.updatedAt = new Date();
   next();
 });
+
+// Indexes for faster search
+kycSchema.index({ aadhaarNumber: 1 }, { sparse: true });
+kycSchema.index({ panNumber: 1 }, { sparse: true });
+kycSchema.index({ isDuplicate: 1, submittedAt: -1 });
 
 module.exports = mongoose.model("Kyc", kycSchema);
