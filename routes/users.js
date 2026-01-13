@@ -2042,4 +2042,47 @@ router.get('/:userId/deletion-info', verifyToken, async (req, res) => {
   }
 });
 
+
+/* ============================================================
+   📌 GET USER VERIFICATION STATUS (ADMIN)
+   Check user's phone/email and verification status
+============================================================ */
+router.get('/admin/verification-status/:userId', verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await User.findById(userId).select(
+      'name email phoneNumber phoneVerified emailVerified authMethod createdAt'
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        userId: user._id,
+        name: user.name,
+        email: user.email || null,
+        phoneNumber: user.phoneNumber || null,
+        phoneVerified: user.phoneVerified || false,
+        emailVerified: user.emailVerified || false,
+        authMethod: user.authMethod || 'unknown',
+        createdAt: user.createdAt
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching verification status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+});
+
 module.exports = router;

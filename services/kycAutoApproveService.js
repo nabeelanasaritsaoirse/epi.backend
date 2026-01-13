@@ -6,8 +6,10 @@ cron.schedule("* * * * *", async () => {
   try {
     const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
 
+    // Don't auto-approve duplicates - they need manual admin review
     const pendingKycs = await Kyc.find({
       status: "pending",
+      isDuplicate: { $ne: true }, // Skip duplicates (matches false AND undefined)
       submittedAt: { $lte: sixHoursAgo }
     });
 

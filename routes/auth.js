@@ -58,6 +58,12 @@ router.post("/login", async (req, res) => {
       // Add phone number from Firebase token if available (Firebase OTP login)
       if (decodedToken.phone_number) {
         userData.phoneNumber = decodedToken.phone_number;
+        userData.phoneVerified = true; // Firebase verified the phone
+      }
+
+      // Set email verified if Firebase confirms it
+      if (decodedToken.email_verified === true) {
+        userData.emailVerified = true;
       }
 
       try {
@@ -92,17 +98,37 @@ router.post("/login", async (req, res) => {
       }
     }
 
-    // If an existing user is found and the Firebase token contains a phone number,
-    // ensure the user's phoneNumber is set/kept in sync. Do a minimal atomic save.
-    if (user && decodedToken.phone_number && ( !user.phoneNumber || user.phoneNumber !== decodedToken.phone_number )) {
-      try {
-        user.phoneNumber = decodedToken.phone_number.trim();
-        // Save only this change; skip full validation to avoid breaking other fields
-        await user.save({ validateBeforeSave: false });
-        console.log('Updated existing user phoneNumber from token for user:', user._id);
-      } catch (phoneSaveError) {
-        console.error('Failed to update phoneNumber for existing user:', phoneSaveError);
-        // Do not fail the login flow on phone update error; continue normally
+    // If an existing user is found, sync phone/email verification status from Firebase token
+    if (user) {
+      let needsUpdate = false;
+
+      // Sync phone number and set phoneVerified if Firebase verified it
+      if (decodedToken.phone_number) {
+        if (!user.phoneNumber || user.phoneNumber !== decodedToken.phone_number) {
+          user.phoneNumber = decodedToken.phone_number.trim();
+          needsUpdate = true;
+        }
+        if (!user.phoneVerified) {
+          user.phoneVerified = true; // Firebase verified the phone
+          needsUpdate = true;
+        }
+      }
+
+      // Set emailVerified if Firebase confirms it
+      if (decodedToken.email_verified === true && !user.emailVerified) {
+        user.emailVerified = true;
+        needsUpdate = true;
+      }
+
+      if (needsUpdate) {
+        try {
+          // Save only these changes; skip full validation to avoid breaking other fields
+          await user.save({ validateBeforeSave: false });
+          console.log('Updated existing user verification status for user:', user._id);
+        } catch (updateError) {
+          console.error('Failed to update verification status for existing user:', updateError);
+          // Do not fail the login flow on update error; continue normally
+        }
       }
     }
 
