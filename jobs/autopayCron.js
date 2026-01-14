@@ -45,6 +45,8 @@ const BATCH_SIZE = 50;
 
 /**
  * Process autopay for a specific time slot
+ * NOTE: Currently, we only run at 6 AM and ignore timePreference.
+ *       Time preference feature will be added later.
  *
  * @param {string} timeSlot - Time slot (MORNING_6AM, AFTERNOON_12PM, EVENING_6PM)
  */
@@ -62,13 +64,13 @@ async function processAutopayForTimeSlot(timeSlot) {
   let totalInsufficientBalance = 0;
 
   try {
-    // Get all users with this time preference and autopay enabled
+    // Get all users with autopay enabled (ignore timePreference for now)
+    // Time preference feature will be added later
     const users = await User.find({
       "autopaySettings.enabled": true,
-      "autopaySettings.timePreference": timeSlot,
     }).select("_id wallet autopaySettings");
 
-    console.log(`[Autopay Cron] Found ${users.length} users with ${timeSlot} preference`);
+    console.log(`[Autopay Cron] Found ${users.length} users with autopay enabled`);
 
     // Process each user
     for (const user of users) {
@@ -219,6 +221,7 @@ async function processAutopayForUser(user) {
 
 /**
  * Send daily reminders before autopay
+ * NOTE: Currently ignores timePreference, sends to all users with reminder enabled
  *
  * @param {string} upcomingTimeSlot - The upcoming time slot
  */
@@ -226,10 +229,10 @@ async function sendDailyReminders(upcomingTimeSlot) {
   console.log(`[Autopay Cron] Sending reminders for ${upcomingTimeSlot}`);
 
   try {
-    // Get users with this time preference who have reminder enabled
+    // Get all users with autopay enabled who have reminder enabled
+    // (ignoring timePreference for now)
     const users = await User.find({
       "autopaySettings.enabled": true,
-      "autopaySettings.timePreference": upcomingTimeSlot,
       "autopaySettings.sendDailyReminder": true,
     }).select("_id");
 
@@ -372,7 +375,8 @@ function startAutopayCron() {
   console.log("[Autopay Cron] Initializing autopay cron jobs...");
   console.log("========================================");
 
-  // Morning 6 AM autopay
+  // Morning 6 AM autopay - This is the ONLY autopay slot for now
+  // Time preference feature will be added later
   cron.schedule(CRON_SCHEDULES.MORNING_6AM, async () => {
     try {
       await processAutopayForTimeSlot("MORNING_6AM");
@@ -380,27 +384,30 @@ function startAutopayCron() {
       console.error("[Autopay Cron] MORNING_6AM job failed:", error);
     }
   });
-  console.log("[Autopay Cron] ✅ MORNING_6AM job scheduled");
+  console.log("[Autopay Cron] ✅ MORNING_6AM job scheduled (6:00 AM IST)");
 
-  // Afternoon 12 PM autopay
-  cron.schedule(CRON_SCHEDULES.AFTERNOON_12PM, async () => {
-    try {
-      await processAutopayForTimeSlot("AFTERNOON_12PM");
-    } catch (error) {
-      console.error("[Autopay Cron] AFTERNOON_12PM job failed:", error);
-    }
-  });
-  console.log("[Autopay Cron] ✅ AFTERNOON_12PM job scheduled");
+  // NOTE: AFTERNOON and EVENING slots disabled for now
+  // Will be enabled when time preference feature is added
+  //
+  // // Afternoon 12 PM autopay
+  // cron.schedule(CRON_SCHEDULES.AFTERNOON_12PM, async () => {
+  //   try {
+  //     await processAutopayForTimeSlot("AFTERNOON_12PM");
+  //   } catch (error) {
+  //     console.error("[Autopay Cron] AFTERNOON_12PM job failed:", error);
+  //   }
+  // });
+  // console.log("[Autopay Cron] ✅ AFTERNOON_12PM job scheduled");
 
-  // Evening 6 PM autopay
-  cron.schedule(CRON_SCHEDULES.EVENING_6PM, async () => {
-    try {
-      await processAutopayForTimeSlot("EVENING_6PM");
-    } catch (error) {
-      console.error("[Autopay Cron] EVENING_6PM job failed:", error);
-    }
-  });
-  console.log("[Autopay Cron] ✅ EVENING_6PM job scheduled");
+  // // Evening 6 PM autopay
+  // cron.schedule(CRON_SCHEDULES.EVENING_6PM, async () => {
+  //   try {
+  //     await processAutopayForTimeSlot("EVENING_6PM");
+  //   } catch (error) {
+  //     console.error("[Autopay Cron] EVENING_6PM job failed:", error);
+  //   }
+  // });
+  // console.log("[Autopay Cron] ✅ EVENING_6PM job scheduled");
 
   // Morning reminder (5 AM for 6 AM slot)
   cron.schedule(CRON_SCHEDULES.REMINDER_5AM, async () => {
@@ -410,27 +417,29 @@ function startAutopayCron() {
       console.error("[Autopay Cron] REMINDER_5AM job failed:", error);
     }
   });
-  console.log("[Autopay Cron] ✅ REMINDER_5AM job scheduled");
+  console.log("[Autopay Cron] ✅ REMINDER_5AM job scheduled (5:00 AM IST)");
 
-  // Afternoon reminder (11 AM for 12 PM slot)
-  cron.schedule(CRON_SCHEDULES.REMINDER_11AM, async () => {
-    try {
-      await sendDailyReminders("AFTERNOON_12PM");
-    } catch (error) {
-      console.error("[Autopay Cron] REMINDER_11AM job failed:", error);
-    }
-  });
-  console.log("[Autopay Cron] ✅ REMINDER_11AM job scheduled");
+  // NOTE: Other reminder slots disabled for now
+  //
+  // // Afternoon reminder (11 AM for 12 PM slot)
+  // cron.schedule(CRON_SCHEDULES.REMINDER_11AM, async () => {
+  //   try {
+  //     await sendDailyReminders("AFTERNOON_12PM");
+  //   } catch (error) {
+  //     console.error("[Autopay Cron] REMINDER_11AM job failed:", error);
+  //   }
+  // });
+  // console.log("[Autopay Cron] ✅ REMINDER_11AM job scheduled");
 
-  // Evening reminder (5 PM for 6 PM slot)
-  cron.schedule(CRON_SCHEDULES.REMINDER_5PM, async () => {
-    try {
-      await sendDailyReminders("EVENING_6PM");
-    } catch (error) {
-      console.error("[Autopay Cron] REMINDER_5PM job failed:", error);
-    }
-  });
-  console.log("[Autopay Cron] ✅ REMINDER_5PM job scheduled");
+  // // Evening reminder (5 PM for 6 PM slot)
+  // cron.schedule(CRON_SCHEDULES.REMINDER_5PM, async () => {
+  //   try {
+  //     await sendDailyReminders("EVENING_6PM");
+  //   } catch (error) {
+  //     console.error("[Autopay Cron] REMINDER_5PM job failed:", error);
+  //   }
+  // });
+  // console.log("[Autopay Cron] ✅ REMINDER_5PM job scheduled");
 
   // Low balance check (midnight for next day)
   cron.schedule(CRON_SCHEDULES.LOW_BALANCE_CHECK, async () => {
