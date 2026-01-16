@@ -51,8 +51,9 @@ router.get('/sub-admins', verifyToken, requireSuperAdmin, async (req, res) => {
       role: 'admin',
       _id: { $ne: req.user._id } // Exclude current user
     })
-    .select('name email moduleAccess isActive createdAt createdBy lastLogin')
+    .select('name email moduleAccess isActive createdAt createdBy lastLogin linkedUserId')
     .populate('createdBy', 'name email')
+    .populate('linkedUserId', 'name email phoneNumber referralCode')
     .sort({ createdAt: -1 });
 
     res.json({
@@ -78,8 +79,9 @@ router.get('/sub-admins', verifyToken, requireSuperAdmin, async (req, res) => {
 router.get('/sub-admins/:adminId', verifyToken, requireSuperAdmin, async (req, res) => {
   try {
     const subAdmin = await User.findById(req.params.adminId)
-      .select('name email moduleAccess isActive createdAt createdBy lastLogin')
-      .populate('createdBy', 'name email');
+      .select('name email moduleAccess isActive createdAt createdBy lastLogin linkedUserId')
+      .populate('createdBy', 'name email')
+      .populate('linkedUserId', 'name email phoneNumber referralCode wallet.balance');
 
     if (!subAdmin) {
       return res.status(404).json({
@@ -111,12 +113,12 @@ router.get('/sub-admins/:adminId', verifyToken, requireSuperAdmin, async (req, r
 
 /**
  * @route   POST /api/admin-mgmt/sub-admins
- * @desc    Create new sub-admin
+ * @desc    Create new sub-admin with optional link to User account
  * @access  Super Admin only
  */
 router.post('/sub-admins', verifyToken, requireSuperAdmin, async (req, res) => {
   try {
-    const { name, email, password, moduleAccess } = req.body;
+    const { name, email, password, moduleAccess, linkedPhone, linkedEmail } = req.body;
 
     console.log('Creating sub-admin:', email);
 
@@ -166,6 +168,30 @@ router.post('/sub-admins', verifyToken, requireSuperAdmin, async (req, res) => {
       });
     }
 
+    // Find linked user by phone or email (for sales dashboard access)
+    let linkedUserId = null;
+    if (linkedPhone || linkedEmail) {
+      const searchQuery = { role: 'user' };
+      if (linkedPhone && linkedEmail) {
+        searchQuery.$or = [
+          { phoneNumber: linkedPhone },
+          { email: linkedEmail.toLowerCase() }
+        ];
+      } else if (linkedPhone) {
+        searchQuery.phoneNumber = linkedPhone;
+      } else if (linkedEmail) {
+        searchQuery.email = linkedEmail.toLowerCase();
+      }
+
+      const linkedUser = await User.findOne(searchQuery);
+      if (linkedUser) {
+        linkedUserId = linkedUser._id;
+        console.log('Linked to user:', linkedUser.name, linkedUser._id);
+      } else {
+        console.log('No user found with provided phone/email for linking');
+      }
+    }
+
     // No validation of modules - frontend has full control
     // Just ensure dashboard is included (if not already)
     const modulesWithDashboard = moduleAccess.includes('dashboard')
@@ -188,6 +214,7 @@ router.post('/sub-admins', verifyToken, requireSuperAdmin, async (req, res) => {
       role: 'admin',
       moduleAccess: modulesWithDashboard,
       createdBy: req.user._id,
+      linkedUserId: linkedUserId,
       isActive: true
     });
 
@@ -197,8 +224,9 @@ router.post('/sub-admins', verifyToken, requireSuperAdmin, async (req, res) => {
 
     // Return created admin without sensitive fields
     const createdAdmin = await User.findById(subAdmin._id)
-      .select('name email role moduleAccess isActive createdAt')
-      .populate('createdBy', 'name email');
+      .select('name email role moduleAccess isActive createdAt linkedUserId')
+      .populate('createdBy', 'name email')
+      .populate('linkedUserId', 'name email phoneNumber referralCode');
 
     res.status(201).json({
       success: true,
@@ -410,6 +438,234 @@ router.post('/sub-admins/:adminId/reset-password', verifyToken, requireSuperAdmi
 });
 
 /**
+ * @route   POST /api/admin-mgmt/sub-admins/:adminId/link-user
+ * @desc    Link sub-admin to a regular User account (for sales dashboard)
+ * @access  Super Admin only
+ */
+router.post('/sub-admins/:adminId/link-user', verifyToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { adminId } = req.params;
+    const { phoneNumber, email } = req.body;
+
+    if (!phoneNumber && !email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide phone number or email to link user',
+        code: 'MISSING_FIELDS'
+      });
+    }
+
+    // Find the sub-admin
+    const subAdmin = await User.findById(adminId);
+    if (!subAdmin) {
+      return res.status(404).json({
+        success: false,
+        message: 'Sub-admin not found'
+      });
+    }
+
+    if (subAdmin.role !== 'admin' && subAdmin.role !== 'sales_team') {
+      return res.status(400).json({
+        success: false,
+        message: 'Can only link users to sub-admins or sales team members',
+        code: 'INVALID_ROLE'
+      });
+    }
+
+    // Find the user to link
+    const searchQuery = { role: 'user' };
+    if (phoneNumber && email) {
+      searchQuery.$or = [
+        { phoneNumber: phoneNumber },
+        { email: email.toLowerCase() }
+      ];
+    } else if (phoneNumber) {
+      searchQuery.phoneNumber = phoneNumber;
+    } else {
+      searchQuery.email = email.toLowerCase();
+    }
+
+    const userToLink = await User.findOne(searchQuery)
+      .select('_id name email phoneNumber referralCode');
+
+    if (!userToLink) {
+      return res.status(404).json({
+        success: false,
+        message: 'No user found with the provided phone number or email',
+        code: 'USER_NOT_FOUND'
+      });
+    }
+
+    // Check if this user is already linked to another admin
+    const existingLink = await User.findOne({
+      linkedUserId: userToLink._id,
+      _id: { $ne: adminId }
+    });
+
+    if (existingLink) {
+      return res.status(400).json({
+        success: false,
+        message: `This user is already linked to another admin (${existingLink.name})`,
+        code: 'USER_ALREADY_LINKED'
+      });
+    }
+
+    // Update sub-admin with linkedUserId
+    subAdmin.linkedUserId = userToLink._id;
+    await subAdmin.save();
+
+    console.log(`Linked sub-admin ${subAdmin.email} to user ${userToLink.name}`);
+
+    res.json({
+      success: true,
+      message: 'User linked successfully',
+      data: {
+        adminId: subAdmin._id,
+        adminName: subAdmin.name,
+        linkedUser: {
+          _id: userToLink._id,
+          name: userToLink.name,
+          email: userToLink.email,
+          phoneNumber: userToLink.phoneNumber,
+          referralCode: userToLink.referralCode
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error linking user to sub-admin:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to link user',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route   DELETE /api/admin-mgmt/sub-admins/:adminId/link-user
+ * @desc    Unlink user from sub-admin
+ * @access  Super Admin only
+ */
+router.delete('/sub-admins/:adminId/link-user', verifyToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { adminId } = req.params;
+
+    const subAdmin = await User.findById(adminId);
+    if (!subAdmin) {
+      return res.status(404).json({
+        success: false,
+        message: 'Sub-admin not found'
+      });
+    }
+
+    if (!subAdmin.linkedUserId) {
+      return res.status(400).json({
+        success: false,
+        message: 'No user is linked to this admin',
+        code: 'NO_LINKED_USER'
+      });
+    }
+
+    subAdmin.linkedUserId = null;
+    await subAdmin.save();
+
+    console.log(`Unlinked user from sub-admin ${subAdmin.email}`);
+
+    res.json({
+      success: true,
+      message: 'User unlinked successfully'
+    });
+
+  } catch (error) {
+    console.error('Error unlinking user:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to unlink user',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route   POST /api/admin-mgmt/check-user
+ * @desc    Check if a user exists by phone number or email (for linking)
+ * @access  Super Admin only
+ */
+router.post('/check-user', verifyToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { phoneNumber, email } = req.body;
+
+    if (!phoneNumber && !email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide phone number or email',
+        code: 'MISSING_FIELDS'
+      });
+    }
+
+    // Find user
+    const searchQuery = { role: 'user' };
+    if (phoneNumber && email) {
+      searchQuery.$or = [
+        { phoneNumber: phoneNumber },
+        { email: email.toLowerCase() }
+      ];
+    } else if (phoneNumber) {
+      searchQuery.phoneNumber = phoneNumber;
+    } else {
+      searchQuery.email = email.toLowerCase();
+    }
+
+    const user = await User.findOne(searchQuery)
+      .select('_id name email phoneNumber referralCode profilePicture createdAt');
+
+    if (!user) {
+      return res.json({
+        success: true,
+        exists: false,
+        message: 'No user found with the provided phone number or email',
+        data: null
+      });
+    }
+
+    // Check if already linked to an admin
+    const linkedAdmin = await User.findOne({
+      linkedUserId: user._id,
+      role: { $in: ['admin', 'sales_team'] }
+    }).select('name email');
+
+    // Get referral stats
+    const referralCount = await User.countDocuments({ referredBy: user._id });
+
+    res.json({
+      success: true,
+      exists: true,
+      data: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        phoneNumber: user.phoneNumber,
+        referralCode: user.referralCode,
+        profilePicture: user.profilePicture,
+        createdAt: user.createdAt,
+        referralCount: referralCount,
+        alreadyLinked: !!linkedAdmin,
+        linkedTo: linkedAdmin ? { name: linkedAdmin.name, email: linkedAdmin.email } : null
+      }
+    });
+
+  } catch (error) {
+    console.error('Error checking user:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to check user',
+      error: error.message
+    });
+  }
+});
+
+/**
  * @route   GET /api/admin-mgmt/my-modules
  * @desc    Get current admin user's module access
  * @access  Any authenticated admin
@@ -508,8 +764,9 @@ router.get('/sales-team', verifyToken, requireSuperAdmin, async (req, res) => {
       role: 'sales_team',
       _id: { $ne: req.user._id }
     })
-    .select('name email isActive createdAt createdBy lastLogin')
+    .select('name email isActive createdAt createdBy lastLogin linkedUserId')
     .populate('createdBy', 'name email')
+    .populate('linkedUserId', 'name email phoneNumber referralCode')
     .sort({ createdAt: -1 });
 
     res.json({
@@ -534,7 +791,7 @@ router.get('/sales-team', verifyToken, requireSuperAdmin, async (req, res) => {
  */
 router.post('/sales-team', verifyToken, requireSuperAdmin, async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, linkedPhone, linkedEmail } = req.body;
 
     // Validation
     if (!name || !email || !password) {
@@ -574,6 +831,30 @@ router.post('/sales-team', verifyToken, requireSuperAdmin, async (req, res) => {
       });
     }
 
+    // Find linked user by phone or email (for sales dashboard access)
+    let linkedUserId = null;
+    if (linkedPhone || linkedEmail) {
+      const searchQuery = { role: 'user' };
+      if (linkedPhone && linkedEmail) {
+        searchQuery.$or = [
+          { phoneNumber: linkedPhone },
+          { email: linkedEmail.toLowerCase() }
+        ];
+      } else if (linkedPhone) {
+        searchQuery.phoneNumber = linkedPhone;
+      } else if (linkedEmail) {
+        searchQuery.email = linkedEmail.toLowerCase();
+      }
+
+      const linkedUser = await User.findOne(searchQuery);
+      if (linkedUser) {
+        linkedUserId = linkedUser._id;
+        console.log('Linked sales team member to user:', linkedUser.name, linkedUser._id);
+      } else {
+        console.log('No user found with provided phone/email for linking');
+      }
+    }
+
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -589,10 +870,16 @@ router.post('/sales-team', verifyToken, requireSuperAdmin, async (req, res) => {
       password: hashedPassword,
       role: 'sales_team',
       createdBy: req.user._id,
+      linkedUserId: linkedUserId,
       isActive: true
     });
 
     await salesMember.save();
+
+    // Get linked user details for response
+    const createdMember = await User.findById(salesMember._id)
+      .select('name email createdAt linkedUserId')
+      .populate('linkedUserId', 'name email phoneNumber referralCode');
 
     res.status(201).json({
       success: true,
@@ -601,7 +888,8 @@ router.post('/sales-team', verifyToken, requireSuperAdmin, async (req, res) => {
         salesMemberId: salesMember._id,
         name: salesMember.name,
         email: salesMember.email,
-        createdAt: salesMember.createdAt
+        createdAt: salesMember.createdAt,
+        linkedUser: createdMember.linkedUserId || null
       }
     });
 

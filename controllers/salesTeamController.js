@@ -5,6 +5,20 @@ const Cart = require('../models/Cart');
 const Product = require('../models/Product');
 
 /**
+ * Helper function to get the effective user ID for sales team APIs
+ * If the logged-in admin/sales_team member has a linkedUserId, use that
+ * Otherwise use their own _id (for regular users or admins without linked account)
+ */
+const getEffectiveUserId = (user) => {
+  // If linkedUserId exists and is populated, use it
+  if (user.linkedUserId) {
+    // Handle both populated object and ObjectId
+    return user.linkedUserId._id || user.linkedUserId;
+  }
+  return user._id;
+};
+
+/**
  * @route   GET /api/sales/dashboard-stats
  * @desc    Get dashboard statistics for sales team
  * @access  Sales Team, Admin, Super Admin
@@ -346,7 +360,8 @@ exports.getUserCart = async (req, res) => {
  */
 exports.getMyTeam = async (req, res) => {
   try {
-    const myId = req.user._id;
+    // Use linkedUserId if available (for sub-admins linked to a user account)
+    const myId = getEffectiveUserId(req.user);
     const { page = 1, limit = 20, search = '', sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
 
     // Build search query for L1 members (users referred by me)
@@ -457,7 +472,8 @@ exports.getMyTeam = async (req, res) => {
  */
 exports.getMyTeamUsers = async (req, res) => {
   try {
-    const myId = req.user._id;
+    // Use linkedUserId if available (for sub-admins linked to a user account)
+    const myId = getEffectiveUserId(req.user);
     const { page = 1, limit = 20, search = '', level, referrerId, hasOrders } = req.query;
 
     // Get L1 member IDs
@@ -612,7 +628,8 @@ exports.getMyTeamUsers = async (req, res) => {
  */
 exports.getMyTeamMemberDetail = async (req, res) => {
   try {
-    const myId = req.user._id;
+    // Use linkedUserId if available (for sub-admins linked to a user account)
+    const myId = getEffectiveUserId(req.user);
     const { userId } = req.params;
 
     // First, verify the user is in my L1 or L2 chain
@@ -746,7 +763,8 @@ exports.getMyTeamMemberDetail = async (req, res) => {
  */
 exports.getMyStats = async (req, res) => {
   try {
-    const myId = req.user._id;
+    // Use linkedUserId if available (for sub-admins linked to a user account)
+    const myId = getEffectiveUserId(req.user);
     const { period = 'all' } = req.query;
 
     // Calculate date range based on period
@@ -907,7 +925,8 @@ exports.getMyStats = async (req, res) => {
  */
 exports.getMyOpportunities = async (req, res) => {
   try {
-    const myId = req.user._id;
+    // Use linkedUserId if available (for sub-admins linked to a user account)
+    const myId = getEffectiveUserId(req.user);
     const { page = 1, limit = 20, type } = req.query;
 
     // Get all users in my chain
@@ -1094,7 +1113,8 @@ exports.getMyOpportunities = async (req, res) => {
  */
 exports.getMyActivity = async (req, res) => {
   try {
-    const myId = req.user._id;
+    // Use linkedUserId if available (for sub-admins linked to a user account)
+    const myId = getEffectiveUserId(req.user);
     const { page = 1, limit = 20, type } = req.query;
 
     // Get all users in my chain
@@ -1234,7 +1254,8 @@ exports.getMyActivity = async (req, res) => {
  */
 exports.getMyLeaderboard = async (req, res) => {
   try {
-    const myId = req.user._id;
+    // Use linkedUserId if available (for sub-admins linked to a user account)
+    const myId = getEffectiveUserId(req.user);
     const { period = 'all', metric = 'revenue' } = req.query;
 
     // Calculate date range
@@ -1349,7 +1370,8 @@ exports.getMyLeaderboard = async (req, res) => {
  */
 exports.getMyTrends = async (req, res) => {
   try {
-    const myId = req.user._id;
+    // Use linkedUserId if available (for sub-admins linked to a user account)
+    const myId = getEffectiveUserId(req.user);
     const { period = 'month', metric = 'orders' } = req.query;
 
     // Calculate date range and grouping
