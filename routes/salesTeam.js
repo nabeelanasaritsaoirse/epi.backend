@@ -1,7 +1,7 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const { verifyToken } = require('../middlewares/auth');
-const salesTeamController = require('../controllers/salesTeamController');
+const { verifyToken } = require("../middlewares/auth");
+const salesTeamController = require("../controllers/salesTeamController");
 
 /**
  * Middleware: Require Sales Team or Admin role
