@@ -1,8 +1,8 @@
-const User = require('../models/User');
-const InstallmentOrder = require('../models/InstallmentOrder');
-const Wishlist = require('../models/Wishlist');
-const Cart = require('../models/Cart');
-const Product = require('../models/Product');
+const User = require("../models/User");
+const InstallmentOrder = require("../models/InstallmentOrder");
+const Wishlist = require("../models/Wishlist");
+const Cart = require("../models/Cart");
+const Product = require("../models/Product");
 
 /**
  * Helper function to get the effective user ID for sales team APIs
@@ -26,22 +26,25 @@ const getEffectiveUserId = (user) => {
 exports.getDashboardStats = async (req, res) => {
   try {
     // Get total users (exclude admin roles)
-    const totalUsers = await User.countDocuments({ role: 'user' });
+    const totalUsers = await User.countDocuments({ role: "user" });
 
     // Get active orders
-    const activeOrders = await InstallmentOrder.countDocuments({ status: 'ACTIVE' });
+    const activeOrders = await InstallmentOrder.countDocuments({
+      status: "ACTIVE",
+    });
 
     // Get total revenue from completed and active orders
     const revenueAggregation = await InstallmentOrder.aggregate([
-      { $match: { status: { $in: ['ACTIVE', 'COMPLETED'] } } },
-      { $group: { _id: null, total: { $sum: '$totalPaidAmount' } } }
+      { $match: { status: { $in: ["ACTIVE", "COMPLETED"] } } },
+      { $group: { _id: null, total: { $sum: "$totalPaidAmount" } } },
     ]);
-    const totalRevenue = revenueAggregation.length > 0 ? revenueAggregation[0].total : 0;
+    const totalRevenue =
+      revenueAggregation.length > 0 ? revenueAggregation[0].total : 0;
 
     // Get pending KYC count
     const pendingKYC = await User.countDocuments({
-      role: 'user',
-      'kycDetails.aadharVerified': false
+      role: "user",
+      "kycDetails.aadharVerified": false,
     });
 
     res.json({
@@ -50,16 +53,15 @@ exports.getDashboardStats = async (req, res) => {
         totalUsers,
         activeOrders,
         totalRevenue,
-        pendingKYC
-      }
+        pendingKYC,
+      },
     });
-
   } catch (error) {
-    console.error('Error fetching dashboard stats:', error);
+    console.error("Error fetching dashboard stats:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch dashboard statistics',
-      error: error.message
+      message: "Failed to fetch dashboard statistics",
+      error: error.message,
     });
   }
 };
@@ -71,16 +73,16 @@ exports.getDashboardStats = async (req, res) => {
  */
 exports.getAllUsersWithReferrals = async (req, res) => {
   try {
-    const { page = 1, limit = 20, search = '' } = req.query;
+    const { page = 1, limit = 20, search = "" } = req.query;
 
     // Build search query
-    let query = { role: 'user' };
+    let query = { role: "user" };
     if (search) {
       query.$or = [
-        { name: new RegExp(search, 'i') },
-        { email: new RegExp(search, 'i') },
-        { phoneNumber: new RegExp(search, 'i') },
-        { referralCode: new RegExp(search, 'i') }
+        { name: new RegExp(search, "i") },
+        { email: new RegExp(search, "i") },
+        { phoneNumber: new RegExp(search, "i") },
+        { referralCode: new RegExp(search, "i") },
       ];
     }
 
@@ -93,15 +95,17 @@ exports.getAllUsersWithReferrals = async (req, res) => {
       .lean();
 
     // For each user, get Level 1 count
-    const usersWithReferrals = await Promise.all(users.map(async (user) => {
-      const level1Count = await User.countDocuments({ referredBy: user._id });
+    const usersWithReferrals = await Promise.all(
+      users.map(async (user) => {
+        const level1Count = await User.countDocuments({ referredBy: user._id });
 
-      return {
-        ...user,
-        level1Count,
-        referralCode: user.referralCode || 'N/A'
-      };
-    }));
+        return {
+          ...user,
+          level1Count,
+          referralCode: user.referralCode || "N/A",
+        };
+      })
+    );
 
     const total = await User.countDocuments(query);
 
@@ -113,17 +117,16 @@ exports.getAllUsersWithReferrals = async (req, res) => {
           total,
           page: parseInt(page),
           limit: parseInt(limit),
-          totalPages: Math.ceil(total / parseInt(limit))
-        }
-      }
+          totalPages: Math.ceil(total / parseInt(limit)),
+        },
+      },
     });
-
   } catch (error) {
-    console.error('Error fetching users:', error);
+    console.error("Error fetching users:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch users',
-      error: error.message
+      message: "Failed to fetch users",
+      error: error.message,
     });
   }
 };
@@ -139,26 +142,26 @@ exports.getUserDetail = async (req, res) => {
 
     // Get user with populated referral info
     const user = await User.findById(userId)
-      .select('-password')  // Exclude password
-      .populate('referredBy', 'name email referralCode')
+      .select("-password") // Exclude password
+      .populate("referredBy", "name email referralCode")
       .lean();
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
     // Get Level 1 referrals (direct)
     const level1Users = await User.find({ referredBy: userId })
-      .select('name email phoneNumber profilePicture createdAt referralCode')
+      .select("name email phoneNumber profilePicture createdAt referralCode")
       .lean();
 
     // Get Level 2 referrals (indirect) - users referred by Level 1 users
-    const level1Ids = level1Users.map(u => u._id);
+    const level1Ids = level1Users.map((u) => u._id);
     const level2Users = await User.find({ referredBy: { $in: level1Ids } })
-      .select('name email phoneNumber createdAt referredBy')
+      .select("name email phoneNumber createdAt referredBy")
       .lean();
 
     // Group Level 2 by their Level 1 referrer
@@ -170,40 +173,45 @@ exports.getUserDetail = async (req, res) => {
     }, {});
 
     // Enrich Level 1 users with their Level 2 data
-    const level1WithLevel2 = level1Users.map(l1User => ({
+    const level1WithLevel2 = level1Users.map((l1User) => ({
       ...l1User,
       level2Users: level2ByReferrer[l1User._id.toString()] || [],
-      level2Count: (level2ByReferrer[l1User._id.toString()] || []).length
+      level2Count: (level2ByReferrer[l1User._id.toString()] || []).length,
     }));
 
     // Get wishlist
     const wishlist = await Wishlist.findOne({ userId })
-      .populate('products', 'name price images brand')
+      .populate("products", "name price images brand")
       .lean();
 
     // Get cart
-    const cart = await Cart.findOne({ userId })
-      .lean();
+    const cart = await Cart.findOne({ userId }).lean();
 
     // Populate cart products
     let cartProducts = [];
     if (cart && cart.products && cart.products.length > 0) {
-      cartProducts = await Promise.all(cart.products.map(async (item) => {
-        const product = await Product.findById(item.productId)
-          .select('name price images brand stock')
-          .lean();
-        return {
-          ...item,
-          productDetails: product
-        };
-      }));
+      cartProducts = await Promise.all(
+        cart.products.map(async (item) => {
+          const product = await Product.findById(item.productId)
+            .select("name price images brand stock")
+            .lean();
+          return {
+            ...item,
+            productDetails: product,
+          };
+        })
+      );
       // Filter out items where product was deleted
-      cartProducts = cartProducts.filter(item => item.productDetails !== null);
+      cartProducts = cartProducts.filter(
+        (item) => item.productDetails !== null
+      );
     }
 
     // Get orders
-    const orders = await InstallmentOrder.find({ user: userId })
-      .select('orderId productName status deliveryStatus totalDays paidInstallments totalPaidAmount remainingAmount createdAt')
+    const orders = await InstallmentOrder.find({ userId })
+      .select(
+        "orderId productName status deliveryStatus totalDays paidInstallments totalPaidAmount remainingAmount createdAt"
+      )
       .sort({ createdAt: -1 })
       .limit(10)
       .lean();
@@ -214,21 +222,20 @@ exports.getUserDetail = async (req, res) => {
         user: {
           ...user,
           level1Count: level1Users.length,
-          level2Count: level2Users.length
+          level2Count: level2Users.length,
         },
         level1Referrals: level1WithLevel2,
         wishlist: wishlist?.products || [],
         cart: cartProducts,
-        orders
-      }
+        orders,
+      },
     });
-
   } catch (error) {
-    console.error('Error fetching user detail:', error);
+    console.error("Error fetching user detail:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch user detail',
-      error: error.message
+      message: "Failed to fetch user detail",
+      error: error.message,
     });
   }
 };
@@ -244,12 +251,15 @@ exports.getUserOrders = async (req, res) => {
     const { page = 1, limit = 10 } = req.query;
 
     const orders = await InstallmentOrder.find({ user: userId })
-      .select('orderId productName productSnapshot quantity pricePerUnit totalProductPrice totalDays dailyPaymentAmount paidInstallments totalPaidAmount remainingAmount status deliveryStatus deliveryAddress createdAt')
+      .select(
+        "orderId productName productSnapshot quantity pricePerUnit totalProductPrice totalDays dailyPaymentAmount paidInstallments totalPaidAmount remainingAmount status deliveryStatus deliveryAddress createdAt"
+      )
       .sort({ createdAt: -1 })
       .skip((parseInt(page) - 1) * parseInt(limit))
       .limit(parseInt(limit))
       .lean();
 
+    // ✅ FIX: use SAME FIELD as find()
     const total = await InstallmentOrder.countDocuments({ user: userId });
 
     res.json({
@@ -260,17 +270,16 @@ exports.getUserOrders = async (req, res) => {
           total,
           page: parseInt(page),
           limit: parseInt(limit),
-          totalPages: Math.ceil(total / parseInt(limit))
-        }
-      }
+          totalPages: Math.ceil(total / parseInt(limit)),
+        },
+      },
     });
-
   } catch (error) {
-    console.error('Error fetching user orders:', error);
+    console.error("Error fetching user orders:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch user orders',
-      error: error.message
+      message: "Failed to fetch user orders",
+      error: error.message,
     });
   }
 };
@@ -285,20 +294,22 @@ exports.getUserWishlist = async (req, res) => {
     const { userId } = req.params;
 
     const wishlist = await Wishlist.findOne({ userId })
-      .populate('products', 'name price finalPrice discount images brand stock isActive')
+      .populate(
+        "products",
+        "name price finalPrice discount images brand stock isActive"
+      )
       .lean();
 
     res.json({
       success: true,
-      data: wishlist?.products || []
+      data: wishlist?.products || [],
     });
-
   } catch (error) {
-    console.error('Error fetching user wishlist:', error);
+    console.error("Error fetching user wishlist:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch user wishlist',
-      error: error.message
+      message: "Failed to fetch user wishlist",
+      error: error.message,
     });
   }
 };
@@ -317,36 +328,39 @@ exports.getUserCart = async (req, res) => {
     if (!cart || !cart.products || cart.products.length === 0) {
       return res.json({
         success: true,
-        data: []
+        data: [],
       });
     }
 
     // Populate product details
-    const cartWithProducts = await Promise.all(cart.products.map(async (item) => {
-      const product = await Product.findById(item.productId)
-        .select('name price finalPrice images brand stock')
-        .lean();
+    const cartWithProducts = await Promise.all(
+      cart.products.map(async (item) => {
+        const product = await Product.findById(item.productId)
+          .select("name price finalPrice images brand stock")
+          .lean();
 
-      return {
-        ...item,
-        product: product || null
-      };
-    }));
+        return {
+          ...item,
+          product: product || null,
+        };
+      })
+    );
 
     // Filter out items where product was deleted
-    const validCartItems = cartWithProducts.filter(item => item.product !== null);
+    const validCartItems = cartWithProducts.filter(
+      (item) => item.product !== null
+    );
 
     res.json({
       success: true,
-      data: validCartItems
+      data: validCartItems,
     });
-
   } catch (error) {
-    console.error('Error fetching user cart:', error);
+    console.error("Error fetching user cart:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch user cart',
-      error: error.message
+      message: "Failed to fetch user cart",
+      error: error.message,
     });
   }
 };
