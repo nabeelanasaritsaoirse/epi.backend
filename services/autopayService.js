@@ -83,6 +83,14 @@ async function enableAutopayForOrder(orderId, userId, options = {}) {
 
     await order.save();
 
+    // Also enable global autopay settings with default timePreference (6 AM)
+    await User.findByIdAndUpdate(userId, {
+      $set: {
+        "autopaySettings.enabled": true,
+        "autopaySettings.timePreference": "MORNING_6AM"  // Default to 6 AM
+      },
+    });
+
     console.log(`[Autopay] Enabled for order ${order.orderId} by user ${userId}`);
 
     return {
@@ -161,9 +169,12 @@ async function enableAutopayForAllOrders(userId) {
       }
     );
 
-    // Also enable global autopay setting
+    // Also enable global autopay setting with default timePreference
     await User.findByIdAndUpdate(userId, {
-      $set: { "autopaySettings.enabled": true },
+      $set: {
+        "autopaySettings.enabled": true,
+        "autopaySettings.timePreference": "MORNING_6AM"  // Default to 6 AM
+      },
     });
 
     console.log(`[Autopay] Enabled for all orders of user ${userId}: ${result.modifiedCount} orders`);

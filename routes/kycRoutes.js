@@ -10,7 +10,8 @@ const {
   getKycStatus,
   getAllKyc,
   adminApprove,
-  adminReject
+  adminReject,
+  adminSearch
 } = require("../controllers/kycController");
 
 
@@ -109,6 +110,7 @@ router.get("/status", verifyToken, getKycStatus);
    📌 ADMIN ROUTES
 ============================================================ */
 router.get("/admin/all", verifyToken, isAdmin, getAllKyc);
+router.get("/admin/search", verifyToken, isAdmin, adminSearch);
 router.patch("/admin/approve/:id", verifyToken, isAdmin, adminApprove);
 router.patch("/admin/reject/:id", verifyToken, isAdmin, adminReject);
 
