@@ -332,6 +332,14 @@ const userSchema = new Schema({
     default: null
   },
 
+  // Link sub-admin to their regular User account (for sales dashboard)
+  // When sub-admin accesses sales pages, system will use this user's referrals/data
+  linkedUserId: {
+    type: Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+
   // Last login timestamp
   lastLogin: {
     type: Date,
