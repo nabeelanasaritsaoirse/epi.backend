@@ -273,6 +273,20 @@ const userSchema = new Schema({
     type: Number,
     default: 50
   },
+  // Referral tracking - how the referral was linked
+  referralCodeUsed: {
+    type: String,
+    default: null
+  },
+  referralLinkedAt: {
+    type: Date,
+    default: null
+  },
+  referralLinkMethod: {
+    type: String,
+    enum: ['SIGNUP', 'COUPON', null],
+    default: null
+  },
   savedPlans: [{
     product: {
       type: Schema.Types.ObjectId,

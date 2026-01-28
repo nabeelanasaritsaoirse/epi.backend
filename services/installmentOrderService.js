@@ -174,6 +174,9 @@ async function createOrder(orderData) {
   let milestonePaymentsRequired = null;
   let milestoneFreeDays = null;
 
+  // Store coupon reference for later usage tracking
+  let appliedCoupon = null;
+
   if (couponCode) {
     const Coupon = require("../models/Coupon");
     const coupon = await Coupon.findOne({
@@ -181,29 +184,100 @@ async function createOrder(orderData) {
     });
 
     if (!coupon) throw new Error(`Coupon '${couponCode}' not found`);
-    if (!coupon.isActive)
-      throw new Error(`Coupon '${couponCode}' is not active`);
-    if (new Date() > coupon.expiryDate)
-      throw new Error(`Coupon '${couponCode}' has expired`);
 
+    // ========================================
+    // COUPON VALIDATION CHECKS (ALL 12 FEATURES)
+    // ========================================
+
+    // 1. Check basic validity (active, not expired, usage limit)
+    const validityCheck = coupon.isValid();
+    if (!validityCheck.valid) {
+      throw new Error(validityCheck.error);
+    }
+
+    // 2. Check per-user limit
+    if (!coupon.canUserUse(userId)) {
+      throw new Error('You have already used this coupon the maximum allowed times');
+    }
+
+    // 3. Check if personal code belongs to this user
+    if (coupon.isPersonalCode && coupon.assignedToUser) {
+      if (coupon.assignedToUser.toString() !== userId.toString()) {
+        throw new Error('This coupon code is assigned to another user');
+      }
+    }
+
+    // 4. Check first-time user restriction
+    if (coupon.firstTimeUserOnly) {
+      const userOrderCount = await InstallmentOrder.countDocuments({
+        user: userId,
+        status: { $in: ['ACTIVE', 'COMPLETED'] }
+      });
+      if (userOrderCount > 0) {
+        throw new Error('This coupon is only for first-time users');
+      }
+    }
+
+    // 5. Check product restriction
+    if (coupon.applicableProducts && coupon.applicableProducts.length > 0) {
+      const isProductAllowed = coupon.applicableProducts.some(
+        p => p.toString() === product._id.toString()
+      );
+      if (!isProductAllowed) {
+        throw new Error('This coupon is not applicable for this product');
+      }
+    }
+
+    // 6. Check category restriction
+    if (coupon.applicableCategories && coupon.applicableCategories.length > 0) {
+      const productCategory = product.category?.name || product.category;
+      if (productCategory && !coupon.applicableCategories.includes(productCategory)) {
+        throw new Error('This coupon is not applicable for this product category');
+      }
+    }
+
+    // 7. Check payment method restriction
+    if (coupon.applicablePaymentMethods &&
+        coupon.applicablePaymentMethods.length > 0 &&
+        !coupon.applicablePaymentMethods.includes('ALL')) {
+      if (!coupon.applicablePaymentMethods.includes(paymentMethod)) {
+        throw new Error(`This coupon is only valid for ${coupon.applicablePaymentMethods.join(' or ')} payments`);
+      }
+    }
+
+    // 8. Check win-back coupon eligibility
+    if (coupon.isWinBackCoupon && coupon.minDaysSinceLastOrder) {
+      const lastOrder = await InstallmentOrder.findOne({
+        user: userId,
+        status: { $in: ['ACTIVE', 'COMPLETED'] }
+      }).sort({ createdAt: -1 });
+
+      if (lastOrder) {
+        const daysSinceLastOrder = Math.floor(
+          (Date.now() - lastOrder.createdAt.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        if (daysSinceLastOrder < coupon.minDaysSinceLastOrder) {
+          throw new Error(`This coupon is for users who haven't ordered in ${coupon.minDaysSinceLastOrder} days`);
+        }
+      }
+      // If no previous order, user is eligible (new user = inactive)
+    }
+
+    // 9. Check minimum order value
     if (totalProductPrice < coupon.minOrderValue) {
       throw new Error(
         `Minimum order value of ₹${coupon.minOrderValue} required for coupon`
       );
     }
 
-    if (coupon.discountType === "flat") {
-      couponDiscount = coupon.discountValue;
-    } else if (coupon.discountType === "percentage") {
-      couponDiscount = Math.round(
-        (totalProductPrice * coupon.discountValue) / 100
-      );
-    }
-
-    couponDiscount = Math.min(couponDiscount, totalProductPrice);
+    // ========================================
+    // CALCULATE DISCOUNT (with max cap support)
+    // ========================================
+    couponDiscount = coupon.calculateDiscount(totalProductPrice);
 
     couponType = coupon.couponType || "INSTANT";
     appliedCouponCode = coupon.couponCode;
+    appliedCoupon = coupon; // Store for later usage tracking
 
     if (couponType === "INSTANT") {
       const result = applyInstantCoupon(totalProductPrice, couponDiscount);
@@ -220,7 +294,7 @@ async function createOrder(orderData) {
       }
     }
 
-    if (coupon.incrementUsage) await coupon.incrementUsage();
+    // Note: Usage increment moved to after order creation for proper tracking
   }
 
   const durationValidation = validateInstallmentDuration(
@@ -407,6 +481,77 @@ async function createOrder(orderData) {
     }
 
     await order.save();
+
+    // ========================================
+    // 🎫 COUPON USAGE TRACKING & REFERRAL AUTO-LINKING
+    // ========================================
+    if (appliedCoupon) {
+      try {
+        // Track coupon usage with user and order info
+        await appliedCoupon.incrementUsage(userId, order._id, couponDiscount);
+        console.log(`✅ Coupon usage tracked: ${appliedCoupon.couponCode} by user ${userId}`);
+
+        // Check if this is a referral coupon and user has no referrer
+        if (appliedCoupon.isReferralCoupon && appliedCoupon.linkedToReferrer) {
+          const couponOwner = await User.findById(appliedCoupon.linkedToReferrer);
+
+          if (couponOwner && !user.referredBy) {
+            // Auto-link the coupon owner as the user's referrer
+            user.referredBy = couponOwner._id;
+            user.referralCodeUsed = appliedCoupon.couponCode;
+            user.referralLinkedAt = new Date();
+            user.referralLinkMethod = 'COUPON';
+
+            // Add user to coupon owner's referred users list
+            if (!couponOwner.referredUsers.includes(userId)) {
+              couponOwner.referredUsers.push(userId);
+              await couponOwner.save();
+            }
+
+            await user.save();
+
+            // Update referrer for commission calculation
+            referrer = couponOwner;
+
+            console.log(`✅ Auto-linked referrer: ${couponOwner.name} for user ${user.name} via coupon ${appliedCoupon.couponCode}`);
+
+            // Credit commission to coupon owner for this order
+            const couponCommissionPercent = appliedCoupon.referrerCommissionPercent || 10;
+            const couponCommissionAmount = (calculatedDailyAmount * couponCommissionPercent) / 100;
+
+            if (paymentMethod === "WALLET") {
+              try {
+                const commissionResult = await creditCommissionToWallet(
+                  couponOwner._id,
+                  couponCommissionAmount,
+                  order._id.toString(),
+                  firstPayment._id.toString(),
+                  null
+                );
+
+                await firstPayment.recordCommission(
+                  couponCommissionAmount,
+                  couponCommissionPercent,
+                  commissionResult.walletTransaction._id
+                );
+
+                order.totalCommissionPaid = couponCommissionAmount;
+                order.referrer = couponOwner._id;
+                order.commissionPercentage = couponCommissionPercent;
+                await order.save();
+
+                console.log(`✅ Referral coupon commission credited: ₹${couponCommissionAmount} to ${couponOwner.name}`);
+              } catch (commErr) {
+                console.error("⚠️ Failed to credit referral coupon commission:", commErr.message);
+              }
+            }
+          }
+        }
+      } catch (couponErr) {
+        // Log error but don't fail the order
+        console.error("⚠️ Failed to track coupon usage:", couponErr.message);
+      }
+    }
 
     // ========================================
     // 🔧 FIX: Process commission for BOTH Wallet and Razorpay first payment
