@@ -42,6 +42,66 @@ const isSalesAuthorized = (req, res, next) => {
   });
 };
 
+// ========== MY TEAM ROUTES (Sales Person's Own Referral Data) ==========
+
+/**
+ * @route   GET /api/sales/my-team
+ * @desc    Get logged-in user's direct referrals (L1 team members)
+ * @access  Sales Team, Admin, Super Admin
+ */
+router.get('/my-team', verifyToken, isSalesAuthorized, salesTeamController.getMyTeam);
+
+/**
+ * @route   GET /api/sales/my-team/users
+ * @desc    Get all users in logged-in user's referral chain (L1 + L2)
+ * @access  Sales Team, Admin, Super Admin
+ */
+router.get('/my-team/users', verifyToken, isSalesAuthorized, salesTeamController.getMyTeamUsers);
+
+/**
+ * @route   GET /api/sales/my-stats
+ * @desc    Get dashboard stats for logged-in user's team only
+ * @access  Sales Team, Admin, Super Admin
+ */
+router.get('/my-stats', verifyToken, isSalesAuthorized, salesTeamController.getMyStats);
+
+/**
+ * @route   GET /api/sales/my-opportunities
+ * @desc    Get hot leads from logged-in user's referral chain
+ * @access  Sales Team, Admin, Super Admin
+ */
+router.get('/my-opportunities', verifyToken, isSalesAuthorized, salesTeamController.getMyOpportunities);
+
+/**
+ * @route   GET /api/sales/my-activity
+ * @desc    Get recent activity feed from logged-in user's team
+ * @access  Sales Team, Admin, Super Admin
+ */
+router.get('/my-activity', verifyToken, isSalesAuthorized, salesTeamController.getMyActivity);
+
+/**
+ * @route   GET /api/sales/my-leaderboard
+ * @desc    Get top performers in logged-in user's team
+ * @access  Sales Team, Admin, Super Admin
+ */
+router.get('/my-leaderboard', verifyToken, isSalesAuthorized, salesTeamController.getMyLeaderboard);
+
+/**
+ * @route   GET /api/sales/my-trends
+ * @desc    Get time-series data for charts (logged-in user's team)
+ * @access  Sales Team, Admin, Super Admin
+ */
+router.get('/my-trends', verifyToken, isSalesAuthorized, salesTeamController.getMyTrends);
+
+/**
+ * @route   GET /api/sales/my-team/:userId
+ * @desc    Get detail view of specific team member (must be in L1/L2 chain)
+ * @access  Sales Team, Admin, Super Admin
+ */
+router.get('/my-team/:userId', verifyToken, isSalesAuthorized, salesTeamController.getMyTeamMemberDetail);
+
+// ========== GLOBAL ROUTES (All Users - Existing) ==========
+
 /**
  * @route   GET /api/sales/dashboard-stats
  * @desc    Get dashboard statistics for sales team

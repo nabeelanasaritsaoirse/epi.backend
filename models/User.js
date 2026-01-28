@@ -45,6 +45,14 @@ const userSchema = new Schema({
       message: props => `${props.value} is not a valid phone number!`
     }
   },
+  phoneVerified: {
+    type: Boolean,
+    default: false
+  },
+  emailVerified: {
+    type: Boolean,
+    default: false
+  },
   deviceToken: {
     type: String,
     default: ""
@@ -319,6 +327,14 @@ const userSchema = new Schema({
 
   // Track who created this admin (for sub-admins)
   createdBy: {
+    type: Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+
+  // Link sub-admin to their regular User account (for sales dashboard)
+  // When sub-admin accesses sales pages, system will use this user's referrals/data
+  linkedUserId: {
     type: Schema.Types.ObjectId,
     ref: 'User',
     default: null
