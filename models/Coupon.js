@@ -261,6 +261,11 @@ couponSchema.methods.incrementUsage = async function (userId = null, orderId = n
 
   // Add to usage history if user info provided (new behavior)
   if (userId) {
+    // Initialize usageHistory array if it doesn't exist (for old documents)
+    if (!this.usageHistory || !Array.isArray(this.usageHistory)) {
+      this.usageHistory = [];
+    }
+
     this.usageHistory.push({
       user: userId,
       orderId: orderId,
@@ -277,6 +282,11 @@ couponSchema.methods.canUserUse = function (userId) {
   // If no per-user limit set, allow
   if (this.maxUsagePerUser === null) return true;
 
+  // Handle old documents without usageHistory array
+  if (!this.usageHistory || !Array.isArray(this.usageHistory)) {
+    return true; // Allow usage if no history exists (old coupon)
+  }
+
   // Count how many times this user has used the coupon
   const userUsageCount = this.usageHistory.filter(
     h => h.user && h.user.toString() === userId.toString()
@@ -287,6 +297,11 @@ couponSchema.methods.canUserUse = function (userId) {
 
 // Get user's usage count for this coupon
 couponSchema.methods.getUserUsageCount = function (userId) {
+  // Handle old documents without usageHistory array
+  if (!this.usageHistory || !Array.isArray(this.usageHistory)) {
+    return 0;
+  }
+
   return this.usageHistory.filter(
     h => h.user && h.user.toString() === userId.toString()
   ).length;
