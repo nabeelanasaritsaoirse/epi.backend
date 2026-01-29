@@ -61,8 +61,84 @@ const couponSchema = new mongoose.Schema({
   maxUsageCount: { type: Number, default: null },
   currentUsageCount: { type: Number, default: 0 },
 
-  // Per-user limit (future extension)
+  // Per-user limit
   maxUsagePerUser: { type: Number, default: null },
+
+  // --------------------------------------
+  // USAGE TRACKING
+  // --------------------------------------
+  usageHistory: [{
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    orderId: { type: mongoose.Schema.Types.ObjectId, ref: 'InstallmentOrder' },
+    usedAt: { type: Date, default: Date.now },
+    discountApplied: { type: Number, default: 0 }
+  }],
+
+  // --------------------------------------
+  // COUPON RESTRICTIONS
+  // --------------------------------------
+
+  // First-time user only (users with no previous orders)
+  firstTimeUserOnly: { type: Boolean, default: false },
+
+  // Product-specific (empty array = all products)
+  applicableProducts: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }],
+
+  // Category-specific (empty array = all categories)
+  applicableCategories: [{ type: String }],
+
+  // Maximum discount cap for percentage coupons (null = no cap)
+  maxDiscountAmount: { type: Number, default: null },
+
+  // Payment method restriction (empty array or ['ALL'] = all methods)
+  applicablePaymentMethods: [{
+    type: String,
+    enum: ['WALLET', 'RAZORPAY', 'ALL']
+  }],
+
+  // --------------------------------------
+  // WIN-BACK / INACTIVE USER TARGETING
+  // --------------------------------------
+
+  // User must be inactive for X days to use this coupon
+  minDaysSinceLastOrder: { type: Number, default: null },
+  isWinBackCoupon: { type: Boolean, default: false },
+
+  // --------------------------------------
+  // STACKABLE COUPONS
+  // --------------------------------------
+
+  isStackable: { type: Boolean, default: false },
+  stackPriority: { type: Number, default: 0 }, // Lower = applied first
+
+  // --------------------------------------
+  // REFERRAL-LINKED COUPONS
+  // --------------------------------------
+
+  linkedToReferrer: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  referrerCommissionPercent: { type: Number, default: 10 },
+  isReferralCoupon: { type: Boolean, default: false },
+
+  // --------------------------------------
+  // AUTO-GENERATED UNIQUE CODES
+  // --------------------------------------
+
+  isParentCoupon: { type: Boolean, default: false },
+  parentCoupon: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Coupon',
+    default: null
+  },
+  assignedToUser: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  isPersonalCode: { type: Boolean, default: false },
 
   // --------------------------------------
   // MILESTONE REWARD EXCLUSIVE FIELDS
@@ -115,6 +191,11 @@ couponSchema.index({ couponCode: 1 });
 couponSchema.index({ couponType: 1 });
 couponSchema.index({ expiryDate: 1 });
 couponSchema.index({ isActive: 1, expiryDate: 1 });
+couponSchema.index({ linkedToReferrer: 1 });
+couponSchema.index({ parentCoupon: 1 });
+couponSchema.index({ assignedToUser: 1 });
+couponSchema.index({ isReferralCoupon: 1 });
+couponSchema.index({ 'usageHistory.user': 1 });
 
 // --------------------------------------
 // PRE-SAVE
@@ -153,24 +234,77 @@ couponSchema.methods.isValid = function () {
   return { valid: true };
 };
 
-// Calculate discount (INSTANT / REDUCE_DAYS)
+// Calculate discount (INSTANT / REDUCE_DAYS) with max cap support
 couponSchema.methods.calculateDiscount = function (orderAmount) {
   if (this.couponType === 'MILESTONE_REWARD') return 0;
 
+  let discount = 0;
+
   if (this.discountType === 'flat') {
-    return Math.min(this.discountValue, orderAmount);
+    discount = this.discountValue;
+  } else if (this.discountType === 'percentage') {
+    discount = Math.round(orderAmount * (this.discountValue / 100));
+
+    // Apply max discount cap if set (for percentage coupons)
+    if (this.maxDiscountAmount !== null && discount > this.maxDiscountAmount) {
+      discount = this.maxDiscountAmount;
+    }
   }
 
-  if (this.discountType === 'percentage') {
-    return Math.round(orderAmount * (this.discountValue / 100));
-  }
-
-  return 0;
+  // Ensure discount doesn't exceed order amount
+  return Math.min(discount, orderAmount);
 };
 
-couponSchema.methods.incrementUsage = async function () {
+// Increment usage with tracking (backward compatible)
+couponSchema.methods.incrementUsage = async function (userId = null, orderId = null, discountAmount = 0) {
   this.currentUsageCount += 1;
+
+  // Add to usage history if user info provided (new behavior)
+  if (userId) {
+    // Initialize usageHistory array if it doesn't exist (for old documents)
+    if (!this.usageHistory || !Array.isArray(this.usageHistory)) {
+      this.usageHistory = [];
+    }
+
+    this.usageHistory.push({
+      user: userId,
+      orderId: orderId,
+      usedAt: new Date(),
+      discountApplied: discountAmount
+    });
+  }
+
   await this.save();
+};
+
+// Check if a specific user can use this coupon (per-user limit check)
+couponSchema.methods.canUserUse = function (userId) {
+  // If no per-user limit set, allow
+  if (this.maxUsagePerUser === null) return true;
+
+  // Handle old documents without usageHistory array
+  if (!this.usageHistory || !Array.isArray(this.usageHistory)) {
+    return true; // Allow usage if no history exists (old coupon)
+  }
+
+  // Count how many times this user has used the coupon
+  const userUsageCount = this.usageHistory.filter(
+    h => h.user && h.user.toString() === userId.toString()
+  ).length;
+
+  return userUsageCount < this.maxUsagePerUser;
+};
+
+// Get user's usage count for this coupon
+couponSchema.methods.getUserUsageCount = function (userId) {
+  // Handle old documents without usageHistory array
+  if (!this.usageHistory || !Array.isArray(this.usageHistory)) {
+    return 0;
+  }
+
+  return this.usageHistory.filter(
+    h => h.user && h.user.toString() === userId.toString()
+  ).length;
 };
 
 // --------------------------------------

@@ -80,9 +80,30 @@ router.post('/login', async (req, res) => {
 
     console.log('Admin authentication successful:', email);
 
+    // AUTO-LINK: If admin/sales_team has same email/phone as a user account, link them
+    if (!adminUser.linkedUserId) {
+      const linkedUser = await User.findOne({
+        _id: { $ne: adminUser._id },  // Not the same account
+        role: 'user',
+        $or: [
+          { email: adminUser.email },
+          ...(adminUser.phoneNumber ? [{ phoneNumber: adminUser.phoneNumber }] : [])
+        ]
+      });
+      if (linkedUser) {
+        adminUser.linkedUserId = linkedUser._id;
+        console.log(`[Auto-Link] Linked admin ${adminUser.email} to user ${linkedUser._id}`);
+      }
+    }
+
     // Update last login
     adminUser.lastLogin = new Date();
     await adminUser.save();
+
+    // Populate linkedUserId if exists
+    if (adminUser.linkedUserId) {
+      await adminUser.populate('linkedUserId', '_id name email phoneNumber referralCode');
+    }
 
     // Determine user's modules
     let userModules = [];
@@ -119,6 +140,14 @@ router.post('/login', async (req, res) => {
         isSuperAdmin,
         isSalesTeam,
         modules: userModules,
+        // Include linked user info for sales team (so frontend knows who they're viewing as)
+        linkedUserId: adminUser.linkedUserId ? {
+          _id: adminUser.linkedUserId._id,
+          name: adminUser.linkedUserId.name,
+          email: adminUser.linkedUserId.email,
+          phoneNumber: adminUser.linkedUserId.phoneNumber,
+          referralCode: adminUser.linkedUserId.referralCode
+        } : null,
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken
       }
