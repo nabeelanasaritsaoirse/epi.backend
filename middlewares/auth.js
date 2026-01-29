@@ -404,24 +404,46 @@ exports.verifyToken = async (req, res, next) => {
       });
     }
 
-    const user = await User.findById(userId);
-    
+    let user = await User.findById(userId);
+
     if (!user) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
         message: 'User not found',
         code: 'USER_NOT_FOUND'
       });
     }
-    
+
     if (!user.isActive) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         success: false,
         message: 'Account is disabled',
         code: 'ACCOUNT_DISABLED'
       });
     }
-    
+
+    // AUTO-LINK: If admin/sales_team has same email/phone as a user account, link them
+    if ((user.role === 'admin' || user.role === 'sales_team') && !user.linkedUserId) {
+      const linkedUser = await User.findOne({
+        _id: { $ne: user._id },  // Not the same account
+        role: 'user',
+        $or: [
+          { email: user.email },
+          ...(user.phoneNumber ? [{ phoneNumber: user.phoneNumber }] : [])
+        ]
+      });
+      if (linkedUser) {
+        user.linkedUserId = linkedUser._id;
+        await user.save();
+        console.log(`[Auto-Link] Linked admin ${user.email} to user ${linkedUser._id}`);
+      }
+    }
+
+    // Populate linkedUserId if exists (for sales team to see their user account details)
+    if (user.linkedUserId) {
+      await user.populate('linkedUserId', '_id name email phoneNumber referralCode');
+    }
+
     req.user = user;
     next();
 
