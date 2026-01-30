@@ -10,6 +10,7 @@ const fileFilter = (req, file, cb) => {
     "image/jpg",
     "image/png",
     "image/webp",
+    "image/svg+xml", // ✅ ADD THIS
   ];
 
   if (allowedMimeTypes.includes(file.mimetype)) {
@@ -17,9 +18,9 @@ const fileFilter = (req, file, cb) => {
   } else {
     cb(
       new Error(
-        "Invalid file type. Only JPEG, PNG, and WebP images are allowed."
+        "Invalid file type. Only JPEG, PNG, and WebP images are allowed.",
       ),
-      false
+      false,
     );
   }
 };
