@@ -10,7 +10,8 @@ const fileFilter = (req, file, cb) => {
     "image/jpg",
     "image/png",
     "image/webp",
-    "image/svg+xml", // ✅ ADD THIS
+    "image/svg+xml",
+    "image/svg", // 👈 ADD
   ];
 
   if (allowedMimeTypes.includes(file.mimetype)) {
