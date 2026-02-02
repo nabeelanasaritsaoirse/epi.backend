@@ -382,6 +382,115 @@ class DuplicateBankAccountError extends AppError {
   }
 }
 
+// ============================================
+// REVIEW SYSTEM ERRORS
+// ============================================
+
+/**
+ * Review Not Found - 404
+ * Thrown when requested review doesn't exist
+ */
+class ReviewNotFoundError extends AppError {
+  constructor(reviewId = null) {
+    super(
+      'Review not found',
+      404,
+      'REVIEW_NOT_FOUND',
+      reviewId ? { reviewId } : {}
+    );
+  }
+}
+
+/**
+ * Duplicate Review - 409
+ * Thrown when user already reviewed this product
+ */
+class DuplicateReviewError extends AppError {
+  constructor(productId = null) {
+    super(
+      'You have already reviewed this product',
+      409,
+      'DUPLICATE_REVIEW',
+      productId ? { productId } : {}
+    );
+  }
+}
+
+/**
+ * Order Not Delivered - 400
+ * Thrown when user tries to review without DELIVERED order
+ */
+class NotDeliveredError extends AppError {
+  constructor(productId = null) {
+    super(
+      'You can only review products from delivered orders',
+      400,
+      'ORDER_NOT_DELIVERED',
+      productId ? { productId } : {}
+    );
+  }
+}
+
+/**
+ * Unauthorized Review Access - 403
+ * Thrown when user tries to access/modify review they don't own
+ */
+class UnauthorizedReviewAccessError extends AppError {
+  constructor(reviewId = null) {
+    super(
+      'You are not authorized to access this review',
+      403,
+      'UNAUTHORIZED_REVIEW_ACCESS',
+      reviewId ? { reviewId } : {}
+    );
+  }
+}
+
+/**
+ * Review Edit Limit Exceeded - 400
+ * Thrown when user tries to edit review more than 3 times
+ */
+class ReviewEditLimitExceededError extends AppError {
+  constructor(reviewId = null) {
+    super(
+      'Maximum edit limit (3) reached for this review',
+      400,
+      'REVIEW_EDIT_LIMIT_EXCEEDED',
+      reviewId ? { reviewId, maxEdits: 3 } : { maxEdits: 3 }
+    );
+  }
+}
+
+/**
+ * Already Voted - 409
+ * Thrown when user tries to vote same way again
+ */
+class AlreadyVotedError extends AppError {
+  constructor(reviewId = null, voteType = null) {
+    super(
+      'You have already voted on this review',
+      409,
+      'ALREADY_VOTED',
+      { reviewId, voteType }
+    );
+  }
+}
+
+/**
+ * Already Reported - 409
+ * Thrown when user tries to report same review again
+ */
+class AlreadyReportedError extends AppError {
+  constructor(reviewId = null) {
+    super(
+      'You have already reported this review',
+      409,
+      'ALREADY_REPORTED',
+      reviewId ? { reviewId } : {}
+    );
+  }
+}
+
 module.exports = {
   AppError,
   OrderNotFoundError,
@@ -405,5 +514,13 @@ module.exports = {
   BankAccountNotFoundError,
   KYCNotVerifiedError,
   KYCDocumentNotFoundError,
-  DuplicateBankAccountError
+  DuplicateBankAccountError,
+  // Review System Errors
+  ReviewNotFoundError,
+  DuplicateReviewError,
+  NotDeliveredError,
+  UnauthorizedReviewAccessError,
+  ReviewEditLimitExceededError,
+  AlreadyVotedError,
+  AlreadyReportedError
 };

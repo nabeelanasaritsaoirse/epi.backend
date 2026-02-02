@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const productController = require("../controllers/productController");
 const productFeaturedController = require("../controllers/productFeaturedController");
+const reviewController = require("../controllers/reviewController");
 const { uploadMultiple } = require("../middlewares/uploadMiddleware");
 const { verifyToken, isAdmin, optionalAuth } = require("../middlewares/auth");
 const { detectCountryWithCache } = require("../middlewares/countryMiddleware");
@@ -105,6 +106,26 @@ router.get("/:productId/region/:region", productController.getProductByRegion);
 // PRODUCT PLANS ROUTE — MUST BE ABOVE /:productId
 // ============================================
 router.get("/:productId/plans", productController.getProductPlans);
+
+// ============================================
+// PRODUCT REVIEWS ROUTE (Public) — MUST BE ABOVE /:productId
+// ============================================
+/**
+ * @route   GET /api/products/:productId/reviews
+ * @desc    Get all reviews for a product (public)
+ * @access  Public
+ *
+ * @query {
+ *   page: number (default: 1)
+ *   limit: number (default: 10)
+ *   sort: 'mostHelpful' | 'newest' | 'oldest' | 'highest' | 'lowest' (default: newest)
+ *   rating: number or comma-separated (e.g., '5,4' for 5 and 4 star reviews)
+ *   verified: 'true' (optional) - Only verified purchases
+ *   hasImages: 'true' (optional) - Only reviews with images
+ *   search: string (optional) - Search in review text
+ * }
+ */
+router.get("/:productId/reviews", reviewController.getProductReviews);
 
 // ============================================
 // INDIVIDUAL PRODUCT ROUTES — KEEP AT BOTTOM
