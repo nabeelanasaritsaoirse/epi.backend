@@ -3,6 +3,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const { verifyToken } = require('../middlewares/auth');
 const User = require('../models/User');
+const { hasRole, addRole, removeRole, getAllRoles } = require('../utils/roleHelpers');
 const {
   getRegistrationRequests,
   getRegistrationRequestById,
@@ -42,24 +43,36 @@ const requireSuperAdmin = (req, res, next) => {
 
 /**
  * @route   GET /api/admin-mgmt/sub-admins
- * @desc    Get all sub-admins
+ * @desc    Get all sub-admins (including users promoted via additionalRoles)
  * @access  Super Admin only
  */
 router.get('/sub-admins', verifyToken, requireSuperAdmin, async (req, res) => {
   try {
+    // Find users with admin in role OR additionalRoles (excluding super_admin)
     const subAdmins = await User.find({
-      role: 'admin',
+      $or: [
+        { role: 'admin' },
+        { additionalRoles: 'admin' }
+      ],
+      role: { $ne: 'super_admin' },
       _id: { $ne: req.user._id } // Exclude current user
     })
-    .select('name email moduleAccess isActive createdAt createdBy lastLogin linkedUserId')
+    .select('name email role additionalRoles moduleAccess isActive createdAt createdBy lastLogin linkedUserId')
     .populate('createdBy', 'name email')
     .populate('linkedUserId', 'name email phoneNumber referralCode')
     .sort({ createdAt: -1 });
 
+    // Add computed fields
+    const subAdminsWithInfo = subAdmins.map(admin => ({
+      ...admin.toObject(),
+      allRoles: getAllRoles(admin),
+      isPromotedUser: admin.role === 'user' && admin.additionalRoles && admin.additionalRoles.includes('admin')
+    }));
+
     res.json({
       success: true,
-      data: subAdmins,
-      count: subAdmins.length
+      data: subAdminsWithInfo,
+      count: subAdminsWithInfo.length
     });
   } catch (error) {
     console.error('Error fetching sub-admins:', error);
@@ -755,24 +768,35 @@ router.post('/registration-requests/:requestId/reject', verifyToken, requireSupe
 
 /**
  * @route   GET /api/admin-mgmt/sales-team
- * @desc    Get all sales team members
+ * @desc    Get all sales team members (including users promoted via additionalRoles)
  * @access  Super Admin only
  */
 router.get('/sales-team', verifyToken, requireSuperAdmin, async (req, res) => {
   try {
+    // Find users with sales_team in role OR additionalRoles
     const salesTeam = await User.find({
-      role: 'sales_team',
+      $or: [
+        { role: 'sales_team' },
+        { additionalRoles: 'sales_team' }
+      ],
       _id: { $ne: req.user._id }
     })
-    .select('name email isActive createdAt createdBy lastLogin linkedUserId')
+    .select('name email role additionalRoles isActive createdAt createdBy lastLogin linkedUserId')
     .populate('createdBy', 'name email')
     .populate('linkedUserId', 'name email phoneNumber referralCode')
     .sort({ createdAt: -1 });
 
+    // Add computed fields
+    const salesTeamWithInfo = salesTeam.map(member => ({
+      ...member.toObject(),
+      allRoles: getAllRoles(member),
+      isPromotedUser: member.role === 'user' && member.additionalRoles && member.additionalRoles.includes('sales_team')
+    }));
+
     res.json({
       success: true,
-      data: salesTeam,
-      count: salesTeam.length
+      data: salesTeamWithInfo,
+      count: salesTeamWithInfo.length
     });
   } catch (error) {
     console.error('Error fetching sales team members:', error);
@@ -1032,6 +1056,366 @@ router.post('/sales-team/:salesId/reset-password', verifyToken, requireSuperAdmi
     res.status(500).json({
       success: false,
       message: 'Failed to reset password',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * ============================================
+ * USER ROLE PROMOTION APIs (Using additionalRoles)
+ * These APIs allow promoting existing users to sales_team/admin
+ * WITHOUT changing their primary role - backward compatible!
+ * ============================================
+ */
+
+/**
+ * @route   POST /api/admin-mgmt/users/:userId/promote-to-sales
+ * @desc    Promote existing user to sales team (adds sales_team to additionalRoles)
+ * @access  Super Admin only
+ */
+router.post('/users/:userId/promote-to-sales', verifyToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { password } = req.body;
+
+    // Find the user
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+        code: 'USER_NOT_FOUND'
+      });
+    }
+
+    // Check if already has sales_team role
+    if (hasRole(user, 'sales_team')) {
+      return res.status(400).json({
+        success: false,
+        message: 'User is already a sales team member',
+        code: 'ALREADY_SALES_TEAM'
+      });
+    }
+
+    // Password is required for panel login
+    if (!password || password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password is required (min 6 characters) for panel login',
+        code: 'PASSWORD_REQUIRED'
+      });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Add sales_team to additionalRoles
+    if (!user.additionalRoles) {
+      user.additionalRoles = [];
+    }
+    user.additionalRoles.push('sales_team');
+
+    // Set password for panel login
+    user.password = hashedPassword;
+
+    await user.save();
+
+    console.log(`User ${user.email} promoted to sales team`);
+
+    res.json({
+      success: true,
+      message: 'User promoted to sales team successfully',
+      data: {
+        userId: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        additionalRoles: user.additionalRoles,
+        allRoles: getAllRoles(user)
+      }
+    });
+
+  } catch (error) {
+    console.error('Error promoting user to sales team:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to promote user',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route   POST /api/admin-mgmt/users/:userId/promote-to-admin
+ * @desc    Promote existing user to admin (adds admin to additionalRoles)
+ * @access  Super Admin only
+ */
+router.post('/users/:userId/promote-to-admin', verifyToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { password, moduleAccess } = req.body;
+
+    // Find the user
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+        code: 'USER_NOT_FOUND'
+      });
+    }
+
+    // Check if already has admin role
+    if (hasRole(user, 'admin') || hasRole(user, 'super_admin')) {
+      return res.status(400).json({
+        success: false,
+        message: 'User already has admin access',
+        code: 'ALREADY_ADMIN'
+      });
+    }
+
+    // Password is required for panel login
+    if (!password || password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password is required (min 6 characters) for panel login',
+        code: 'PASSWORD_REQUIRED'
+      });
+    }
+
+    // Module access is required for admin
+    if (!moduleAccess || !Array.isArray(moduleAccess) || moduleAccess.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Module access is required for admin role',
+        code: 'MODULE_ACCESS_REQUIRED'
+      });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Add admin to additionalRoles
+    if (!user.additionalRoles) {
+      user.additionalRoles = [];
+    }
+    user.additionalRoles.push('admin');
+
+    // Set password and module access
+    user.password = hashedPassword;
+
+    // Ensure dashboard is included
+    const modulesWithDashboard = moduleAccess.includes('dashboard')
+      ? moduleAccess
+      : ['dashboard', ...moduleAccess];
+    user.moduleAccess = modulesWithDashboard;
+
+    await user.save();
+
+    console.log(`User ${user.email} promoted to admin`);
+
+    res.json({
+      success: true,
+      message: 'User promoted to admin successfully',
+      data: {
+        userId: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        additionalRoles: user.additionalRoles,
+        allRoles: getAllRoles(user),
+        moduleAccess: user.moduleAccess
+      }
+    });
+
+  } catch (error) {
+    console.error('Error promoting user to admin:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to promote user',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route   POST /api/admin-mgmt/users/:userId/demote
+ * @desc    Remove a role from user's additionalRoles
+ * @access  Super Admin only
+ */
+router.post('/users/:userId/demote', verifyToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { roleToRemove } = req.body;
+
+    if (!roleToRemove) {
+      return res.status(400).json({
+        success: false,
+        message: 'roleToRemove is required',
+        code: 'ROLE_REQUIRED'
+      });
+    }
+
+    // Find the user
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+        code: 'USER_NOT_FOUND'
+      });
+    }
+
+    // Cannot remove primary role
+    if (user.role === roleToRemove) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot remove primary role. Use different API to change primary role.',
+        code: 'CANNOT_REMOVE_PRIMARY'
+      });
+    }
+
+    // Check if user has this role in additionalRoles
+    if (!user.additionalRoles || !user.additionalRoles.includes(roleToRemove)) {
+      return res.status(400).json({
+        success: false,
+        message: `User does not have ${roleToRemove} in additional roles`,
+        code: 'ROLE_NOT_FOUND'
+      });
+    }
+
+    // Remove role from additionalRoles
+    user.additionalRoles = user.additionalRoles.filter(r => r !== roleToRemove);
+
+    // If removing admin, clear moduleAccess
+    if (roleToRemove === 'admin') {
+      user.moduleAccess = [];
+    }
+
+    await user.save();
+
+    console.log(`Role ${roleToRemove} removed from user ${user.email}`);
+
+    res.json({
+      success: true,
+      message: `Role ${roleToRemove} removed successfully`,
+      data: {
+        userId: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        additionalRoles: user.additionalRoles,
+        allRoles: getAllRoles(user)
+      }
+    });
+
+  } catch (error) {
+    console.error('Error demoting user:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to demote user',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route   GET /api/admin-mgmt/users/:userId/roles
+ * @desc    Get all roles for a user
+ * @access  Super Admin only
+ */
+router.get('/users/:userId/roles', verifyToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await User.findById(userId)
+      .select('name email role additionalRoles moduleAccess isActive');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+        code: 'USER_NOT_FOUND'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        userId: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        additionalRoles: user.additionalRoles || [],
+        allRoles: getAllRoles(user),
+        moduleAccess: user.moduleAccess || [],
+        isActive: user.isActive,
+        hasPassword: !!user.password,
+        canAccessPanel: hasRole(user, 'admin') || hasRole(user, 'super_admin') || hasRole(user, 'sales_team')
+      }
+    });
+
+  } catch (error) {
+    console.error('Error getting user roles:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get user roles',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route   GET /api/admin-mgmt/users-with-panel-access
+ * @desc    Get all users who can access admin panel (via role or additionalRoles)
+ * @access  Super Admin only
+ */
+router.get('/users-with-panel-access', verifyToken, requireSuperAdmin, async (req, res) => {
+  try {
+    // Find users who have panel access via role OR additionalRoles
+    const panelUsers = await User.find({
+      $or: [
+        { role: { $in: ['admin', 'super_admin', 'sales_team'] } },
+        { additionalRoles: { $in: ['admin', 'super_admin', 'sales_team'] } }
+      ]
+    })
+    .select('name email role additionalRoles moduleAccess isActive lastLogin createdAt')
+    .sort({ lastLogin: -1 });
+
+    // Add computed fields
+    const usersWithRoles = panelUsers.map(user => ({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      additionalRoles: user.additionalRoles || [],
+      allRoles: getAllRoles(user),
+      moduleAccess: user.moduleAccess || [],
+      isActive: user.isActive,
+      lastLogin: user.lastLogin,
+      createdAt: user.createdAt,
+      // Flags for easy frontend filtering
+      isSuperAdmin: hasRole(user, 'super_admin'),
+      isAdmin: hasRole(user, 'admin'),
+      isSalesTeam: hasRole(user, 'sales_team'),
+      isPromotedUser: user.role === 'user' && user.additionalRoles && user.additionalRoles.length > 0
+    }));
+
+    res.json({
+      success: true,
+      data: usersWithRoles,
+      count: usersWithRoles.length
+    });
+
+  } catch (error) {
+    console.error('Error getting panel users:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get panel users',
       error: error.message
     });
   }

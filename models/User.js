@@ -323,6 +323,14 @@ const userSchema = new Schema({
     default: 'user'
   },
 
+  // Additional roles for multi-role support (backward compatible)
+  // Primary role stays in 'role' field, secondary roles here
+  // Example: user can be both 'user' (primary) + 'sales_team' (additional)
+  additionalRoles: [{
+    type: String,
+    enum: ['user', 'admin', 'super_admin', 'sales_team']
+  }],
+
   // Admin-specific fields for password-based login (not Firebase)
   password: {
     type: String,
@@ -555,6 +563,40 @@ userSchema.index({ phoneNumber: 1 });
 userSchema.index({ firebaseUid: 1 });
 userSchema.index({ referralCode: 1 });
 userSchema.index({ referredBy: 1 }); // For efficient referral stats queries
+
+// Virtual: Get all roles (primary + additional)
+userSchema.virtual('allRoles').get(function() {
+  const roles = [this.role];
+  if (this.additionalRoles && this.additionalRoles.length > 0) {
+    roles.push(...this.additionalRoles);
+  }
+  return [...new Set(roles)]; // Return unique roles
+});
+
+// Method: Check if user has a specific role (checks both role and additionalRoles)
+userSchema.methods.hasRole = function(roleName) {
+  // Check primary role
+  if (this.role === roleName) return true;
+  // Check additional roles
+  if (this.additionalRoles && this.additionalRoles.includes(roleName)) return true;
+  return false;
+};
+
+// Method: Check if user has any of the given roles
+userSchema.methods.hasAnyRole = function(roleNames) {
+  if (!Array.isArray(roleNames)) roleNames = [roleNames];
+  return roleNames.some(role => this.hasRole(role));
+};
+
+// Method: Check if user is admin (admin or super_admin)
+userSchema.methods.isAdminUser = function() {
+  return this.hasAnyRole(['admin', 'super_admin']);
+};
+
+// Method: Check if user can access panel (admin, super_admin, or sales_team)
+userSchema.methods.canAccessPanel = function() {
+  return this.hasAnyRole(['admin', 'super_admin', 'sales_team']);
+};
 
 userSchema.pre('save', async function(next) {
   if (this.isNew && !this.referralCode) {
