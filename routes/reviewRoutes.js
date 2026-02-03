@@ -10,6 +10,7 @@ const router = express.Router();
 
 // Import middleware
 const { verifyToken, isAdmin } = require("../middlewares/auth");
+const { uploadMultiple } = require("../middlewares/uploadMiddleware");
 
 // Import controller
 const reviewController = require("../controllers/reviewController");
@@ -17,6 +18,27 @@ const reviewController = require("../controllers/reviewController");
 // ============================================
 // USER ROUTES (requires authentication)
 // ============================================
+
+/**
+ * @route   POST /api/reviews/upload-images
+ * @desc    Upload review images to S3 (max 5 images)
+ * @access  Private
+ *
+ * Flow: Upload images here first → get S3 URLs → pass URLs in POST /api/reviews
+ *
+ * @formData images - Image files (max 5, accepts jpg/png/webp, max 10MB each)
+ *
+ * @returns {
+ *   images: [{ url: string, thumbnail: null, caption: "" }],
+ *   count: number
+ * }
+ */
+router.post(
+  "/upload-images",
+  verifyToken,
+  uploadMultiple,
+  reviewController.uploadReviewImages
+);
 
 /**
  * @route   POST /api/reviews

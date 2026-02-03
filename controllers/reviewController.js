@@ -14,6 +14,9 @@ const {
   successResponse,
 } = require("../middlewares/errorHandler");
 const {
+  uploadMultipleFilesToS3,
+} = require("../services/awsUploadService");
+const {
   ReviewNotFoundError,
   DuplicateReviewError,
   NotDeliveredError,
@@ -868,6 +871,59 @@ const getReviewDetails = asyncHandler(async (req, res) => {
   successResponse(res, { review }, "Review details retrieved successfully");
 });
 
+// ============================================
+// IMAGE UPLOAD
+// ============================================
+
+/**
+ * @route   POST /api/reviews/upload-images
+ * @desc    Upload review images to S3 (max 5 images)
+ * @access  Private
+ *
+ * Uses same flow as product image upload:
+ *  multer (memoryStorage) → sharp (resize) → S3 upload → return URLs
+ *
+ * Frontend flow:
+ *  1. User picks images → call this endpoint
+ *  2. Get back S3 URLs
+ *  3. Pass those URLs in POST /api/reviews body { images: [{ url, caption }] }
+ */
+const uploadReviewImages = asyncHandler(async (req, res) => {
+  if (!req.files || req.files.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: "No files uploaded. Send images using 'images' field.",
+    });
+  }
+
+  if (req.files.length > 5) {
+    return res.status(400).json({
+      success: false,
+      message: "Maximum 5 images allowed per review",
+    });
+  }
+
+  // Upload all files to S3 (resized to 800px width, same as product images)
+  const uploadResults = await uploadMultipleFilesToS3(
+    req.files,
+    "reviews/",
+    800
+  );
+
+  // Format response
+  const images = uploadResults.map((result) => ({
+    url: result.url,
+    thumbnail: null,
+    caption: "",
+  }));
+
+  successResponse(
+    res,
+    { images, count: images.length },
+    "Review images uploaded successfully"
+  );
+});
+
 module.exports = {
   // User routes
   createReview,
@@ -877,6 +933,7 @@ module.exports = {
   canUserReviewProduct,
   voteReview,
   reportReview,
+  uploadReviewImages,
   // Public routes
   getProductReviews,
   // Admin routes
