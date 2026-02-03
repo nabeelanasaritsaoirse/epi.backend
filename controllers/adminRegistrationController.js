@@ -48,18 +48,24 @@ const submitRegistrationRequest = async (req, res) => {
       });
     }
 
-    // Check if email is already registered as admin
-    const existingAdmin = await User.findOne({
+    // Check if email is already registered as admin (either primary role or additionalRoles)
+    const existingUser = await User.findOne({
       email: email.toLowerCase(),
-      role: { $in: ["admin", "super_admin"] },
     });
 
-    if (existingAdmin) {
-      return res.status(400).json({
-        success: false,
-        message: "Email already registered as admin",
-        code: "EMAIL_EXISTS",
-      });
+    if (existingUser) {
+      const { hasRole } = require("../utils/roleHelpers");
+
+      // Check if already has admin role (primary or additional)
+      if (hasRole(existingUser, "admin") || hasRole(existingUser, "super_admin")) {
+        return res.status(400).json({
+          success: false,
+          message: "Email already registered as admin",
+          code: "EMAIL_EXISTS",
+        });
+      }
+      // User exists but is not admin - they can request to be promoted to admin
+      // The approval process will add 'admin' to their additionalRoles
     }
 
     // Check if there's already a pending request for this email
@@ -201,7 +207,7 @@ const getRegistrationRequestById = async (req, res) => {
 
 /**
  * @route   POST /api/admin-mgmt/registration-requests/:requestId/approve
- * @desc    Approve registration request and create admin user
+ * @desc    Approve registration request and create admin user (or promote existing user)
  * @access  Super Admin only
  */
 const approveRegistrationRequest = async (req, res) => {
@@ -247,49 +253,75 @@ const approveRegistrationRequest = async (req, res) => {
       });
     }
 
-    // Double-check email is not already registered
-    const existingAdmin = await User.findOne({
-      email: request.email,
-      role: { $in: ["admin", "super_admin"] },
-    }).session(session);
-
-    if (existingAdmin) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(400).json({
-        success: false,
-        message: "Email already registered as admin",
-        code: "EMAIL_EXISTS",
-      });
-    }
-
     // Ensure dashboard is included in moduleAccess
     const modulesWithDashboard = moduleAccess.includes("dashboard")
       ? moduleAccess
       : ["dashboard", ...moduleAccess];
 
-    // Generate unique firebaseUid for admin
-    const adminFirebaseUid = `admin_${crypto.randomBytes(8).toString("hex")}`;
-
-    // Create the admin user
-    const newAdmin = new User({
-      name: request.name,
+    // Check if email already exists (any role)
+    const existingUser = await User.findOne({
       email: request.email,
-      firebaseUid: adminFirebaseUid,
-      password: request.password, // Already hashed
-      role: "admin",
-      moduleAccess: modulesWithDashboard,
-      createdBy: req.user._id,
-      isActive: true,
-    });
+    }).session(session);
 
-    await newAdmin.save({ session });
+    let adminUser;
+    let isPromotedUser = false;
+
+    if (existingUser) {
+      // User already exists - check their current roles
+      const { hasRole, addRole } = require("../utils/roleHelpers");
+
+      // Check if already an admin
+      if (hasRole(existingUser, "admin") || hasRole(existingUser, "super_admin")) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({
+          success: false,
+          message: "Email already registered as admin",
+          code: "EMAIL_EXISTS",
+        });
+      }
+
+      // User exists but not an admin - promote them by adding admin to additionalRoles
+      addRole(existingUser, "admin");
+
+      // Set the password from the request (user might have registered with Firebase, now needs panel password)
+      existingUser.password = request.password; // Already hashed
+
+      // Set/update moduleAccess
+      existingUser.moduleAccess = modulesWithDashboard;
+
+      // Set createdBy if not already set
+      if (!existingUser.createdBy) {
+        existingUser.createdBy = req.user._id;
+      }
+
+      await existingUser.save({ session });
+      adminUser = existingUser;
+      isPromotedUser = true;
+    } else {
+      // No existing user - create new admin user
+      const adminFirebaseUid = `admin_${crypto.randomBytes(8).toString("hex")}`;
+
+      const newAdmin = new User({
+        name: request.name,
+        email: request.email,
+        firebaseUid: adminFirebaseUid,
+        password: request.password, // Already hashed
+        role: "admin",
+        moduleAccess: modulesWithDashboard,
+        createdBy: req.user._id,
+        isActive: true,
+      });
+
+      await newAdmin.save({ session });
+      adminUser = newAdmin;
+    }
 
     // Update the request
     request.status = "approved";
     request.reviewedAt = new Date();
     request.reviewedBy = req.user._id;
-    request.approvedAdminId = newAdmin._id;
+    request.approvedAdminId = adminUser._id;
 
     await request.save({ session });
 
@@ -299,13 +331,18 @@ const approveRegistrationRequest = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: "Registration request approved and admin created successfully",
+      message: isPromotedUser
+        ? "Registration approved - existing user promoted to admin"
+        : "Registration request approved and admin created successfully",
       data: {
-        adminId: newAdmin._id,
-        email: newAdmin.email,
-        name: newAdmin.name,
-        moduleAccess: newAdmin.moduleAccess,
-        createdAt: newAdmin.createdAt,
+        adminId: adminUser._id,
+        email: adminUser.email,
+        name: adminUser.name,
+        role: adminUser.role,
+        additionalRoles: adminUser.additionalRoles || [],
+        isPromotedUser: isPromotedUser,
+        moduleAccess: adminUser.moduleAccess,
+        createdAt: adminUser.createdAt,
       },
     });
   } catch (error) {
