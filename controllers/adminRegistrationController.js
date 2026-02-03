@@ -268,7 +268,7 @@ const approveRegistrationRequest = async (req, res) => {
 
     if (existingUser) {
       // User already exists - check their current roles
-      const { hasRole, addRole } = require("../utils/roleHelpers");
+      const { hasRole } = require("../utils/roleHelpers");
 
       // Check if already an admin
       if (hasRole(existingUser, "admin") || hasRole(existingUser, "super_admin")) {
@@ -281,8 +281,12 @@ const approveRegistrationRequest = async (req, res) => {
         });
       }
 
-      // User exists but not an admin - promote them by adding admin to additionalRoles
-      addRole(existingUser, "admin");
+      // Add admin role inline to avoid parallel save
+      // (addRole() calls .save() internally, which races with the .save({ session }) below)
+      if (!existingUser.additionalRoles) {
+        existingUser.additionalRoles = [];
+      }
+      existingUser.additionalRoles.push("admin");
 
       // Set the password from the request (user might have registered with Firebase, now needs panel password)
       existingUser.password = request.password; // Already hashed
