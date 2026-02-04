@@ -1037,4 +1037,175 @@ router.post('/sales-team/:salesId/reset-password', verifyToken, requireSuperAdmi
   }
 });
 
+/* ============================================================
+   ACCOUNT DELETION MANAGEMENT
+============================================================ */
+
+/**
+ * @route   GET /api/admin-mgmt/deletion-requests
+ * @desc    List all deletion requests with filtering and pagination
+ * @access  Super Admin only
+ */
+router.get('/deletion-requests', verifyToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const {
+      status = 'all',
+      page = 1,
+      limit = 20,
+      search = ''
+    } = req.query;
+
+    const filter = {
+      'deletionRequest.requestedAt': { $exists: true }
+    };
+
+    if (status === 'all') {
+      filter['deletionRequest.status'] = { $in: ['pending', 'approved', 'rejected'] };
+    } else {
+      filter['deletionRequest.status'] = status;
+    }
+
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const perPage = parseInt(limit);
+
+    const total = await User.countDocuments(filter);
+
+    const users = await User.find(filter)
+      .select('name email phoneNumber profilePicture deletionRequest createdAt isActive')
+      .populate('deletionRequest.approvedBy', 'name email')
+      .sort({ 'deletionRequest.requestedAt': -1 })
+      .skip(skip)
+      .limit(perPage);
+
+    const data = users.map(user => ({
+      userId: user._id,
+      name: user.name,
+      email: user.email,
+      phoneNumber: user.phoneNumber,
+      profilePicture: user.profilePicture,
+      isActive: user.isActive,
+      accountCreatedAt: user.createdAt,
+      deletionRequest: user.deletionRequest
+    }));
+
+    res.json({
+      success: true,
+      total,
+      page: parseInt(page),
+      limit: perPage,
+      totalPages: Math.ceil(total / perPage),
+      data
+    });
+  } catch (error) {
+    console.error('Error fetching deletion requests:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+/**
+ * @route   PUT /api/admin-mgmt/deletion-requests/:userId/approve
+ * @desc    Approve a deletion request, deactivate user, schedule deletion in 30 days
+ * @access  Super Admin only
+ */
+router.put('/deletion-requests/:userId/approve', verifyToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (!user.deletionRequest || user.deletionRequest.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot approve. Current status: ${user.deletionRequest?.status || 'none'}`
+      });
+    }
+
+    const scheduledDate = new Date();
+    scheduledDate.setDate(scheduledDate.getDate() + 30);
+
+    user.deletionRequest.status = 'approved';
+    user.deletionRequest.approvedAt = new Date();
+    user.deletionRequest.approvedBy = req.user._id;
+    user.deletionRequest.scheduledDeletionDate = scheduledDate;
+    user.isActive = false;
+
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Deletion request approved. Account deactivated and will be permanently deleted after 30 days.',
+      data: {
+        userId: user._id,
+        email: user.email,
+        isActive: user.isActive,
+        scheduledDeletionDate: scheduledDate,
+        approvedAt: user.deletionRequest.approvedAt
+      }
+    });
+  } catch (error) {
+    console.error('Error approving deletion request:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+/**
+ * @route   PUT /api/admin-mgmt/deletion-requests/:userId/reject
+ * @desc    Reject a deletion request with reason
+ * @access  Super Admin only
+ */
+router.put('/deletion-requests/:userId/reject', verifyToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { reason } = req.body;
+
+    if (!reason) {
+      return res.status(400).json({
+        success: false,
+        message: 'Rejection reason is required'
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (!user.deletionRequest || user.deletionRequest.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot reject. Current status: ${user.deletionRequest?.status || 'none'}`
+      });
+    }
+
+    user.deletionRequest.status = 'rejected';
+    user.deletionRequest.rejectedAt = new Date();
+    user.deletionRequest.rejectedReason = reason;
+
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Deletion request rejected',
+      data: {
+        userId: user._id,
+        email: user.email,
+        rejectedReason: reason
+      }
+    });
+  } catch (error) {
+    console.error('Error rejecting deletion request:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
 module.exports = router;

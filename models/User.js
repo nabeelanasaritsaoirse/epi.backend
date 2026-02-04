@@ -508,8 +508,24 @@ const userSchema = new Schema({
     },
     status: {
       type: String,
-      enum: ['pending', 'cancelled', 'completed'],
+      enum: ['pending', 'approved', 'rejected', 'cancelled', 'completed'],
       default: 'pending'
+    },
+    approvedAt: {
+      type: Date
+    },
+    approvedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    scheduledDeletionDate: {
+      type: Date
+    },
+    rejectedAt: {
+      type: Date
+    },
+    rejectedReason: {
+      type: String
     }
   },
 
@@ -541,6 +557,7 @@ userSchema.index({ phoneNumber: 1 });
 userSchema.index({ firebaseUid: 1 });
 userSchema.index({ referralCode: 1 });
 userSchema.index({ referredBy: 1 }); // For efficient referral stats queries
+userSchema.index({ 'deletionRequest.status': 1, 'deletionRequest.scheduledDeletionDate': 1 });
 
 userSchema.pre('save', async function(next) {
   if (this.isNew && !this.referralCode) {
