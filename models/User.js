@@ -508,8 +508,8 @@ const userSchema = new Schema({
     },
     status: {
       type: String,
-      enum: ['pending', 'approved', 'rejected', 'cancelled', 'completed'],
-      default: 'pending'
+      enum: ['pending', 'approved', 'rejected', 'cancelled', 'completed']
+      
     },
     approvedAt: {
       type: Date
@@ -582,5 +582,6 @@ userSchema.pre('save', async function(next) {
   this.updatedAt = Date.now();
   next();
 });
+
 
 module.exports = mongoose.model('User', userSchema);
