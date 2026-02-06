@@ -140,6 +140,24 @@ router.post("/login", async (req, res) => {
       });
     }
 
+    // Block login for deactivated accounts
+    if (!user.isActive) {
+      return res.status(403).json({
+        success: false,
+        message: 'Account is disabled',
+        code: 'ACCOUNT_DISABLED'
+      });
+    }
+
+    // Block login for accounts with pending deletion request
+    if (user.deletionRequest && user.deletionRequest.status === 'pending') {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account deletion request is being processed. Please contact support if you want to cancel.',
+        code: 'ACCOUNT_DELETION_PENDING'
+      });
+    }
+
     console.log('Generating JWT tokens...');
     const tokens = generateTokens(user._id.toString(), user.role);
 
