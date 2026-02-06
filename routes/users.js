@@ -1883,6 +1883,37 @@ router.post('/:userId/cancel-deletion', verifyToken, async (req, res) => {
 });
 
 /**
+ * @route   POST /api/users/admin/:userId/cancel-deletion
+ * @desc    Admin cancels a user's account deletion request
+ * @access  Admin only
+ */
+router.post('/admin/:userId/cancel-deletion', verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { $unset: { deletionRequest: 1 } },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Deletion request cancelled for user ${user.email || user.phoneNumber}`,
+      user: { _id: user._id, name: user.name, email: user.email, phoneNumber: user.phoneNumber }
+    });
+
+  } catch (error) {
+    console.error('Error cancelling deletion (admin):', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+/**
  * @route   DELETE /api/users/:userId/delete-account
  * @desc    Permanently delete user account and all associated data
  * @access  Private (User or Admin)
