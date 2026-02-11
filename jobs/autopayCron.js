@@ -301,9 +301,8 @@ async function checkLowBalanceAlerts() {
         }).select("dailyPaymentAmount paymentSchedule autopay");
 
         // Calculate tomorrow's total
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        tomorrow.setHours(0, 0, 0, 0);
+        const now = new Date();
+        const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0));
 
         let tomorrowTotal = 0;
         for (const order of orders) {
@@ -311,15 +310,13 @@ async function checkLowBalanceAlerts() {
           const hasTomorrowPayment = order.paymentSchedule.some((inst) => {
             if (inst.status !== "PENDING") return false;
             const dueDate = new Date(inst.dueDate);
-            dueDate.setHours(0, 0, 0, 0);
-            return dueDate.getTime() === tomorrow.getTime();
+            const dueDateUTC = new Date(Date.UTC(dueDate.getUTCFullYear(), dueDate.getUTCMonth(), dueDate.getUTCDate(), 0, 0, 0, 0));
+            return dueDateUTC.getTime() === tomorrow.getTime();
           });
 
           // Check if it's not a skip date
           const isSkipped = order.autopay?.skipDates?.some((d) => {
-            const skip = new Date(d);
-            skip.setHours(0, 0, 0, 0);
-            return skip.getTime() === tomorrow.getTime();
+            return d.getTime() === tomorrow.getTime();
           });
 
           if (hasTomorrowPayment && !isSkipped) {

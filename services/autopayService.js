@@ -48,6 +48,23 @@ function buildOrderQuery(orderId, userId) {
 }
 
 /**
+ * Parse date string and return UTC date at midnight
+ * This ensures dates are stored consistently regardless of server timezone
+ * @param {string|Date} dateInput - Date string (YYYY-MM-DD or ISO) or Date object
+ * @returns {Date} Date object set to midnight UTC
+ */
+function parseDateAsUTC(dateInput) {
+  if (dateInput instanceof Date) {
+    const d = dateInput;
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
+  }
+
+  const dateStr = String(dateInput).split('T')[0]; // Get YYYY-MM-DD part
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+}
+
+/**
  * Enable autopay for a specific order
  *
  * @param {string} orderId - Order ID
@@ -347,12 +364,11 @@ async function addSkipDates(orderId, userId, dates) {
     }
 
     // Add new dates (avoid duplicates)
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const now = new Date();
+    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
 
     for (const dateStr of dates) {
-      const date = new Date(dateStr);
-      date.setHours(0, 0, 0, 0);
+      const date = parseDateAsUTC(dateStr);
 
       // Only allow future dates
       if (date <= today) {
@@ -361,9 +377,7 @@ async function addSkipDates(orderId, userId, dates) {
 
       // Check if already exists
       const exists = order.autopay.skipDates.some((d) => {
-        const existing = new Date(d);
-        existing.setHours(0, 0, 0, 0);
-        return existing.getTime() === date.getTime();
+        return d.getTime() === date.getTime();
       });
 
       if (!exists && order.autopay.skipDates.length < 10) {
@@ -371,6 +385,7 @@ async function addSkipDates(orderId, userId, dates) {
       }
     }
 
+    order.markModified('autopay.skipDates');
     await order.save();
 
     console.log(`[Autopay] Added skip dates for order ${order.orderId}: ${dates.length} dates`);
@@ -410,15 +425,13 @@ async function removeSkipDate(orderId, userId, date) {
       };
     }
 
-    const targetDate = new Date(date);
-    targetDate.setHours(0, 0, 0, 0);
+    const targetDate = parseDateAsUTC(date);
 
     order.autopay.skipDates = order.autopay.skipDates.filter((d) => {
-      const existing = new Date(d);
-      existing.setHours(0, 0, 0, 0);
-      return existing.getTime() !== targetDate.getTime();
+      return d.getTime() !== targetDate.getTime();
     });
 
+    order.markModified('autopay.skipDates');
     await order.save();
 
     console.log(`[Autopay] Removed skip date for order ${order.orderId}`);
@@ -793,12 +806,12 @@ async function getBalanceForecast(userId, days = 30) {
     // Generate day-by-day forecast
     const forecast = [];
     let runningBalance = walletBalance;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const now = new Date();
+    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
 
     for (let i = 0; i < days; i++) {
       const forecastDate = new Date(today);
-      forecastDate.setDate(forecastDate.getDate() + i);
+      forecastDate.setUTCDate(forecastDate.getUTCDate() + i);
 
       let dailyDeduction = 0;
       const paymentsToday = [];
@@ -807,17 +820,14 @@ async function getBalanceForecast(userId, days = 30) {
         // Check if this order has a payment due on this date
         const hasPending = order.paymentSchedule.some((inst) => {
           if (inst.status !== "PENDING") return false;
-          const dueDate = new Date(inst.dueDate);
-          dueDate.setHours(0, 0, 0, 0);
+          const dueDate = parseDateAsUTC(inst.dueDate);
           return dueDate.getTime() === forecastDate.getTime();
         });
 
         if (hasPending) {
           // Check if it's a skip date
           const isSkip = order.autopay?.skipDates?.some((d) => {
-            const skip = new Date(d);
-            skip.setHours(0, 0, 0, 0);
-            return skip.getTime() === forecastDate.getTime();
+            return d.getTime() === forecastDate.getTime();
           });
 
           if (!isSkip) {
