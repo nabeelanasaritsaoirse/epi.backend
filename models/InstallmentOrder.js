@@ -369,13 +369,13 @@ installmentOrderSchema.methods.isAutopayActive = function () {
 installmentOrderSchema.methods.isSkipDate = function (date = new Date()) {
   if (!this.autopay?.skipDates?.length) return false;
 
-  const checkDate = new Date(date);
-  checkDate.setHours(0, 0, 0, 0);
+  // Convert input date to UTC midnight
+  const d = new Date(date);
+  const checkDate = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
 
   return this.autopay.skipDates.some(skipDate => {
-    const skip = new Date(skipDate);
-    skip.setHours(0, 0, 0, 0);
-    return skip.getTime() === checkDate.getTime();
+    // skipDate is already stored as UTC midnight, just compare
+    return skipDate.getTime() === checkDate.getTime();
   });
 };
 
