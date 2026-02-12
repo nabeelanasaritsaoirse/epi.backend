@@ -160,7 +160,69 @@ router.get('/me/profile', verifyToken, async (req, res) => {
   }
 });
 
-// Get all users (admin only)
+// Get all users with pagination and search (admin only)
+router.get('/admin', verifyToken, isAdmin, async (req, res) => {
+  try {
+    // Safe parsing of pagination params with defaults
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 50)); // Cap at 100
+    const search = (req.query.search || '').trim();
+
+    const skip = (page - 1) * limit;
+
+    // Build search filter
+    const filter = {};
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { phoneNumber: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Get total count for pagination
+    const total = await User.countDocuments(filter);
+
+    // Fetch users with pagination - use lean() for performance and select only needed fields
+    const users = await User.find(filter)
+      .select('_id name email phoneNumber role isActive createdAt phoneVerified emailVerified wallet.balance')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    res.status(200).json({
+      success: true,
+      data: users,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+        hasNextPage: page < Math.ceil(total / limit),
+        hasPrevPage: page > 1
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    // ALWAYS return valid JSON, never crash
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching users',
+      data: [],
+      pagination: {
+        total: 0,
+        page: 1,
+        limit: 50,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPrevPage: false
+      }
+    });
+  }
+});
+
+// Get all users (admin only) - Legacy endpoint without pagination
 router.get('/', verifyToken, isAdmin, async (req, res) => {
   try {
     const users = await User.find()
