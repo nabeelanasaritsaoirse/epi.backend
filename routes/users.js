@@ -1833,10 +1833,16 @@ router.post('/:userId/cancel-deletion', verifyToken, async (req, res) => {
       });
     }
 
-    // Find user and remove deletion request
+    // FIX: Set status to 'cancelled' instead of using $unset
+    // The schema has a default value for status, so $unset doesn't work properly
     const user = await User.findByIdAndUpdate(
       userId,
-      { $unset: { deletionRequest: 1 } },
+      {
+        $set: {
+          'deletionRequest.status': 'cancelled',
+          'deletionRequest.cancelledAt': new Date()
+        }
+      },
       { new: true }
     );
 
@@ -1870,9 +1876,16 @@ router.post('/admin/:userId/cancel-deletion', verifyToken, isAdmin, async (req, 
   try {
     const { userId } = req.params;
 
+    // FIX: Set status to 'cancelled' instead of using $unset
+    // The schema has a default value for status, so $unset doesn't work properly
     const user = await User.findByIdAndUpdate(
       userId,
-      { $unset: { deletionRequest: 1 } },
+      {
+        $set: {
+          'deletionRequest.status': 'cancelled',
+          'deletionRequest.cancelledAt': new Date()
+        }
+      },
       { new: true }
     );
 

@@ -149,13 +149,18 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // Block login for accounts with pending deletion request
+    // Block login for accounts with pending deletion request (but allow cancelled)
     if (user.deletionRequest && user.deletionRequest.status === 'pending') {
       return res.status(403).json({
         success: false,
         message: 'Your account deletion request is being processed. Please contact support if you want to cancel.',
         code: 'ACCOUNT_DELETION_PENDING'
       });
+    }
+
+    // Allow login if deletion was cancelled
+    if (user.deletionRequest && user.deletionRequest.status === 'cancelled') {
+      console.log('User had cancelled deletion request, allowing login');
     }
 
     console.log('Generating JWT tokens...');
