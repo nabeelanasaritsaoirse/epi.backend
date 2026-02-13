@@ -4,6 +4,7 @@ const mongoose = require("mongoose"); // ✅ ADDED: Missing import
 
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
+const WalletTransaction = require("../models/WalletTransaction"); // ✅ ADDED: Import WalletTransaction model
 const recalcWallet = require("../services/walletCalculator");
 const { verifyToken, isAdmin } = require("../middlewares/auth");
 
@@ -86,8 +87,37 @@ router.get("/", verifyToken, isAdmin, async (req, res) => {
     await recalcWallet(String(user._id));
 
     const refreshed = await User.findById(user._id);
-    const txns = await Transaction.find({ user: user._id })
+
+    // Query both transaction models (legacy + installment system)
+    const legacyTxns = await Transaction.find({ user: user._id })
       .sort({ createdAt: -1 });
+
+    const walletTxns = await WalletTransaction.find({ user: user._id })
+      .sort({ createdAt: -1 });
+
+    // Combine and sort by creation date
+    const allTransactions = [
+      ...legacyTxns.map(t => ({
+        _id: t._id,
+        type: t.type,
+        amount: t.amount,
+        status: t.status,
+        description: t.description,
+        paymentMethod: t.paymentMethod,
+        createdAt: t.createdAt,
+        source: 'legacy'
+      })),
+      ...walletTxns.map(t => ({
+        _id: t._id,
+        type: t.type,
+        amount: t.amount,
+        status: t.status,
+        description: t.description,
+        meta: t.meta,
+        createdAt: t.createdAt,
+        source: 'installment'
+      }))
+    ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     return res.json({
       success: true,
@@ -108,7 +138,7 @@ router.get("/", verifyToken, isAdmin, async (req, res) => {
       investedAmount: refreshed.wallet.investedAmount ?? 0,
       requiredInvestment: refreshed.wallet.requiredInvestment ?? 0,
 
-      transactions: txns
+      transactions: allTransactions
     });
 
   } catch (err) {

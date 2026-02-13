@@ -33,10 +33,13 @@ module.exports = async function recalcWallet(userId) {
   let refundAmount = 0;
 
   let referralBonusTotal = 0; // sum of all referral_commission amounts (full 20%)
-  let investmentAmount = 0;   // sum of investment transactions
+  let investmentAmount = 0;   // sum of investment transactions (user spending to unlock)
 
   let commissionAmount = 0;   // other commission types (installment_commission, commission)
   let bonusAmount = 0;        // bonus type (promos etc.)
+
+  // NEW: Track locked commission from installment system (10% locked portion)
+  let lockedCommissionFromInstallment = 0;
 
   // Walk through transactions
   for (const tx of txns) {
@@ -121,18 +124,22 @@ module.exports = async function recalcWallet(userId) {
         break;
 
       case 'referral_bonus':
-        // Commission credit (90% portion)
+        // Commission credit (90% portion) - NEW INSTALLMENT SYSTEM
+        // This is part of referral commission, should add to referralBonusTotal
         if (wTx.status === 'completed') {
           completedDeposits += wAmount;
-          commissionAmount += wAmount;
+          referralBonusTotal += wAmount; // ✅ FIXED: Changed from commissionAmount to referralBonusTotal
         }
         break;
 
       case 'investment':
-        // Commission locked (10% portion)
+        // Commission locked (10% portion) from installment system - NEW SYSTEM
+        // This is LOCKED commission, not user investment to unlock referral hold
+        // User investments come from the Transaction model, not WalletTransaction
         if (wTx.status === 'completed') {
-          // This goes to holdBalance, handled by referral system
-          investmentAmount += wAmount;
+          lockedCommissionFromInstallment += wAmount; // Track locked commission separately
+          referralBonusTotal += wAmount; // ✅ FIXED: Part of total referral earnings
+          // Do NOT add to investmentAmount - that's for user spending to unlock
         }
         break;
 
@@ -175,8 +182,11 @@ module.exports = async function recalcWallet(userId) {
   // AvailableBalance => same as walletBalance (frontend expects this)
   const availableBalance = walletBalance;
 
-  // Hold balance includes pending deposits + remaining required investment
-  const holdBalance = Number(pendingDeposits || 0) + Number(remainingRequiredInvestment || 0);
+  // Hold balance includes pending deposits + remaining required investment + locked commission from new system
+  const holdBalance =
+    Number(pendingDeposits || 0) +
+    Number(remainingRequiredInvestment || 0) +
+    Number(lockedCommissionFromInstallment || 0); // ✅ FIXED: Include locked commission
 
   // Total balance = available + hold
   const totalBalance = availableBalance + holdBalance;
