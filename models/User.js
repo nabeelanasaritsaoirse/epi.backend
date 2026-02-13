@@ -530,8 +530,9 @@ const userSchema = new Schema({
     },
     status: {
       type: String,
-      enum: ['pending', 'cancelled', 'completed'],
-      default: 'pending'
+      enum: ['pending', 'cancelled', 'completed']
+      // Removed default: 'pending' to prevent auto-setting on user creation
+      // Status should only be set when user explicitly requests deletion
     }
   },
 
