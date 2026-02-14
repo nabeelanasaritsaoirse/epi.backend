@@ -122,6 +122,19 @@ exports.createCategory = async (req, res) => {
       .replace(/[\s_]+/g, "-")
       .replace(/^-+|-+$/g, "");
 
+    // Check for duplicate slug
+    const existingSlug = await Category.findOne({
+      slug: slug,
+      isDeleted: false,
+    });
+
+    if (existingSlug) {
+      return res.status(400).json({
+        success: false,
+        message: `Category with slug "${slug}" already exists. Please use a different name.`,
+      });
+    }
+
     const newCategory = new Category({
       categoryId,
       name,
