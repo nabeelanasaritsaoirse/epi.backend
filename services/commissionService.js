@@ -5,7 +5,7 @@
  *
  * Business Rules:
  * - Commission calculated on EVERY payment (not just after order completion)
- * - Default commission rate: 10%
+ * - Default commission rate: 25%
  * - Can be overridden by product.referralBonus.value
  * - Commission automatically split 90% available, 10% locked (handled by wallet service)
  * - Only credits commission if order has a referrer
@@ -39,8 +39,8 @@ async function calculateAndCreditCommission({ order, payment, session }) {
     // ========================================
     // 2. Get Commission Rate
     // ========================================
-    // Priority: order.commissionPercentage > productCommissionPercentage > default 10%
-    const commissionRate = order.commissionPercentage || order.productCommissionPercentage || 10;
+    // Priority: order.commissionPercentage > productCommissionPercentage > default 25%
+    const commissionRate = order.commissionPercentage || order.productCommissionPercentage || 25;
 
     // ========================================
     // 3. Calculate Commission on Payment Amount
@@ -167,7 +167,7 @@ function getOrderCommissionSummary(order) {
     };
   }
 
-  const commissionRate = order.commissionPercentage || order.productCommissionPercentage || 10;
+  const commissionRate = order.commissionPercentage || order.productCommissionPercentage || 25;
   const estimatedTotalCommission = (order.productPrice * commissionRate) / 100;
   const remainingCommission = Math.max(0, estimatedTotalCommission - (order.totalCommissionPaid || 0));
 

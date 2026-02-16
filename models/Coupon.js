@@ -65,6 +65,82 @@ const couponSchema = new mongoose.Schema({
   maxUsagePerUser: { type: Number, default: null },
 
   // --------------------------------------
+  // USAGE TRACKING
+  // --------------------------------------
+  usageHistory: [{
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    orderId: { type: mongoose.Schema.Types.ObjectId, ref: 'InstallmentOrder' },
+    usedAt: { type: Date, default: Date.now },
+    discountApplied: { type: Number, default: 0 }
+  }],
+
+  // --------------------------------------
+  // COUPON RESTRICTIONS
+  // --------------------------------------
+
+  // First-time user only (users with no previous orders)
+  firstTimeUserOnly: { type: Boolean, default: false },
+
+  // Product-specific (empty array = all products)
+  applicableProducts: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }],
+
+  // Category-specific (empty array = all categories)
+  applicableCategories: [{ type: String }],
+
+  // Maximum discount cap for percentage coupons (null = no cap)
+  maxDiscountAmount: { type: Number, default: null },
+
+  // Payment method restriction (empty array or ['ALL'] = all methods)
+  applicablePaymentMethods: [{
+    type: String,
+    enum: ['WALLET', 'RAZORPAY', 'ALL']
+  }],
+
+  // --------------------------------------
+  // WIN-BACK / INACTIVE USER TARGETING
+  // --------------------------------------
+
+  // User must be inactive for X days to use this coupon
+  minDaysSinceLastOrder: { type: Number, default: null },
+  isWinBackCoupon: { type: Boolean, default: false },
+
+  // --------------------------------------
+  // STACKABLE COUPONS
+  // --------------------------------------
+
+  isStackable: { type: Boolean, default: false },
+  stackPriority: { type: Number, default: 0 }, // Lower = applied first
+
+  // --------------------------------------
+  // REFERRAL-LINKED COUPONS
+  // --------------------------------------
+
+  linkedToReferrer: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  referrerCommissionPercent: { type: Number, default: 25 },
+  isReferralCoupon: { type: Boolean, default: false },
+
+  // --------------------------------------
+  // AUTO-GENERATED UNIQUE CODES
+  // --------------------------------------
+
+  isParentCoupon: { type: Boolean, default: false },
+  parentCoupon: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Coupon',
+    default: null
+  },
+  assignedToUser: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  isPersonalCode: { type: Boolean, default: false },
+
+  // --------------------------------------
   // MILESTONE REWARD EXCLUSIVE FIELDS
   // --------------------------------------
 

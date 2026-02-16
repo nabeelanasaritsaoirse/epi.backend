@@ -1257,7 +1257,7 @@ const previewOrder = asyncHandler(async (req, res) => {
   // ===================================
 
   let referrerInfo = null;
-  let commissionPercentage = 10; // Default 10%
+  let commissionPercentage = 25; // Default 25%
 
   if (user.referredBy) {
     const referrer = await User.findById(user.referredBy).select('name email');

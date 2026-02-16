@@ -1078,7 +1078,7 @@ async function processAutopayPayment(order, user) {
     // Process commission if referrer exists
     if (order.referrer) {
       try {
-        const commissionPercentage = order.productCommissionPercentage || 10;
+        const commissionPercentage = order.productCommissionPercentage || 25;
         const commissionAmount = calculateCommission(paymentAmount, commissionPercentage);
 
         await creditCommissionToWallet(

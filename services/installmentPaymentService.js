@@ -344,8 +344,8 @@ async function processPayment(paymentData) {
     let commissionResult = null;
 
     if (order.referrer) {
-      // Always use 10% commission if referrer exists
-      const commissionPercentage = order.productCommissionPercentage || 10;
+      // Always use 25% commission if referrer exists
+      const commissionPercentage = order.productCommissionPercentage || 25;
       const commissionAmount = calculateCommission(
         paymentAmount,
         commissionPercentage
@@ -1092,7 +1092,7 @@ async function markPaymentAsCompleted(paymentId, adminData) {
     if (payment.installmentNumber === 1 && order.firstPaymentMethod === 'RAZORPAY' && order.referrer) {
       const commissionData = calculateCommission(
         payment.amount,
-        order.commissionPercentage || order.productCommissionPercentage || 10
+        order.commissionPercentage || order.productCommissionPercentage || 25
       );
 
       payment.commissionCalculated = true;
