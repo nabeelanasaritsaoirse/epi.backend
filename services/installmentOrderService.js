@@ -277,12 +277,12 @@ async function createOrder(orderData) {
   );
 
   let referrer = null;
-  let commissionPercentage = 10; // Default 10% commission for all products
+  let commissionPercentage = 25; // Default 25% commission for all products
 
   if (user.referredBy) {
     referrer = await User.findById(user.referredBy);
-    // Always use 10% commission regardless of product settings
-    commissionPercentage = 10;
+    // Always use 25% commission regardless of product settings
+    commissionPercentage = 25;
   }
 
   const productSnapshot = {
@@ -1328,7 +1328,7 @@ async function createBulkOrder(bulkOrderData) {
 
   // Get referrer info
   let referrer = null;
-  let commissionPercentage = 10;
+  let commissionPercentage = 25;
   if (user.referredBy) {
     referrer = await User.findById(user.referredBy);
   }
@@ -1785,7 +1785,7 @@ async function verifyBulkOrderPayment(data) {
   // Get referrer info for commission
   const user = await User.findById(userId);
   let referrer = null;
-  let commissionPercentage = 10;
+  let commissionPercentage = 25;
   if (user.referredBy) {
     referrer = await User.findById(user.referredBy);
   }
@@ -2106,7 +2106,7 @@ async function previewBulkOrder(bulkPreviewData) {
   // Get referrer info
   let referrerInfo = null;
   let totalCommissionEstimate = 0;
-  const commissionPercentage = 10;
+  const commissionPercentage = 25;
 
   if (user.referredBy) {
     const referrer = await User.findById(user.referredBy).select('name email');
