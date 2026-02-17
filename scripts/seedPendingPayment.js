@@ -1,12 +1,12 @@
 const mongoose = require("mongoose");
-require("dotenv").config();
 
+const User = require("../models/User");
+const Product = require("../models/Product");
 const InstallmentOrder = require("../models/InstallmentOrder");
 
-const MONGO_URI =
-  process.env.MONGODB_URI ||
-  process.env.MONGO_URI ||
-  "mongodb://127.0.0.1:27017/epi_backend";
+// 🔴 HARD-CODE YOUR DB CONNECTION STRING
+const MONGO_URI = "mongodb://127.0.0.1:27017/epi_backend";
+// If you use Atlas, put that URL here instead
 
 (async () => {
   try {
@@ -14,45 +14,43 @@ const MONGO_URI =
     await mongoose.connect(MONGO_URI);
     console.log("✅ Connected to MongoDB");
 
-    console.log("📝 Creating 1 fake pending installment (today)…");
+    // 📱 USER PHONE NUMBER
+    const phoneNumber = "7994374844";
 
-    // TODAY in IST
-    const todayIST = new Date(
-      new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
-    );
+    // ⚠️ CHANGE field name if needed (phone vs mobileNumber)
+    const user = await User.findOne({ phone: phoneNumber });
 
-    const order = await InstallmentOrder.create({
-      orderId: `TEST-${Date.now()}`,   // FIXED SYNTAX
-      user: "691d6035962542bf4120f30b", // PUT YOUR USER ID
-      product: "69182fed420789490a734cf5", // PUT VALID PRODUCT ID
+    if (!user) {
+      throw new Error("User not found for phone: " + phoneNumber);
+    }
 
-      productName: "Test Product",
-      productPrice: 1000,
-      dailyPaymentAmount: 100,
-      totalDays: 10,
+    console.log("✅ User found:", user._id.toString());
 
-      paidInstallments: 0,
-      totalPaidAmount: 0,
-      remainingAmount: 1000,
+    const products = await Product.find().limit(5);
+    if (!products.length) {
+      throw new Error("No products found in DB");
+    }
 
-      status: "ACTIVE",
-      firstPaymentMethod: "WALLET",
+    const orders = products.map((product, index) => ({
+      orderId: `ORD-${Date.now()}-${index}`,
+      user: user._id,
+      product: product._id,
+      deliveryStatus: "DELIVERED",
+      status: "COMPLETED",
+      totalProductPrice: product.pricing?.price || 999,
+      createdAt: new Date(),
+    }));
 
-      paymentSchedule: [
-        {
-          installmentNumber: 1,
-          amount: 100,
-          status: "PENDING",
-          dueDate: todayIST,  // IMPORTANT
-        }
-      ],
-    });
+    await InstallmentOrder.insertMany(orders);
 
-    console.log("✅ Inserted Order:", order.orderId);
+    console.log("🎉 DONE!");
+    console.log(`✅ ${orders.length} DELIVERED orders created`);
+    console.log("📱 Phone:", phoneNumber);
+
     process.exit(0);
-
   } catch (err) {
-    console.error("❌ Error:", err);
+    console.error("❌ Error seeding delivered orders:");
+    console.error(err.message);
     process.exit(1);
   }
 })();
