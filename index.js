@@ -118,10 +118,12 @@ require("./services/kycAutoApproveService");
 // ======================================================================
 const { startNotificationCron } = require("./jobs/notificationCron");
 const { startAutopayCron } = require("./jobs/autopayCron");
+const { startAccountDeletionCron } = require("./jobs/accountDeletionCron");
 
 // Start cron jobs
 startNotificationCron();
 startAutopayCron();
+startAccountDeletionCron();
 
 // ======================================================================
 // ROUTES

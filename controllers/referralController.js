@@ -607,7 +607,7 @@ exports.getReferredUserDetails = async (referredUserId, referrerId = null) => {
         const paidInstallments = order.paidInstallments || 0;
         const totalDays = order.totalDays || 0;
         const dailyAmount = order.dailyPaymentAmount || 0;
-        const commissionPct = order.productCommissionPercentage || order.commissionPercentage || 10;
+        const commissionPct = order.productCommissionPercentage || order.commissionPercentage || 25;
         const commissionPerDay = (dailyAmount * commissionPct) / 100;
         const commissionEarned = order.totalCommissionPaid || 0;
 
@@ -686,7 +686,7 @@ exports.getReferralProductDetails = async (referredUserId, productId, orderId = 
       const paidInstallments = installmentOrder.paidInstallments || 0;
       const totalDays = installmentOrder.totalDays || 0;
       const dailyAmount = installmentOrder.dailyPaymentAmount || 0;
-      const commissionPct = installmentOrder.productCommissionPercentage || installmentOrder.commissionPercentage || 10;
+      const commissionPct = installmentOrder.productCommissionPercentage || installmentOrder.commissionPercentage || 25;
       const commissionPerDay = (dailyAmount * commissionPct) / 100;
       const totalCommission = commissionPerDay * totalDays;
       const earnedCommission = installmentOrder.totalCommissionPaid || 0;

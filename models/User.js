@@ -273,20 +273,6 @@ const userSchema = new Schema({
     type: Number,
     default: 50
   },
-  // Referral tracking - how the referral was linked
-  referralCodeUsed: {
-    type: String,
-    default: null
-  },
-  referralLinkedAt: {
-    type: Date,
-    default: null
-  },
-  referralLinkMethod: {
-    type: String,
-    enum: ['SIGNUP', 'COUPON', null],
-    default: null
-  },
   savedPlans: [{
     product: {
       type: Schema.Types.ObjectId,
@@ -322,14 +308,6 @@ const userSchema = new Schema({
     enum: ['user', 'admin', 'super_admin', 'sales_team'],
     default: 'user'
   },
-
-  // Additional roles for multi-role support (backward compatible)
-  // Primary role stays in 'role' field, secondary roles here
-  // Example: user can be both 'user' (primary) + 'sales_team' (additional)
-  additionalRoles: [{
-    type: String,
-    enum: ['user', 'admin', 'super_admin', 'sales_team']
-  }],
 
   // Admin-specific fields for password-based login (not Firebase)
   password: {
@@ -530,9 +508,24 @@ const userSchema = new Schema({
     },
     status: {
       type: String,
-      enum: ['pending', 'cancelled', 'completed']
-      // Removed default: 'pending' to prevent auto-setting on user creation
-      // Status should only be set when user explicitly requests deletion
+      enum: ['pending', 'approved', 'rejected', 'cancelled', 'completed']
+      
+    },
+    approvedAt: {
+      type: Date
+    },
+    approvedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    scheduledDeletionDate: {
+      type: Date
+    },
+    rejectedAt: {
+      type: Date
+    },
+    rejectedReason: {
+      type: String
     }
   },
 
@@ -564,40 +557,7 @@ userSchema.index({ phoneNumber: 1 });
 userSchema.index({ firebaseUid: 1 });
 userSchema.index({ referralCode: 1 });
 userSchema.index({ referredBy: 1 }); // For efficient referral stats queries
-
-// Virtual: Get all roles (primary + additional)
-userSchema.virtual('allRoles').get(function() {
-  const roles = [this.role];
-  if (this.additionalRoles && this.additionalRoles.length > 0) {
-    roles.push(...this.additionalRoles);
-  }
-  return [...new Set(roles)]; // Return unique roles
-});
-
-// Method: Check if user has a specific role (checks both role and additionalRoles)
-userSchema.methods.hasRole = function(roleName) {
-  // Check primary role
-  if (this.role === roleName) return true;
-  // Check additional roles
-  if (this.additionalRoles && this.additionalRoles.includes(roleName)) return true;
-  return false;
-};
-
-// Method: Check if user has any of the given roles
-userSchema.methods.hasAnyRole = function(roleNames) {
-  if (!Array.isArray(roleNames)) roleNames = [roleNames];
-  return roleNames.some(role => this.hasRole(role));
-};
-
-// Method: Check if user is admin (admin or super_admin)
-userSchema.methods.isAdminUser = function() {
-  return this.hasAnyRole(['admin', 'super_admin']);
-};
-
-// Method: Check if user can access panel (admin, super_admin, or sales_team)
-userSchema.methods.canAccessPanel = function() {
-  return this.hasAnyRole(['admin', 'super_admin', 'sales_team']);
-};
+userSchema.index({ 'deletionRequest.status': 1, 'deletionRequest.scheduledDeletionDate': 1 });
 
 userSchema.pre('save', async function(next) {
   if (this.isNew && !this.referralCode) {
@@ -622,5 +582,6 @@ userSchema.pre('save', async function(next) {
   this.updatedAt = Date.now();
   next();
 });
+
 
 module.exports = mongoose.model('User', userSchema);
