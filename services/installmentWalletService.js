@@ -79,19 +79,10 @@ async function deductFromWallet(userId, amount, description, session, metadata =
   // Deduct from wallet (ensure field exists)
   user.wallet.balance = (user.wallet.balance || 0) - amount;
 
-  // NEW: Track commission used in-app (if this is for installment order payment)
+  // Track TOTAL wallet deduction as in-app spending (commission + Razorpay combined)
+  // Any wallet payment counts toward the 10% in-app usage requirement
   if (metadata && metadata.installmentNumber) {
-    // This is an installment payment, so track commission usage
-    const commissionEarned = user.wallet.commissionEarned || 0;
-    const commissionUsed = user.wallet.commissionUsedInApp || 0;
-
-    // Calculate how much of this payment is from commission balance
-    const commissionBalance = commissionEarned - commissionUsed;
-    const commissionUsedInThisPayment = Math.min(amount, commissionBalance);
-
-    if (commissionUsedInThisPayment > 0) {
-      user.wallet.commissionUsedInApp = commissionUsed + commissionUsedInThisPayment;
-    }
+    user.wallet.commissionUsedInApp = (user.wallet.commissionUsedInApp || 0) + amount;
   }
 
   // Save with or without session
