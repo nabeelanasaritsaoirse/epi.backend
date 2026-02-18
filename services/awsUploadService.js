@@ -1,7 +1,10 @@
 const { S3Client, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const multer = require('multer');
 const sharp = require('sharp');
+const heicConvert = require('heic-convert');
 const path = require('path');
+
+const HEIC_MIME_TYPES = ['image/heic', 'image/heif'];
 
 // Validate AWS credentials
 if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
@@ -154,13 +157,20 @@ const uploadSingleFileToS3 = async (file, folder, resizeWidth = 480) => {
     }
 
     const fileExt = path.extname(file.originalname).toLowerCase();
-    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp'];
-    
-    if (!allowedExtensions.includes(fileExt)) {
-      throw new Error('Invalid file type. Only jpg, jpeg, png, webp allowed');
+    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif'];
+
+    if (!allowedExtensions.includes(fileExt) && !HEIC_MIME_TYPES.includes(file.mimetype)) {
+      throw new Error('Invalid file type. Only jpg, jpeg, png, webp, heic allowed');
     }
 
-    const resizedBuffer = await resizeImage(file.buffer, resizeWidth);
+    let uploadBuffer = file.buffer;
+    if (HEIC_MIME_TYPES.includes(file.mimetype)) {
+      uploadBuffer = Buffer.from(
+        await heicConvert({ buffer: file.buffer, format: 'JPEG', quality: 0.9 })
+      );
+    }
+
+    const resizedBuffer = await resizeImage(uploadBuffer, resizeWidth);
 
     const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
 
