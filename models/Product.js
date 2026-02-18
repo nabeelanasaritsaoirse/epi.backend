@@ -279,6 +279,7 @@ const productSchema = new mongoose.Schema({
   },
 
   // Simple product categorization
+  isFeatured: { type: Boolean, default: false },
   isPopular: { type: Boolean, default: false },
   isBestSeller: { type: Boolean, default: false },
   isTrending: { type: Boolean, default: false },
