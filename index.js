@@ -45,6 +45,7 @@ const couponRoutes = require("./routes/couponRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const featuredListRoutes = require("./routes/featuredListRoutes");
 const adminReferralRoutes = require("./routes/adminReferralRoutes");
+const reviewRoutes = require("./routes/reviewRoutes");
 
 const app = express();
 
@@ -176,6 +177,9 @@ app.use("/api/sales", salesTeamRoutes);
 
 // ADMIN REFERRAL ROUTES
 app.use("/api/admin/referrals", adminReferralRoutes);
+
+// REVIEW ROUTES
+app.use("/api/reviews", reviewRoutes);
 
 // HEALTH CHECK
 app.use("/api/health-check", healthCheckRoutes);

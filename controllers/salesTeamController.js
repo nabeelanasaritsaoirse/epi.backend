@@ -10,11 +10,18 @@ const Product = require("../models/Product");
  * Otherwise use their own _id (for regular users or admins without linked account)
  */
 const getEffectiveUserId = (user) => {
+  console.log('[getEffectiveUserId] user._id:', user._id);
+  console.log('[getEffectiveUserId] user.role:', user.role);
+  console.log('[getEffectiveUserId] user.linkedUserId:', user.linkedUserId);
+
   // If linkedUserId exists and is populated, use it
   if (user.linkedUserId) {
     // Handle both populated object and ObjectId
-    return user.linkedUserId._id || user.linkedUserId;
+    const effectiveId = user.linkedUserId._id || user.linkedUserId;
+    console.log('[getEffectiveUserId] Using linkedUserId:', effectiveId);
+    return effectiveId;
   }
+  console.log('[getEffectiveUserId] Using own _id:', user._id);
   return user._id;
 };
 

@@ -247,7 +247,7 @@ const approveRegistrationRequest = async (req, res) => {
       });
     }
 
-    // Double-check email is not already registered
+    // Check if email is already registered as admin/super_admin
     const existingAdmin = await User.findOne({
       email: request.email,
       role: { $in: ["admin", "super_admin"] },
@@ -268,22 +268,42 @@ const approveRegistrationRequest = async (req, res) => {
       ? moduleAccess
       : ["dashboard", ...moduleAccess];
 
-    // Generate unique firebaseUid for admin
-    const adminFirebaseUid = `admin_${crypto.randomBytes(8).toString("hex")}`;
-
-    // Create the admin user
-    const newAdmin = new User({
-      name: request.name,
+    // Check if email exists as a regular user - if so, upgrade their role
+    let newAdmin;
+    const existingUser = await User.findOne({
       email: request.email,
-      firebaseUid: adminFirebaseUid,
-      password: request.password, // Already hashed
-      role: "admin",
-      moduleAccess: modulesWithDashboard,
-      createdBy: req.user._id,
-      isActive: true,
-    });
+      role: "user",
+    }).session(session);
 
-    await newAdmin.save({ session });
+    if (existingUser) {
+      // Upgrade existing user to admin
+      console.log(`Upgrading existing user ${existingUser.email} to admin role`);
+      existingUser.role = "admin";
+      existingUser.moduleAccess = modulesWithDashboard;
+      existingUser.password = request.password; // Update with admin password (already hashed)
+      existingUser.createdBy = req.user._id;
+      existingUser.isActive = true;
+      existingUser.updatedAt = new Date();
+
+      await existingUser.save({ session });
+      newAdmin = existingUser;
+    } else {
+      // Create new admin user
+      const adminFirebaseUid = `admin_${crypto.randomBytes(8).toString("hex")}`;
+
+      newAdmin = new User({
+        name: request.name,
+        email: request.email,
+        firebaseUid: adminFirebaseUid,
+        password: request.password, // Already hashed
+        role: "admin",
+        moduleAccess: modulesWithDashboard,
+        createdBy: req.user._id,
+        isActive: true,
+      });
+
+      await newAdmin.save({ session });
+    }
 
     // Update the request
     request.status = "approved";
@@ -297,14 +317,19 @@ const approveRegistrationRequest = async (req, res) => {
     await session.commitTransaction();
     session.endSession();
 
+    const wasUpgraded = !!existingUser;
     res.status(201).json({
       success: true,
-      message: "Registration request approved and admin created successfully",
+      message: wasUpgraded
+        ? "Registration request approved and existing user upgraded to admin successfully"
+        : "Registration request approved and admin created successfully",
       data: {
         adminId: newAdmin._id,
         email: newAdmin.email,
         name: newAdmin.name,
+        role: newAdmin.role,
         moduleAccess: newAdmin.moduleAccess,
+        wasUpgraded,
         createdAt: newAdmin.createdAt,
       },
     });

@@ -149,7 +149,7 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // Block login for accounts with pending deletion request
+    // Block login for accounts with pending deletion request (but allow cancelled)
     if (user.deletionRequest && user.deletionRequest.status === 'pending') {
       return res.status(403).json({
         success: false,
@@ -158,25 +158,47 @@ router.post("/login", async (req, res) => {
       });
     }
 
+    // Allow login if deletion was cancelled
+    if (user.deletionRequest && user.deletionRequest.status === 'cancelled') {
+      console.log('User had cancelled deletion request, allowing login');
+    }
+
     console.log('Generating JWT tokens...');
     const tokens = generateTokens(user._id.toString(), user.role);
+
+    // Build response data
+    const responseData = {
+      userId: user._id,
+      name: user.name,
+      email: user.email,
+      phoneNumber: user.phoneNumber,
+      profilePicture: user.profilePicture,
+      role: user.role,
+      referralCode: user.referralCode,
+      isAgree: user.isAgree,
+      wallet: user.wallet,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken
+    };
+
+    // Include admin-specific fields if user is admin/super_admin/sales_team
+    if (user.role === 'admin' || user.role === 'super_admin' || user.role === 'sales_team') {
+      responseData.isSuperAdmin = user.role === 'super_admin';
+      responseData.isSalesTeam = user.role === 'sales_team';
+
+      if (user.role === 'super_admin') {
+        responseData.modules = []; // Super admin has all modules
+      } else if (user.role === 'sales_team') {
+        responseData.modules = ['sales-dashboard', 'users'];
+      } else {
+        responseData.modules = user.moduleAccess || [];
+      }
+    }
 
     return res.status(200).json({
       success: true,
       message: "Login successful",
-      data: {
-        userId: user._id,
-        name: user.name,
-        email: user.email,
-        phoneNumber: user.phoneNumber,
-        profilePicture: user.profilePicture,
-        role: user.role,
-        referralCode: user.referralCode,
-        isAgree: user.isAgree,
-        wallet: user.wallet,
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken
-      }
+      data: responseData
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -744,8 +766,8 @@ router.post("/admin-login", async (req, res) => {
     console.log('Verifying admin credentials...');
 
     // Get admin credentials from environment variables
-    const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@epi.com';
-    const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin@123456';
+    const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
+    const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
     // Verify credentials
     if (email !== ADMIN_EMAIL || password !== ADMIN_PASSWORD) {

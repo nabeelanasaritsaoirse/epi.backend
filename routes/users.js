@@ -160,7 +160,69 @@ router.get('/me/profile', verifyToken, async (req, res) => {
   }
 });
 
-// Get all users (admin only)
+// Get all users with pagination and search (admin only)
+router.get('/admin', verifyToken, isAdmin, async (req, res) => {
+  try {
+    // Safe parsing of pagination params with defaults
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 50)); // Cap at 100
+    const search = (req.query.search || '').trim();
+
+    const skip = (page - 1) * limit;
+
+    // Build search filter
+    const filter = {};
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { phoneNumber: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Get total count for pagination
+    const total = await User.countDocuments(filter);
+
+    // Fetch users with pagination - use lean() for performance and select only needed fields
+    const users = await User.find(filter)
+      .select('_id name email phoneNumber role isActive createdAt phoneVerified emailVerified wallet.balance')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    res.status(200).json({
+      success: true,
+      data: users,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+        hasNextPage: page < Math.ceil(total / limit),
+        hasPrevPage: page > 1
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    // ALWAYS return valid JSON, never crash
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching users',
+      data: [],
+      pagination: {
+        total: 0,
+        page: 1,
+        limit: 50,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPrevPage: false
+      }
+    });
+  }
+});
+
+// Get all users (admin only) - Legacy endpoint without pagination
 router.get('/', verifyToken, isAdmin, async (req, res) => {
   try {
     const users = await User.find()
@@ -1777,50 +1839,41 @@ router.post('/:userId/request-deletion', verifyToken, async (req, res) => {
 
     // Verify user permissions (only the same user can request deletion)
     if (req.user._id.toString() !== userId) {
-      return res.status(403).json({
-        success: false,
-        message: 'You can only delete your own account'
+      return res.status(403).json({ 
+        success: false, 
+        message: 'You can only delete your own account' 
       });
     }
 
     // Find user
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
       });
     }
 
-    // Check if user already has an active deletion request
-    if (user.deletionRequest &&
-        (user.deletionRequest.status === 'pending' || user.deletionRequest.status === 'approved')) {
-      return res.status(400).json({
-        success: false,
-        message: 'A deletion request is already active for this account',
-        currentStatus: user.deletionRequest.status
-      });
-    }
-
-    // Add deletion request
+    // Add deletion request timestamp
     user.deletionRequest = {
       requestedAt: new Date(),
       reason: reason || 'User requested account deletion',
       status: 'pending'
     };
-
+    
     await user.save();
 
     res.status(200).json({
       success: true,
-      message: 'Account deletion request submitted. It will be reviewed by our team.'
+      message: 'Account deletion request submitted successfully. Your account will be deleted within 30 days.',
+      deletionScheduledAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days from now
     });
 
   } catch (error) {
     console.error('Error requesting account deletion:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error'
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error' 
     });
   }
 });
@@ -1836,37 +1889,31 @@ router.post('/:userId/cancel-deletion', verifyToken, async (req, res) => {
 
     // Verify user permissions
     if (req.user._id.toString() !== userId) {
-      return res.status(403).json({
-        success: false,
-        message: 'Unauthorized'
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Unauthorized' 
       });
     }
 
-    const user = await User.findById(userId);
+    // FIX: Set status to 'cancelled' instead of using $unset
+    // The schema has a default value for status, so $unset doesn't work properly
+    const user = await User.findByIdAndUpdate(
+      userId,
+      {
+        $set: {
+          'deletionRequest.status': 'cancelled',
+          'deletionRequest.cancelledAt': new Date()
+        }
+      },
+      { new: true }
+    );
+
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
       });
     }
-
-    // Only allow cancellation of pending requests
-    if (!user.deletionRequest || !user.deletionRequest.status) {
-      return res.status(400).json({
-        success: false,
-        message: 'No active deletion request found'
-      });
-    }
-
-    if (user.deletionRequest.status !== 'pending') {
-      return res.status(400).json({
-        success: false,
-        message: `Cannot cancel deletion request with status: ${user.deletionRequest.status}. Only pending requests can be cancelled.`
-      });
-    }
-
-    user.deletionRequest.status = 'cancelled';
-    await user.save();
 
     res.status(200).json({
       success: true,
@@ -1875,9 +1922,9 @@ router.post('/:userId/cancel-deletion', verifyToken, async (req, res) => {
 
   } catch (error) {
     console.error('Error cancelling account deletion:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error'
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error' 
     });
   }
 });
@@ -1891,9 +1938,16 @@ router.post('/admin/:userId/cancel-deletion', verifyToken, isAdmin, async (req, 
   try {
     const { userId } = req.params;
 
+    // FIX: Set status to 'cancelled' instead of using $unset
+    // The schema has a default value for status, so $unset doesn't work properly
     const user = await User.findByIdAndUpdate(
       userId,
-      { $unset: { deletionRequest: 1 } },
+      {
+        $set: {
+          'deletionRequest.status': 'cancelled',
+          'deletionRequest.cancelledAt': new Date()
+        }
+      },
       { new: true }
     );
 
@@ -1921,29 +1975,110 @@ router.post('/admin/:userId/cancel-deletion', verifyToken, isAdmin, async (req, 
 router.delete('/:userId/delete-account', verifyToken, async (req, res) => {
   try {
     const { userId } = req.params;
+    const { confirmPassword } = req.body;
 
     // Verify user permissions (either the same user or admin)
     if (req.user._id.toString() !== userId && req.user.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Unauthorized to delete this account'
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Unauthorized to delete this account' 
       });
     }
 
-    const { hardDeleteUserAccount } = require('../services/accountDeletionService');
-    const deletedData = await hardDeleteUserAccount(userId);
+    // Find user
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
+    }
+
+    // Start deletion process
+    console.log(`Starting account deletion for user: ${user.email}`);
+
+    // 1. Delete profile picture from S3 if exists
+    if (user.profilePicture && user.profilePicture.includes('s3.amazonaws.com')) {
+      try {
+        await deleteImageFromS3(user.profilePicture);
+        console.log('Profile picture deleted from S3');
+      } catch (error) {
+        console.error('Error deleting profile picture:', error);
+      }
+    }
+
+    // 2. Delete KYC documents from S3
+    if (user.kycDocuments && user.kycDocuments.length > 0) {
+      for (const doc of user.kycDocuments) {
+        if (doc.docUrl && doc.docUrl.includes('s3.amazonaws.com')) {
+          try {
+            await deleteImageFromS3(doc.docUrl);
+            console.log(`KYC document deleted: ${doc.docType}`);
+          } catch (error) {
+            console.error('Error deleting KYC document:', error);
+          }
+        }
+      }
+    }
+
+    // 3. Delete user transactions
+    try {
+      const deletedTransactions = await Transaction.deleteMany({ user: userId });
+      console.log(`Deleted ${deletedTransactions.deletedCount} transactions`);
+    } catch (error) {
+      console.error('Error deleting transactions:', error);
+    }
+
+    // 4. Delete user orders (if Order model exists)
+    // try {
+    //   const deletedOrders = await Order.deleteMany({ user: userId });
+    //   console.log(`Deleted ${deletedOrders.deletedCount} orders`);
+    // } catch (error) {
+    //   console.error('Error deleting orders:', error);
+    // }
+
+    // 5. Remove user from referral chains
+    try {
+      // Remove this user from other users' referredUsers arrays
+      await User.updateMany(
+        { referredUsers: userId },
+        { $pull: { referredUsers: userId } }
+      );
+
+      // Remove referredBy reference if this user referred others
+      await User.updateMany(
+        { referredBy: userId },
+        { $unset: { referredBy: 1 } }
+      );
+
+      console.log('Referral chain cleaned up');
+    } catch (error) {
+      console.error('Error cleaning referral chain:', error);
+    }
+
+    // 6. Finally, delete the user account
+    await User.findByIdAndDelete(userId);
+    
+    console.log(`Account deleted successfully: ${user.email}`);
 
     res.status(200).json({
       success: true,
       message: 'Account and all associated data deleted successfully',
-      deletedData
+      deletedData: {
+        user: true,
+        transactions: true,
+        profilePicture: user.profilePicture ? true : false,
+        kycDocuments: user.kycDocuments?.length || 0,
+        addresses: user.addresses?.length || 0,
+        bankDetails: user.bankDetails?.length || 0
+      }
     });
 
   } catch (error) {
     console.error('Error deleting account:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error while deleting account'
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error while deleting account' 
     });
   }
 });

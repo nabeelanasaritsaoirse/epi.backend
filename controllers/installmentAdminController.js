@@ -732,7 +732,7 @@ const markAllPaymentsAsPaid = asyncHandler(async (req, res) => {
     });
   }
 
-  // Get all pending payments
+  // Get all pending PaymentRecord documents
   const pendingPayments = await PaymentRecord.find({
     order: orderId,
     status: "PENDING",
@@ -740,7 +740,7 @@ const markAllPaymentsAsPaid = asyncHandler(async (req, res) => {
 
   let markedCount = 0;
 
-  // Mark each pending payment as completed
+  // Mark each existing pending PaymentRecord as completed
   for (const payment of pendingPayments) {
     try {
       await paymentService.markPaymentAsCompleted(payment._id, {
@@ -756,6 +756,87 @@ const markAllPaymentsAsPaid = asyncHandler(async (req, res) => {
     }
   }
 
+  // Handle installments in paymentSchedule that have no PaymentRecord yet
+  const existingPaymentNums = await PaymentRecord.find(
+    { order: orderId },
+    { installmentNumber: 1 }
+  );
+  const existingNums = new Set(existingPaymentNums.map((p) => p.installmentNumber));
+
+  const pendingScheduleItems = (order.paymentSchedule || []).filter(
+    (item) =>
+      item.status !== "COMPLETED" &&
+      item.status !== "PAID" &&
+      !existingNums.has(item.installmentNumber)
+  );
+
+  for (const item of pendingScheduleItems) {
+    try {
+      const now = new Date();
+      const paymentRecord = new PaymentRecord({
+        order: order._id,
+        user: order.user,
+        amount: item.amount || order.dailyPaymentAmount,
+        installmentNumber: item.installmentNumber,
+        paymentMethod: "ADMIN_MARKED",
+        status: "COMPLETED",
+        processedAt: now,
+        completedAt: now,
+        paidAt: now,
+        adminMarked: true,
+        markedBy: adminId,
+        markedByEmail: adminEmail,
+        adminNote:
+          note || `Bulk marked as paid by admin ${adminEmail}`,
+        transactionId: `ADMIN_BULK_${Date.now()}_${markedCount}`,
+      });
+      await paymentRecord.save();
+
+      // Update the paymentSchedule entry on the order
+      const scheduleIndex = order.paymentSchedule.findIndex(
+        (p) => p.installmentNumber === item.installmentNumber
+      );
+      if (scheduleIndex !== -1) {
+        order.paymentSchedule[scheduleIndex].status = "COMPLETED";
+        order.paymentSchedule[scheduleIndex].paidDate = now;
+        order.paymentSchedule[scheduleIndex].paymentId = paymentRecord._id;
+        order.paymentSchedule[scheduleIndex].transactionId =
+          paymentRecord.transactionId;
+      }
+
+      markedCount++;
+    } catch (error) {
+      console.error(
+        `[Admin] Error creating payment for installment ${item.installmentNumber}:`,
+        error
+      );
+    }
+  }
+
+  // Update order totals if we marked any schedule-only installments
+  if (pendingScheduleItems.length > 0) {
+    const allPayments = await PaymentRecord.find({
+      order: orderId,
+      status: "COMPLETED",
+    });
+    order.paidInstallments = allPayments.length;
+    order.totalPaidAmount = allPayments.reduce((sum, p) => sum + p.amount, 0);
+    order.remainingAmount = Math.max(
+      0,
+      order.productPrice - order.totalPaidAmount
+    );
+    order.lastPaymentDate = new Date();
+
+    // Check if order is fully paid
+    if (order.paidInstallments >= order.totalDays || order.remainingAmount <= 0) {
+      order.status = "COMPLETED";
+      order.completedAt = new Date();
+      console.log(`[Admin] Order ${order.orderId} marked as COMPLETED`);
+    }
+
+    await order.save();
+  }
+
   // Refresh order
   const updatedOrder = await InstallmentOrder.findById(orderId)
     .populate("user", "name email phoneNumber")
@@ -766,7 +847,7 @@ const markAllPaymentsAsPaid = asyncHandler(async (req, res) => {
     {
       order: updatedOrder,
       paymentsMarked: markedCount,
-      totalPending: pendingPayments.length,
+      totalPending: pendingPayments.length + pendingScheduleItems.length,
     },
     `Successfully marked ${markedCount} payment(s) as paid`
   );

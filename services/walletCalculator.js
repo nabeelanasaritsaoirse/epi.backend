@@ -4,18 +4,20 @@ const Transaction = require("../models/Transaction");
 const WalletTransaction = require("../models/WalletTransaction");
 
 /**
- * Recalculate wallet fields for a user according to rules:
- * - referral_commission: full 20% goes into transactions.
- *   - Half of each referral_commission is locked (hold) and requires investment to unlock.
- *   - The other half is initially withdrawable.
- * - investment transactions reduce the remaining requiredInvestment.
- * - Wallet balance calculation:
- *     walletBalance = completedDeposits + refunds + withdrawableReferral - withdrawals - investmentAmount
- * - holdBalance = pendingDeposits + remainingRequiredInvestment
+ * Recalculate wallet fields for a user.
  *
- * UPDATED: Now includes WalletTransaction model for installment order payments
- * The function does not create new transactions. It only computes totals
- * from Transaction and WalletTransaction documents and writes the calculated summary back into the User doc.
+ * NEW SYSTEM (WalletTransaction model — installment orders):
+ *   - referral_bonus: 90% of commission → available balance
+ *   - investment: 10% of commission → locked in holdBalance
+ *   - Unlock rule: when commissionUsedInApp >= commissionEarned * 0.1,
+ *     the locked 10% moves from holdBalance to available balance.
+ *
+ * LEGACY SYSTEM (Transaction model — kept for backward compatibility):
+ *   - referral_commission: old 50/50 lock/unlock model, preserved for old users.
+ *   - investment: user spending to unlock legacy hold.
+ *
+ * This function does not create transactions. It computes totals from existing
+ * Transaction and WalletTransaction records and writes the summary back to User.
  */
 module.exports = async function recalcWallet(userId) {
   const user = await User.findById(userId);
@@ -25,182 +27,164 @@ module.exports = async function recalcWallet(userId) {
   const txns = await Transaction.find({ user: userId });
   const walletTxns = await WalletTransaction.find({ user: userId });
 
-  // Accumulators
-  let completedDeposits = 0;
-  let pendingDeposits = 0;
+  // ── Common accumulators ──────────────────────────────────────────────────
+  let completedDeposits = 0;  // Razorpay deposits, bonus, refunds (completed)
+  let pendingDeposits   = 0;  // Razorpay deposits not yet verified
+  let withdrawals       = 0;  // Completed cash withdrawals + installment payments
+  let refundAmount      = 0;  // Refunds credited back
+  let bonusAmount       = 0;  // Admin/promo bonuses
+  let commissionAmount  = 0;  // installment_commission / commission types
 
-  let withdrawals = 0;
-  let refundAmount = 0;
+  // ── LEGACY system accumulators (Transaction model only) ──────────────────
+  let legacyReferralTotal    = 0; // sum of referral_commission amounts
+  let legacyInvestmentAmount = 0; // sum of legacy investment transactions
 
-  let referralBonusTotal = 0; // sum of all referral_commission amounts (full 20%)
-  let investmentAmount = 0;   // sum of investment transactions
+  // ── NEW system accumulators (WalletTransaction model only) ───────────────
+  let referralBonus90   = 0;  // 90% available portion  (referral_bonus type)
+  let commissionLocked10 = 0; // 10% locked portion     (investment type)
 
-  let commissionAmount = 0;   // other commission types (installment_commission, commission)
-  let bonusAmount = 0;        // bonus type (promos etc.)
-
-  // Walk through transactions
+  // ── Walk Transaction records ─────────────────────────────────────────────
   for (const tx of txns) {
-    const t = (tx.type || "").toString();
+    const t      = (tx.type || "").toString();
+    const txAmt  = Number(tx.amount || 0);
 
     switch (t) {
       case "bonus":
-        // Free credits/promo bonuses (system generated)
-        if (tx.status === "completed") completedDeposits += Number(tx.amount || 0);
-        else pendingDeposits += Number(tx.amount || 0);
-        bonusAmount += Number(tx.amount || 0);
+        if (tx.status === "completed") completedDeposits += txAmt;
+        else pendingDeposits += txAmt;
+        bonusAmount += txAmt;
         break;
 
       case "deposit":
-        // User wallet load via Razorpay
-        if (tx.status === "completed") completedDeposits += Number(tx.amount || 0);
-        else pendingDeposits += Number(tx.amount || 0);
+        if (tx.status === "completed") completedDeposits += txAmt;
+        else pendingDeposits += txAmt;
         break;
 
       case "withdrawal":
-        if (tx.status === "completed") withdrawals += Number(tx.amount || 0);
-        else if (tx.status === "pending") {
-          // if you want to show pending withdrawals separately later, handle here
-          withdrawals += 0;
-        }
+        if (tx.status === "completed") withdrawals += txAmt;
         break;
 
       case "refund":
-        // refunds add back to wallet (assume completed)
-        if (tx.status === "completed") refundAmount += Number(tx.amount || 0);
+        if (tx.status === "completed") refundAmount += txAmt;
         break;
 
       case "investment":
-        // investments are amounts user moved to "invest" (to unlock referral hold)
-        if (tx.status === "completed") investmentAmount += Number(tx.amount || 0);
+        // LEGACY: user spending to unlock legacy referral hold
+        if (tx.status === "completed") legacyInvestmentAmount += txAmt;
         break;
 
       case "referral_commission":
-        // This is the full 20% credit. We won't mutate transactions here;
-        // walletCalculator will compute locked/unlocked portions from this sum.
-        if (tx.status === "completed") {
-          referralBonusTotal += Number(tx.amount || 0);
-        } else {
-          // If referral commissions can be pending, treat as hold until completed.
-          // For now, include pending referral commissions in referralBonusTotal
-          // but you may want to treat pending differently.
-          referralBonusTotal += Number(tx.amount || 0);
-        }
+        // LEGACY: old 20% commission (50/50 lock model — kept for old users)
+        legacyReferralTotal += txAmt; // include all statuses (consistent with original)
         break;
 
       case "installment_commission":
       case "commission":
-        if (tx.status === "completed") commissionAmount += Number(tx.amount || 0);
+        if (tx.status === "completed") commissionAmount += txAmt;
         break;
 
       case "purchase":
       case "purchase_refund":
       case "order_payment":
       case "emi_payment":
-        // Typically not affecting wallet directly unless you create purchase/refund txns.
-        // If some of these types represent wallet deposits/refunds, handle them here.
-        // For now we do not change accumulator for these types.
         break;
 
       default:
-        // ignore unknown types but safe-cast amounts if present
         break;
     }
   }
 
-  // Process WalletTransaction records (from installment orders)
+  // ── Walk WalletTransaction records ───────────────────────────────────────
   for (const wTx of walletTxns) {
     const wType = (wTx.type || "").toString();
-    const wAmount = Math.abs(Number(wTx.amount || 0)); // Use absolute value
+    const wAmt  = Math.abs(Number(wTx.amount || 0));
 
     switch (wType) {
-      case 'withdrawal':
-        // Installment payment deduction (amount is negative in WalletTransaction)
-        if (wTx.status === 'completed') {
-          withdrawals += wAmount;
-        }
+      case "withdrawal":
+        // Installment payment deduction from wallet
+        if (wTx.status === "completed") withdrawals += wAmt;
         break;
 
-      case 'referral_bonus':
-        // Commission credit (90% portion)
-        if (wTx.status === 'completed') {
-          completedDeposits += wAmount;
-          commissionAmount += wAmount;
-        }
+      case "referral_bonus":
+        // NEW system: 90% commission credit — tracked separately, NOT mixed into completedDeposits
+        if (wTx.status === "completed") referralBonus90 += wAmt;
         break;
 
-      case 'investment':
-        // Commission locked (10% portion)
-        if (wTx.status === 'completed') {
-          // This goes to holdBalance, handled by referral system
-          investmentAmount += wAmount;
-        }
+      case "investment":
+        // NEW system: 10% locked commission — tracked separately, NOT mixed into legacyInvestmentAmount
+        if (wTx.status === "completed") commissionLocked10 += wAmt;
         break;
 
-      case 'deposit':
-      case 'bonus':
-        // Additional deposits via wallet
-        if (wTx.status === 'completed') {
-          completedDeposits += wAmount;
-          bonusAmount += wAmount;
+      case "deposit":
+      case "bonus":
+        if (wTx.status === "completed") {
+          completedDeposits += wAmt;
+          bonusAmount += wAmt;
         }
         break;
 
       default:
-        // Ignore unknown types
         break;
     }
   }
 
-  // Business rule: split referral commission 50/50 into hold and initially withdrawable part.
-  // (For a total referralBonusTotal X: locked = X*0.5, unlockedInitial = X*0.5)
-  const totalReferralLocked = referralBonusTotal * 0.5; // requires investment to unlock
-  // remaining required investment is (totalReferralLocked - investedAmount) but never negative
-  const remainingRequiredInvestment = Math.max(totalReferralLocked - investmentAmount, 0);
+  // ── LEGACY 50/50 unlock logic (only for legacy referral_commission) ───────
+  const legacyLocked           = legacyReferralTotal * 0.5;
+  const legacyRemainingRequired = Math.max(legacyLocked - legacyInvestmentAmount, 0);
+  const legacyWithdrawable     = Math.max(legacyReferralTotal - legacyRemainingRequired, 0);
 
-  // Withdrawable referral money = total referral minus remaining required investment
-  // Example: referralBonusTotal = 20, totalReferralLocked = 10
-  // if invested = 10 => remainingRequiredInvestment = 0 => withdrawable = 20 - 0 = 20 (fully unlocked)
-  // if invested = 0 => remainingRequiredInvestment = 10 => withdrawable = 20 - 10 = 10 (only initial half)
-  const withdrawableReferral = Math.max(referralBonusTotal - remainingRequiredInvestment, 0);
+  // ── NEW 90/10 unlock logic ────────────────────────────────────────────────
+  // commissionUsedInApp now tracks TOTAL wallet deductions (commission + Razorpay)
+  const commissionEarned    = user.wallet.commissionEarned    || 0;
+  const commissionUsedInApp = user.wallet.commissionUsedInApp || 0;
 
-  // Wallet balance (money user can spend now)
-  // deposits + refunds + withdrawable referral - withdrawals - investments
+  // 10% unlock: if total in-app spending >= 10% of commission earned, unlock the locked 10%
+  const hasMetRequirement  = commissionEarned > 0
+    ? commissionUsedInApp >= commissionEarned * 0.1
+    : true; // no commission earned → no restriction
+
+  const unlockedCommission    = hasMetRequirement ? commissionLocked10 : 0;
+  const stillLockedCommission = hasMetRequirement ? 0 : commissionLocked10;
+
+  // ── Final balance calculation ─────────────────────────────────────────────
   const walletBalance =
-    Number(completedDeposits || 0) +
-    Number(refundAmount || 0) +
-    Number(withdrawableReferral || 0) -
-    Number(withdrawals || 0) -
-    Number(investmentAmount || 0);
+    completedDeposits    +
+    refundAmount         +
+    referralBonus90      +   // 90% new commission (available)
+    unlockedCommission   +   // 10% unlocked when rule met
+    legacyWithdrawable   -   // legacy commission (unlocked portion)
+    withdrawals          -
+    legacyInvestmentAmount;  // legacy investment deduction (0 for new users)
 
-  // AvailableBalance => same as walletBalance (frontend expects this)
   const availableBalance = walletBalance;
 
-  // Hold balance includes pending deposits + remaining required investment
-  const holdBalance = Number(pendingDeposits || 0) + Number(remainingRequiredInvestment || 0);
+  const holdBalance =
+    pendingDeposits       +
+    stillLockedCommission +   // 10% locked until rule met
+    legacyRemainingRequired;  // legacy remaining investment requirement (0 for new users)
 
-  // Total balance = available + hold
   const totalBalance = availableBalance + holdBalance;
 
-  // Total earnings — include referral & other commissions & bonuses
-  const totalEarnings = Number(referralBonusTotal || 0) + Number(commissionAmount || 0) + Number(bonusAmount || 0);
+  // Total commission earned for display (all types combined)
+  const totalReferralEarnings = legacyReferralTotal + referralBonus90 + commissionLocked10;
+  const totalEarnings = totalReferralEarnings + commissionAmount + bonusAmount;
 
-  // Persist computed fields onto user document
-  // Ensure wallet object exists
+  // ── Persist to user document ──────────────────────────────────────────────
   if (!user.wallet) user.wallet = {};
 
-  user.wallet.balance = Number(parseFloat(walletBalance).toFixed(2));
-  user.wallet.holdBalance = Number(parseFloat(holdBalance).toFixed(2));
-  user.wallet.referralBonus = Number(parseFloat(referralBonusTotal).toFixed(2));
-  user.wallet.investedAmount = Number(parseFloat(investmentAmount).toFixed(2));
-  user.wallet.requiredInvestment = Number(parseFloat(remainingRequiredInvestment).toFixed(2));
+  user.wallet.balance          = Number(parseFloat(walletBalance).toFixed(2));
+  user.wallet.holdBalance      = Number(parseFloat(holdBalance).toFixed(2));
+  user.wallet.referralBonus    = Number(parseFloat(totalReferralEarnings).toFixed(2));
+  user.wallet.investedAmount   = Number(parseFloat(legacyInvestmentAmount).toFixed(2));
+  user.wallet.requiredInvestment = Number(parseFloat(legacyRemainingRequired).toFixed(2));
 
-  // Preserve commission tracking fields (these are updated separately in installment system)
-  if (user.wallet.commissionEarned === undefined) user.wallet.commissionEarned = 0;
+  // Commission tracking fields — set to 0 if undefined (updated elsewhere in installment system)
+  if (user.wallet.commissionEarned    === undefined) user.wallet.commissionEarned    = 0;
   if (user.wallet.commissionUsedInApp === undefined) user.wallet.commissionUsedInApp = 0;
 
   user.availableBalance = Number(parseFloat(availableBalance).toFixed(2));
-  user.totalBalance = Number(parseFloat(totalBalance).toFixed(2));
-  user.totalEarnings = Number(parseFloat(totalEarnings).toFixed(2));
+  user.totalBalance     = Number(parseFloat(totalBalance).toFixed(2));
+  user.totalEarnings    = Number(parseFloat(totalEarnings).toFixed(2));
 
   await user.save();
   return user;

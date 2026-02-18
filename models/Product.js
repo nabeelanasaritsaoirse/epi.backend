@@ -240,6 +240,32 @@ const productSchema = new mongoose.Schema({
     returnPolicy: { type: Number, min: 0 },
   },
 
+  // Review Statistics (denormalized for performance)
+  reviewStats: {
+    averageRating: { type: Number, default: 0, min: 0, max: 5 },
+    totalReviews: { type: Number, default: 0, min: 0 },
+
+    // Aspect-wise average ratings
+    aspectRatings: {
+      quality: { type: Number, default: 0, min: 0, max: 5 },
+      valueForMoney: { type: Number, default: 0, min: 0, max: 5 },
+      delivery: { type: Number, default: 0, min: 0, max: 5 },
+      accuracy: { type: Number, default: 0, min: 0, max: 5 },
+    },
+
+    // Rating distribution (count per star)
+    ratingDistribution: {
+      5: { type: Number, default: 0, min: 0 },
+      4: { type: Number, default: 0, min: 0 },
+      3: { type: Number, default: 0, min: 0 },
+      2: { type: Number, default: 0, min: 0 },
+      1: { type: Number, default: 0, min: 0 },
+    },
+
+    // Last updated timestamp
+    lastUpdated: { type: Date },
+  },
+
   seo: {
     metaTitle: String,
     metaDescription: String,
@@ -253,6 +279,7 @@ const productSchema = new mongoose.Schema({
   },
 
   // Simple product categorization
+  isFeatured: { type: Boolean, default: false },
   isPopular: { type: Boolean, default: false },
   isBestSeller: { type: Boolean, default: false },
   isTrending: { type: Boolean, default: false },

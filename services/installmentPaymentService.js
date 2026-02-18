@@ -1137,7 +1137,7 @@ async function markPaymentAsCompleted(paymentId, adminData) {
     order.totalPaidAmount = (order.totalPaidAmount || 0) + payment.amount;
 
     // Check if order is fully paid
-    if (isOrderFullyPaid(order)) {
+    if (isOrderFullyPaid(order.productPrice, order.totalPaidAmount)) {
       order.status = 'COMPLETED';
       order.completedAt = new Date();
       console.log(`[Admin] Order ${order.orderId} marked as COMPLETED`);

@@ -294,6 +294,7 @@
 const { admin } = require('../config/firebase');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { hasRole, hasAnyRole, isAdmin, isSuperAdmin, isSalesTeam, canAccessPanel } = require('../utils/roleHelpers');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-this-in-production';
 const JWT_EXPIRY = '7d';
@@ -404,24 +405,46 @@ exports.verifyToken = async (req, res, next) => {
       });
     }
 
-    const user = await User.findById(userId);
-    
+    let user = await User.findById(userId);
+
     if (!user) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
         message: 'User not found',
         code: 'USER_NOT_FOUND'
       });
     }
-    
+
     if (!user.isActive) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         success: false,
         message: 'Account is disabled',
         code: 'ACCOUNT_DISABLED'
       });
     }
-    
+
+    // AUTO-LINK: If admin/sales_team has same email/phone as a user account, link them
+    if ((user.role === 'admin' || user.role === 'sales_team') && !user.linkedUserId) {
+      const linkedUser = await User.findOne({
+        _id: { $ne: user._id },  // Not the same account
+        role: 'user',
+        $or: [
+          { email: user.email },
+          ...(user.phoneNumber ? [{ phoneNumber: user.phoneNumber }] : [])
+        ]
+      });
+      if (linkedUser) {
+        user.linkedUserId = linkedUser._id;
+        await user.save();
+        console.log(`[Auto-Link] Linked admin ${user.email} to user ${linkedUser._id}`);
+      }
+    }
+
+    // Populate linkedUserId if exists (for sales team to see their user account details)
+    if (user.linkedUserId) {
+      await user.populate('linkedUserId', '_id name email phoneNumber referralCode');
+    }
+
     req.user = user;
     next();
 
@@ -503,9 +526,9 @@ exports.verifyRefreshToken = async (req, res, next) => {
 
 
 
-// 🔥 CHECK ADMIN
+// 🔥 CHECK ADMIN (supports additionalRoles)
 exports.isAdmin = (req, res, next) => {
-  if (req.user && (req.user.role === 'admin' || req.user.role === 'super_admin')) {
+  if (req.user && hasAnyRole(req.user, ['admin', 'super_admin'])) {
     return next();
   }
   return res.status(403).json({
@@ -513,6 +536,56 @@ exports.isAdmin = (req, res, next) => {
     message: 'Access denied',
     code: 'ADMIN_REQUIRED'
   });
+};
+
+// 🔥 CHECK SUPER ADMIN ONLY
+exports.isSuperAdmin = (req, res, next) => {
+  if (req.user && hasRole(req.user, 'super_admin')) {
+    return next();
+  }
+  return res.status(403).json({
+    success: false,
+    message: 'Access denied. Super admin required.',
+    code: 'SUPER_ADMIN_REQUIRED'
+  });
+};
+
+// 🔥 CHECK SALES TEAM (supports additionalRoles)
+exports.isSalesTeam = (req, res, next) => {
+  if (req.user && hasRole(req.user, 'sales_team')) {
+    return next();
+  }
+  return res.status(403).json({
+    success: false,
+    message: 'Access denied. Sales team access required.',
+    code: 'SALES_TEAM_REQUIRED'
+  });
+};
+
+// 🔥 CHECK CAN ACCESS PANEL (admin, super_admin, or sales_team)
+exports.canAccessPanel = (req, res, next) => {
+  if (req.user && canAccessPanel(req.user)) {
+    return next();
+  }
+  return res.status(403).json({
+    success: false,
+    message: 'Access denied. Panel access required.',
+    code: 'PANEL_ACCESS_REQUIRED'
+  });
+};
+
+// 🔥 CHECK SPECIFIC ROLE (flexible middleware factory)
+exports.requireRole = (...roles) => {
+  return (req, res, next) => {
+    if (req.user && hasAnyRole(req.user, roles)) {
+      return next();
+    }
+    return res.status(403).json({
+      success: false,
+      message: `Access denied. Required roles: ${roles.join(' or ')}`,
+      code: 'ROLE_REQUIRED'
+    });
+  };
 };
 
 
@@ -654,3 +727,10 @@ exports.optionalAuth = async (req, res, next) => {
 
 // EXPORT TOKENS
 exports.generateTokens = generateTokens;
+
+// EXPORT ROLE HELPERS (for convenience)
+exports.hasRole = hasRole;
+exports.hasAnyRole = hasAnyRole;
+exports.isAdminUser = isAdmin;
+exports.isSuperAdminUser = isSuperAdmin;
+exports.isSalesTeamUser = isSalesTeam;

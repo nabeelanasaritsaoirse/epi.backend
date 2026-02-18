@@ -2,8 +2,9 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
-const { generateTokens, verifyToken } = require('../middlewares/auth');
+const { generateTokens, verifyToken, hasRole, hasAnyRole } = require('../middlewares/auth');
 const { submitRegistrationRequest } = require('../controllers/adminRegistrationController');
+const { canAccessPanel, getAllRoles } = require('../utils/roleHelpers');
 
 /**
  * @route   POST /api/admin-auth/register-request
@@ -32,14 +33,21 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Find admin user (includes sales_team)
-    const adminUser = await User.findOne({
-      email,
-      role: { $in: ['admin', 'super_admin', 'sales_team'] }
-    });
+    // Find user by email first (supports additionalRoles)
+    const adminUser = await User.findOne({ email });
 
     if (!adminUser) {
-      console.log('Admin user not found:', email);
+      console.log('User not found:', email);
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password',
+        code: 'INVALID_CREDENTIALS'
+      });
+    }
+
+    // Check if user can access panel (admin, super_admin, or sales_team in role OR additionalRoles)
+    if (!canAccessPanel(adminUser)) {
+      console.log('User does not have panel access:', email);
       return res.status(401).json({
         success: false,
         message: 'Invalid email or password',
@@ -80,32 +88,64 @@ router.post('/login', async (req, res) => {
 
     console.log('Admin authentication successful:', email);
 
+    // AUTO-LINK: If admin/sales_team has same email/phone as a user account, link them
+    if (!adminUser.linkedUserId) {
+      const linkedUser = await User.findOne({
+        _id: { $ne: adminUser._id },  // Not the same account
+        role: 'user',
+        $or: [
+          { email: adminUser.email },
+          ...(adminUser.phoneNumber ? [{ phoneNumber: adminUser.phoneNumber }] : [])
+        ]
+      });
+      if (linkedUser) {
+        adminUser.linkedUserId = linkedUser._id;
+        console.log(`[Auto-Link] Linked admin ${adminUser.email} to user ${linkedUser._id}`);
+      }
+    }
+
     // Update last login
     adminUser.lastLogin = new Date();
     await adminUser.save();
 
-    // Determine user's modules
-    let userModules = [];
-    let isSuperAdmin = false;
-    let isSalesTeam = false;
+    // Populate linkedUserId if exists
+    if (adminUser.linkedUserId) {
+      await adminUser.populate('linkedUserId', '_id name email phoneNumber referralCode');
+    }
 
-    if (adminUser.role === 'super_admin') {
+    // Determine user's modules (supports additionalRoles)
+    let userModules = [];
+    let isSuperAdminFlag = false;
+    let isSalesTeamFlag = false;
+    let isAdminFlag = false;
+
+    // Check roles using helper functions (checks both role and additionalRoles)
+    if (hasRole(adminUser, 'super_admin')) {
       // Super admin gets empty array - frontend shows ALL modules
-      isSuperAdmin = true;
+      isSuperAdminFlag = true;
       userModules = [];
-    } else if (adminUser.role === 'admin') {
-      // Sub-admin gets assigned modules (whatever frontend sent)
+    } else if (hasRole(adminUser, 'admin')) {
+      // Admin gets assigned modules
+      isAdminFlag = true;
       userModules = adminUser.moduleAccess || [];
-    } else if (adminUser.role === 'sales_team') {
-      // Sales team gets fixed modules
-      isSalesTeam = true;
-      userModules = ['sales-dashboard', 'users'];
+    }
+
+    // Sales team check (can be in addition to other roles)
+    if (hasRole(adminUser, 'sales_team')) {
+      isSalesTeamFlag = true;
+      // Add sales modules if not super admin
+      if (!isSuperAdminFlag) {
+        const salesModules = ['sales-dashboard', 'sales-users'];
+        userModules = [...new Set([...userModules, ...salesModules])];
+      }
     }
 
     // Generate JWT tokens
     const tokens = generateTokens(adminUser._id.toString(), adminUser.role);
 
-    console.log('Login successful for:', email, '- Role:', adminUser.role);
+    // Get all roles for the user
+    const allRoles = getAllRoles(adminUser);
+    console.log('Login successful for:', email, '- Roles:', allRoles);
 
     return res.status(200).json({
       success: true,
@@ -114,11 +154,22 @@ router.post('/login', async (req, res) => {
         userId: adminUser._id,
         name: adminUser.name,
         email: adminUser.email,
-        role: adminUser.role,
+        role: adminUser.role,                    // Primary role (backward compatible)
+        additionalRoles: adminUser.additionalRoles || [], // Additional roles
+        allRoles: allRoles,                      // All roles combined
         profilePicture: adminUser.profilePicture || '',
-        isSuperAdmin,
-        isSalesTeam,
+        isSuperAdmin: isSuperAdminFlag,
+        isAdmin: isAdminFlag,
+        isSalesTeam: isSalesTeamFlag,
         modules: userModules,
+        // Include linked user info for sales team (so frontend knows who they're viewing as)
+        linkedUserId: adminUser.linkedUserId ? {
+          _id: adminUser.linkedUserId._id,
+          name: adminUser.linkedUserId.name,
+          email: adminUser.linkedUserId.email,
+          phoneNumber: adminUser.linkedUserId.phoneNumber,
+          referralCode: adminUser.linkedUserId.referralCode
+        } : null,
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken
       }

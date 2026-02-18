@@ -79,19 +79,10 @@ async function deductFromWallet(userId, amount, description, session, metadata =
   // Deduct from wallet (ensure field exists)
   user.wallet.balance = (user.wallet.balance || 0) - amount;
 
-  // NEW: Track commission used in-app (if this is for installment order payment)
+  // Track TOTAL wallet deduction as in-app spending (commission + Razorpay combined)
+  // Any wallet payment counts toward the 10% in-app usage requirement
   if (metadata && metadata.installmentNumber) {
-    // This is an installment payment, so track commission usage
-    const commissionEarned = user.wallet.commissionEarned || 0;
-    const commissionUsed = user.wallet.commissionUsedInApp || 0;
-
-    // Calculate how much of this payment is from commission balance
-    const commissionBalance = commissionEarned - commissionUsed;
-    const commissionUsedInThisPayment = Math.min(amount, commissionBalance);
-
-    if (commissionUsedInThisPayment > 0) {
-      user.wallet.commissionUsedInApp = commissionUsed + commissionUsedInThisPayment;
-    }
+    user.wallet.commissionUsedInApp = (user.wallet.commissionUsedInApp || 0) + amount;
   }
 
   // Save with or without session
@@ -168,13 +159,24 @@ async function creditCommissionToWallet(
   // Split commission: 90% available, 10% locked
   const { availableAmount, lockedAmount } = splitCommission(totalCommission);
 
+  // Cap commissionUsedInApp at the previous batch's requirement.
+  // Without this, excess in-app spending from batch N would immediately satisfy
+  // the 10% lock rule for batch N+1, making holdBalance jump to 0 on new commission.
+  const prevEarned = referrer.wallet.commissionEarned || 0;
+  if (prevEarned > 0) {
+    const prevRequired = prevEarned * 0.1;
+    if ((referrer.wallet.commissionUsedInApp || 0) > prevRequired) {
+      referrer.wallet.commissionUsedInApp = prevRequired;
+    }
+  }
+
   // Credit to wallet (ensure fields exist)
   referrer.wallet.balance = (referrer.wallet.balance || 0) + availableAmount; // 90% available for withdrawal
   referrer.wallet.holdBalance = (referrer.wallet.holdBalance || 0) + lockedAmount; // 10% locked for investment
   referrer.wallet.referralBonus = (referrer.wallet.referralBonus || 0) + totalCommission;
 
-  // NEW: Track commission earned for 10% in-app usage rule
-  referrer.wallet.commissionEarned = (referrer.wallet.commissionEarned || 0) + totalCommission;
+  // Track commission earned for 10% in-app usage rule
+  referrer.wallet.commissionEarned = prevEarned + totalCommission;
 
   // Save with or without session
   if (session) {
