@@ -1,11 +1,14 @@
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 const { verifyToken, isAdmin } = require('../middlewares/auth');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const Product = require('../models/Product');
 const { uploadSingleMiddleware } = require('../middlewares/uploadMiddleware');
 const { uploadSingleFileToS3, deleteImageFromS3 } = require('../services/awsUploadService');
+
+const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
 
 // CREATE NEW USER (ADMIN ONLY)
@@ -243,6 +246,9 @@ router.get('/', verifyToken, isAdmin, async (req, res) => {
  */
 router.get('/profile/:userId', async (req, res) => {
   try {
+    if (!isValidObjectId(req.params.userId)) {
+      return res.status(400).json({ success: false, message: 'Invalid user ID' });
+    }
     const user = await User.findById(req.params.userId)
       .select('-__v')
       .populate('wallet.transactions')
@@ -277,6 +283,9 @@ router.get('/profile/:userId', async (req, res) => {
 // Get user by ID (admin only)
 router.get('/:userId', verifyToken, isAdmin, async (req, res) => {
   try {
+    if (!isValidObjectId(req.params.userId)) {
+      return res.status(400).json({ success: false, message: 'Invalid user ID' });
+    }
     const user = await User.findById(req.params.userId)
       .select('-__v')
       .populate('wallet.transactions')
@@ -304,13 +313,17 @@ router.put('/:userId/kyc/:documentId', async (req, res) => {
       return res.status(400).json({ message: 'Status is required' });
     }
     
+    if (!isValidObjectId(req.params.userId)) {
+      return res.status(400).json({ success: false, message: 'Invalid user ID' });
+    }
+
     // Find the user
     const user = await User.findById(req.params.userId);
-    
+
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
-    
+
     // Find the document in the array
     const documentIndex = user.kycDocuments.findIndex(
       doc => doc._id.toString() === req.params.documentId
@@ -374,8 +387,11 @@ router.put('/transactions/:transactionId', verifyToken, isAdmin, async (req, res
       return res.status(400).json({ message: 'Invalid transaction status' });
     }
     
+    if (!isValidObjectId(req.params.transactionId)) {
+      return res.status(400).json({ success: false, message: 'Invalid transaction ID' });
+    }
     const transaction = await Transaction.findById(req.params.transactionId);
-    
+
     if (!transaction) {
       return res.status(404).json({ message: 'Transaction not found' });
     }
@@ -410,6 +426,9 @@ router.put('/transactions/:transactionId', verifyToken, isAdmin, async (req, res
  */
 router.get('/:userId/wishlist', async (req, res) => {
   try {
+    if (!isValidObjectId(req.params.userId)) {
+      return res.status(400).json({ success: false, message: 'Invalid user ID' });
+    }
     const user = await User.findById(req.params.userId)
       .populate({
         path: 'wishlist',
@@ -578,6 +597,9 @@ router.get('/:userId/wishlist/count', async (req, res) => {
 // Get user bank details
 router.get('/:userId/bank-details', async (req, res) => {
   try {
+    if (!isValidObjectId(req.params.userId)) {
+      return res.status(400).json({ success: false, message: 'Invalid user ID' });
+    }
     const user = await User.findById(req.params.userId).select('bankDetails');
 
     if (!user) {
@@ -939,6 +961,9 @@ router.put('/:userId/bank-details/:bankId/default', verifyToken, async (req, res
 // Get user KYC documents
 router.get('/:userId/kycDocuments', async (req, res) => {
   try {
+    if (!isValidObjectId(req.params.userId)) {
+      return res.status(400).json({ success: false, message: 'Invalid user ID' });
+    }
     const user = await User.findById(req.params.userId).select('kycDocuments');
     
     if (!user) {
