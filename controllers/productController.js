@@ -27,9 +27,8 @@ async function getAllSubcategoryIds(categoryId) {
       return [categoryId];
     }
 
-    const category = await Category.findById(categoryId).select(
-      "subCategories"
-    );
+    const category =
+      await Category.findById(categoryId).select("subCategories");
 
     if (
       !category ||
@@ -45,7 +44,7 @@ async function getAllSubcategoryIds(categoryId) {
     for (const subCategoryId of category.subCategories) {
       const childIds = await getAllSubcategoryIds(subCategoryId);
       allIds = allIds.concat(
-        childIds.filter((id) => id.toString() !== categoryId.toString())
+        childIds.filter((id) => id.toString() !== categoryId.toString()),
       );
     }
 
@@ -97,9 +96,9 @@ exports.createProduct = async (req, res) => {
             (availability.stockQuantity <= 0
               ? "out_of_stock"
               : availability.stockQuantity <= (availability.lowStockLevel || 10)
-              ? "low_stock"
-              : "in_stock"),
-        })
+                ? "low_stock"
+                : "in_stock"),
+        }),
       );
     }
 
@@ -171,7 +170,7 @@ exports.createProduct = async (req, res) => {
 
         if (v.price === undefined || v.price === null) {
           throw new Error(
-            `Each variant must include a price. Missing for variant at index ${idx}`
+            `Each variant must include a price. Missing for variant at index ${idx}`,
           );
         }
 
@@ -515,7 +514,7 @@ exports.updateProduct = async (req, res) => {
         const v = req.body.variants[idx];
 
         const existingVariant = product.variants.find(
-          (ev) => ev.variantId === v.variantId
+          (ev) => ev.variantId === v.variantId,
         );
 
         const timestamp = Date.now().toString().slice(-6);
@@ -541,7 +540,7 @@ exports.updateProduct = async (req, res) => {
 
         if (v.price === undefined || v.price === null) {
           throw new Error(
-            `Each variant must include a price. Missing for variant at index ${idx}`
+            `Each variant must include a price. Missing for variant at index ${idx}`,
           );
         }
 
@@ -571,7 +570,8 @@ exports.updateProduct = async (req, res) => {
               ? v.paymentPlan
               : existingVariant?.paymentPlan || {},
 
-          stock: v.stock !== undefined ? v.stock : existingVariant?.stock ?? 0,
+          stock:
+            v.stock !== undefined ? v.stock : (existingVariant?.stock ?? 0),
 
           // 🔥 IMAGE PRESERVATION (CRITICAL)
           images:
@@ -580,7 +580,7 @@ exports.updateProduct = async (req, res) => {
           isActive:
             v.isActive !== undefined
               ? v.isActive
-              : existingVariant?.isActive ?? true,
+              : (existingVariant?.isActive ?? true),
         });
       }
 
@@ -651,7 +651,7 @@ exports.updateProduct = async (req, res) => {
 
       if (Array.isArray(product.regionalAvailability)) {
         const globalRegion = product.regionalAvailability.find(
-          (r) => r.region === "global"
+          (r) => r.region === "global",
         );
         if (globalRegion) {
           globalRegion.stockQuantity = newStock;
@@ -705,7 +705,7 @@ exports.deleteProduct = async (req, res) => {
       {
         new: true,
         runValidators: false, // 🔥 THIS is the key
-      }
+      },
     );
 
     if (!updated) {
@@ -967,7 +967,7 @@ exports.addRegionalPricing = async (req, res) => {
 
     // Remove existing pricing for this region
     product.regionalPricing = product.regionalPricing.filter(
-      (p) => p.region !== region
+      (p) => p.region !== region,
     );
 
     // Add new pricing
@@ -1027,7 +1027,7 @@ exports.addRegionalAvailability = async (req, res) => {
 
     // Remove existing availability for this region
     product.regionalAvailability = product.regionalAvailability.filter(
-      (a) => a.region !== region
+      (a) => a.region !== region,
     );
 
     // Add new availability
@@ -1073,7 +1073,7 @@ exports.addRegionalSeo = async (req, res) => {
 
     // Remove existing SEO for this region
     product.regionalSeo = product.regionalSeo.filter(
-      (s) => s.region !== region
+      (s) => s.region !== region,
     );
 
     // Add new SEO
@@ -1084,8 +1084,8 @@ exports.addRegionalSeo = async (req, res) => {
       keywords: Array.isArray(keywords)
         ? keywords
         : keywords
-        ? keywords.split(",").map((k) => k.trim())
-        : [],
+          ? keywords.split(",").map((k) => k.trim())
+          : [],
       slug,
     });
 
@@ -1177,11 +1177,11 @@ exports.getProductByRegion = async (req, res) => {
 
     // Filter data for specific region
     const regionalPricing = product.regionalPricing.find(
-      (p) => p.region === region
+      (p) => p.region === region,
     );
     const regionalSeo = product.regionalSeo.find((s) => s.region === region);
     const regionalAvailability = product.regionalAvailability.find(
-      (a) => a.region === region
+      (a) => a.region === region,
     );
 
     const regionalData = {
@@ -1245,7 +1245,7 @@ exports.bulkUpdateRegionalPricing = async (req, res) => {
 
         // Remove existing pricing for this region
         product.regionalPricing = product.regionalPricing.filter(
-          (p) => p.region !== region
+          (p) => p.region !== region,
         );
 
         // Add new pricing
@@ -1319,7 +1319,7 @@ exports.getRegionalStats = async (req, res) => {
 
     products.forEach((product) => {
       const regionalPricing = product.regionalPricing.find(
-        (p) => p.region === region
+        (p) => p.region === region,
       );
       if (regionalPricing && regionalPricing.finalPrice) {
         totalPrice += regionalPricing.finalPrice;
@@ -1366,13 +1366,13 @@ exports.syncRegionalData = async (req, res) => {
     }
 
     const sourcePricing = product.regionalPricing.find(
-      (p) => p.region === sourceRegion
+      (p) => p.region === sourceRegion,
     );
     const sourceSeo = product.regionalSeo.find(
-      (s) => s.region === sourceRegion
+      (s) => s.region === sourceRegion,
     );
     const sourceAvailability = product.regionalAvailability.find(
-      (a) => a.region === sourceRegion
+      (a) => a.region === sourceRegion,
     );
 
     if (!sourcePricing) {
@@ -1387,7 +1387,7 @@ exports.syncRegionalData = async (req, res) => {
     for (const targetRegion of targetRegions) {
       // Sync pricing
       product.regionalPricing = product.regionalPricing.filter(
-        (p) => p.region !== targetRegion
+        (p) => p.region !== targetRegion,
       );
       product.regionalPricing.push({
         ...(sourcePricing.toObject ? sourcePricing.toObject() : sourcePricing),
@@ -1397,7 +1397,7 @@ exports.syncRegionalData = async (req, res) => {
       // Sync SEO if exists
       if (sourceSeo) {
         product.regionalSeo = product.regionalSeo.filter(
-          (s) => s.region !== targetRegion
+          (s) => s.region !== targetRegion,
         );
         product.regionalSeo.push({
           ...(sourceSeo.toObject ? sourceSeo.toObject() : sourceSeo),
@@ -1408,7 +1408,7 @@ exports.syncRegionalData = async (req, res) => {
       // Sync availability if exists
       if (sourceAvailability) {
         product.regionalAvailability = product.regionalAvailability.filter(
-          (a) => a.region !== targetRegion
+          (a) => a.region !== targetRegion,
         );
         product.regionalAvailability.push({
           ...(sourceAvailability.toObject
@@ -1445,7 +1445,7 @@ exports.getProductsByProject = async (req, res) => {
 
     const filter = {
       isDeleted: false, // 🔥 FIX: Hide deleted products from users
-      "project.projectId": projectId
+      "project.projectId": projectId,
     };
 
     if (region && region !== "all" && region !== "global") {
@@ -1467,8 +1467,8 @@ exports.getProductsByProject = async (req, res) => {
     const regions = [
       ...new Set(
         projectProducts.flatMap((p) =>
-          p.regionalAvailability.map((a) => a.region)
-        )
+          p.regionalAvailability.map((a) => a.region),
+        ),
       ),
     ];
 
@@ -1516,7 +1516,7 @@ exports.searchProductsAdvanced = async (req, res) => {
 
     const filter = {
       isDeleted: false,
-      status: { $in: ["active", "published"] }
+      status: { $in: ["active", "published"] },
     };
 
     if (searchQuery) {
@@ -1525,7 +1525,9 @@ exports.searchProductsAdvanced = async (req, res) => {
         { "description.short": { $regex: searchQuery, $options: "i" } },
         { "description.long": { $regex: searchQuery, $options: "i" } },
         { "regionalSeo.metaTitle": { $regex: searchQuery, $options: "i" } },
-        { "regionalSeo.metaDescription": { $regex: searchQuery, $options: "i" } },
+        {
+          "regionalSeo.metaDescription": { $regex: searchQuery, $options: "i" },
+        },
         { "regionalSeo.keywords": { $in: [new RegExp(searchQuery, "i")] } },
       ];
     }
@@ -1643,7 +1645,7 @@ exports.updateProductImages = async (req, res) => {
     const uploadResults = await uploadMultipleFilesToS3(
       files,
       "products/",
-      800
+      800,
     );
 
     // Format images with S3 URLs
@@ -1717,7 +1719,7 @@ exports.updateVariantImages = async (req, res) => {
     const uploadResults = await uploadMultipleFilesToS3(
       files,
       `products/variants/${variantId}/`,
-      800
+      800,
     );
 
     // Format images
@@ -1989,6 +1991,20 @@ exports.getAllProductsForAdmin = async (req, res) => {
       .skip((parseInt(page) - 1) * parseInt(limit));
 
     const total = await Product.countDocuments(filter);
+    // Global stats (NOT paginated)
+    const allMatchingProducts = await Product.find(filter).select(
+      "status hasVariants availability.stockQuantity",
+    );
+
+    let totalPublished = 0;
+    let totalWithVariants = 0;
+    let totalStock = 0;
+
+    for (const p of allMatchingProducts) {
+      if (p.status === "published") totalPublished++;
+      if (p.hasVariants) totalWithVariants++;
+      totalStock += p.availability?.stockQuantity || 0;
+    }
 
     res.json({
       success: true,
@@ -1998,7 +2014,12 @@ exports.getAllProductsForAdmin = async (req, res) => {
         pages: Math.ceil(total / parseInt(limit)),
         total,
       },
-      // Include applied filters for debugging
+      stats: {
+        totalProducts: total,
+        totalPublished,
+        totalWithVariants,
+        totalStock,
+      },
       appliedFilters: {
         region: region || "all",
         status: status || "all",
@@ -2412,7 +2433,7 @@ exports.exportProducts = async (req, res) => {
       res.setHeader("Content-Type", "text/csv");
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="products-${Date.now()}.csv"`
+        `attachment; filename="products-${Date.now()}.csv"`,
       );
       res.send(csvData);
     } else {
@@ -2421,11 +2442,11 @@ exports.exportProducts = async (req, res) => {
 
       res.setHeader(
         "Content-Type",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       );
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="products-${Date.now()}.xlsx"`
+        `attachment; filename="products-${Date.now()}.xlsx"`,
       );
 
       await workbook.xlsx.write(res);
