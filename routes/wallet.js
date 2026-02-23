@@ -491,4 +491,80 @@ router.get('/transactions', verifyToken, async (req, res) => {
   }
 });
 
+/* =====================================================================
+   GET WITHDRAWAL STATUS
+   Returns current withdrawable amount, hold balance, and 10% rule status.
+   GET /wallet/withdrawal-status
+===================================================================== */
+router.get('/withdrawal-status', verifyToken, async (req, res) => {
+  try {
+    const user = await recalcWallet(req.user._id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+        code: "USER_NOT_FOUND"
+      });
+    }
+
+    const commissionEarned    = user.wallet.commissionEarned    || 0;
+    const commissionUsedInApp = user.wallet.commissionUsedInApp || 0;
+    const requiredInApp       = commissionEarned * 0.1;
+    const remainingToSpend    = Math.max(requiredInApp - commissionUsedInApp, 0);
+    const holdBalance         = user.wallet.holdBalance || 0;
+    const availableBalance    = user.wallet.balance     || 0;
+
+    // 10% rule: commission must exist AND user must have spent enough in-app
+    const ruleApplies  = commissionEarned > 0;
+    const ruleMet      = !ruleApplies || commissionUsedInApp >= requiredInApp;
+    const canWithdraw  = ruleMet && availableBalance > 0;
+
+    // How much can be withdrawn right now
+    const withdrawableNow = ruleMet ? availableBalance : 0;
+
+    // How much will be withdrawable once rule is met
+    // (current available + locked hold that will unlock)
+    const withdrawableAfterUnlock = ruleMet
+      ? withdrawableNow                          // rule already met
+      : availableBalance + holdBalance;          // potential after spending remainingToSpend
+
+    return res.status(200).json({
+      success: true,
+      canWithdraw,
+
+      // Current balances
+      withdrawableNow,
+      holdBalance,
+      availableBalance,
+
+      // 10% rule details
+      commissionRule: {
+        applies: ruleApplies,
+        met: ruleMet,
+        commissionEarned,
+        commissionUsedInApp,
+        requiredInApp: parseFloat(requiredInApp.toFixed(2)),
+        remainingToSpend: parseFloat(remainingToSpend.toFixed(2))
+      },
+
+      // What user can expect after completing the rule
+      withdrawableAfterUnlock: parseFloat(withdrawableAfterUnlock.toFixed(2)),
+
+      // Human-readable message
+      message: !ruleApplies
+        ? "No commission earned yet. You can freely withdraw your available balance."
+        : !ruleMet
+          ? `Spend ₹${parseFloat(remainingToSpend.toFixed(2))} more in-app to unlock withdrawal. After that you can withdraw ₹${parseFloat(withdrawableAfterUnlock.toFixed(2))}.`
+          : availableBalance <= 0
+            ? "Withdrawal limit met but no available balance to withdraw."
+            : `You can withdraw up to ₹${parseFloat(withdrawableNow.toFixed(2))}.`
+    });
+
+  } catch (err) {
+    console.error("Withdrawal status error:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
 module.exports = router;
