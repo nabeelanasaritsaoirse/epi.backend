@@ -1853,6 +1853,52 @@ router.put('/:userId/profile-picture', verifyToken, uploadSingleMiddleware, asyn
 
 
 /**
+ * @route   DELETE /api/users/:userId/profile-picture
+ * @desc    Remove user profile picture
+ * @access  Private
+ */
+router.delete('/:userId/profile-picture', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // Verify user permissions (either the same user or admin)
+    if (req.user._id.toString() !== userId && req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (!user.profilePicture) {
+      return res.status(400).json({ success: false, message: 'No profile picture to remove' });
+    }
+
+    // Delete from S3 if it's an S3 URL
+    if (user.profilePicture.includes('s3.amazonaws.com')) {
+      try {
+        await deleteImageFromS3(user.profilePicture);
+      } catch (deleteError) {
+        console.error('Error deleting profile picture from S3:', deleteError);
+      }
+    }
+
+    user.profilePicture = '';
+    user.updatedAt = Date.now();
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Profile picture removed successfully'
+    });
+  } catch (error) {
+    console.error('Error removing profile picture:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+/**
  * @route   POST /api/users/:userId/request-deletion
  * @desc    Request account deletion (user initiated)
  * @access  Private
