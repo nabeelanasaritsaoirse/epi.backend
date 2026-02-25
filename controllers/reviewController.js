@@ -552,7 +552,7 @@ const getProductReviews = asyncHandler(async (req, res) => {
 const getAllReviews = asyncHandler(async (req, res) => {
   const {
     page = 1,
-    limit = 20,
+    limit = 10,
     status,
     rating,
     productId,
