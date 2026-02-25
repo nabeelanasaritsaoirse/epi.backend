@@ -1,13 +1,30 @@
 const InstallmentOrder = require("../models/InstallmentOrder");
 
-exports.getCompletedOrders = async () => {
-  return InstallmentOrder.find({ status: "COMPLETED" })
-    .populate("user", "name phoneNumber")
-    .populate("product", "name")
-    .sort({ completedAt: -1 });
+exports.getCompletedOrders = async (page = 1, limit = 10) => {
+  const skip = (page - 1) * limit;
+
+  const [orders, total] = await Promise.all([
+    InstallmentOrder.find({ status: "COMPLETED" })
+      .populate("user", "name phoneNumber")
+      .populate("product", "name")
+      .sort({ completedAt: -1 })
+      .skip(skip)
+      .limit(limit),
+
+    InstallmentOrder.countDocuments({ status: "COMPLETED" })
+  ]);
+
+  return {
+    orders,
+    pagination: {
+      totalRecords: total,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page
+    }
+  };
 };
 
-exports.getOrdersCompletingSoon = async () => {
+exports.getOrdersCompletingSoon = async (page = 1, limit = 10) => {
   const now = new Date();
   const threeDays = new Date();
   threeDays.setDate(now.getDate() + 3);
@@ -19,7 +36,7 @@ exports.getOrdersCompletingSoon = async () => {
     .populate("user", "name phoneNumber")
     .populate("product", "name");
 
-  const result = [];
+  const filtered = [];
 
   for (const order of activeOrders) {
     const pending = order.paymentSchedule.filter(i => i.status === "PENDING");
@@ -28,7 +45,7 @@ exports.getOrdersCompletingSoon = async () => {
     const lastPending = pending[pending.length - 1];
 
     if (lastPending.dueDate <= threeDays) {
-      result.push({
+      filtered.push({
         orderId: order.orderId,
         user: order.user,
         productName: order.productName,
@@ -40,7 +57,18 @@ exports.getOrdersCompletingSoon = async () => {
     }
   }
 
-  return result;
+  const total = filtered.length;
+  const start = (page - 1) * limit;
+  const paginated = filtered.slice(start, start + limit);
+
+  return {
+    orders: paginated,
+    pagination: {
+      totalRecords: total,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page
+    }
+  };
 };
 
 exports.getShippingLabel = async (orderId) => {
