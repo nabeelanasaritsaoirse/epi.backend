@@ -131,36 +131,17 @@ const userSchema = new Schema({
       type: Number,
       default: 0
     },
-    // NEW: Commission tracking for 10% in-app usage rule
+    // Commission tracking for 10% in-app usage rule
     commissionEarned: {
       type: Number,
-      default: 0,
-      comment: 'Total commission earned from referrals (installment orders)'
+      default: 0
     },
     commissionUsedInApp: {
       type: Number,
-      default: 0,
-      comment: 'Amount of commission used for in-app purchases (installment orders)'
-    },
-    transactions: [{
-      type: {
-        type: String,
-        enum: ['referral_commission', 'withdrawal', 'refund', 'bonus'],
-        required: true
-      },
-      amount: {
-        type: Number,
-        required: true
-      },
-      description: {
-        type: String,
-        default: ''
-      },
-      createdAt: {
-        type: Date,
-        default: Date.now
-      }
-    }]
+      default: 0
+    }
+    // NOTE: transaction history is stored in the WalletTransaction collection
+    // Query: WalletTransaction.find({ user: userId }).sort({ createdAt: -1 })
   },
   wishlist: [{
     type: Schema.Types.ObjectId,
@@ -265,10 +246,8 @@ const userSchema = new Schema({
     ref: 'User',
     default: null
   },
-  referredUsers: [{
-    type: Schema.Types.ObjectId,
-    ref: 'User'
-  }],
+  // NOTE: referredUsers list is stored in the Referral collection
+  // Query: Referral.find({ referrer: userId })
   referralLimit: {
     type: Number,
     default: 50
@@ -556,8 +535,12 @@ userSchema.index({ email: 1 });
 userSchema.index({ phoneNumber: 1 });
 userSchema.index({ firebaseUid: 1 });
 userSchema.index({ referralCode: 1 });
-userSchema.index({ referredBy: 1 }); // For efficient referral stats queries
+userSchema.index({ referredBy: 1 });
 userSchema.index({ 'deletionRequest.status': 1, 'deletionRequest.scheduledDeletionDate': 1 });
+// Performance indexes
+userSchema.index({ 'autopaySettings.enabled': 1 });
+userSchema.index({ role: 1, isActive: 1, createdAt: -1 });
+userSchema.index({ 'wallet.balance': 1 });
 
 userSchema.pre('save', async function(next) {
   if (this.isNew && !this.referralCode) {

@@ -210,4 +210,9 @@ referralSchema.methods.recalculateAggregates = function () {
   this.lastPaidDate = lastPaid;
 };
 
+// Performance indexes
+referralSchema.index({ referrer: 1, status: 1 });
+referralSchema.index({ referredUser: 1 });
+referralSchema.index({ 'purchases.order': 1 });
+
 module.exports = mongoose.model('Referral', referralSchema);

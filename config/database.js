@@ -9,7 +9,12 @@ const connectDB = async () => {
   try {
     await mongoose.connect(mongoUri, {
       useNewUrlParser: true,
-      useUnifiedTopology: true
+      useUnifiedTopology: true,
+      maxPoolSize: 20,                  // Handle concurrent requests (default is 5)
+      minPoolSize: 5,                   // Keep 5 connections warm
+      socketTimeoutMS: 45000,           // Drop hung queries after 45s
+      serverSelectionTimeoutMS: 5000,   // Fail fast if DB unreachable
+      autoIndex: process.env.NODE_ENV !== 'production', // Auto-create indexes in dev only
     });
     console.log(`✅ MongoDB Connected to ${mongoose.connection.name}`);
   } catch (err) {

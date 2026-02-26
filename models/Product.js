@@ -411,6 +411,23 @@ productSchema.index({
   description: "text",
   "regionalSeo.metaTitle": "text",
 });
+// Homepage feature queries — partial indexes (only index docs where the flag is true, saves RAM)
+productSchema.index(
+  { isFeatured: 1, status: 1, isDeleted: 1 },
+  { partialFilterExpression: { isFeatured: true, isDeleted: false } }
+);
+productSchema.index(
+  { isPopular: 1, status: 1, isDeleted: 1 },
+  { partialFilterExpression: { isPopular: true, isDeleted: false } }
+);
+productSchema.index(
+  { isBestSeller: 1, status: 1, isDeleted: 1 },
+  { partialFilterExpression: { isBestSeller: true, isDeleted: false } }
+);
+// Price range filtering
+productSchema.index({ "pricing.finalPrice": 1, status: 1, isDeleted: 1 });
+// Brand filtering
+productSchema.index({ brand: 1, status: 1, isDeleted: 1 });
 
 const Product = mongoose.model("Product", productSchema);
 

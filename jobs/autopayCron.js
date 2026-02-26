@@ -64,18 +64,45 @@ async function processAutopayForTimeSlot(timeSlot) {
   let totalInsufficientBalance = 0;
 
   try {
-    // Get all users with autopay enabled (ignore timePreference for now)
-    // Time preference feature will be added later
+    // OPTIMIZED: Single query fetches ALL active autopay orders across all users.
+    // This replaces the previous N+1 pattern (User.find → per-user Order.find).
+    const allOrders = await InstallmentOrder.find({
+      "autopay.enabled": true,
+      status: "ACTIVE",
+    })
+      .sort({ "autopay.priority": 1 })
+      .select("user product orderId productName dailyPaymentAmount autopay paymentSchedule firstPaymentMethod totalPaidAmount productPrice")
+      .lean(false); // lean(false) required — instance methods (canProcessAutopay, isSkipDate) are needed
+
+    // Group orders by userId in memory
+    const ordersByUser = {};
+    for (const order of allOrders) {
+      const uid = order.user.toString();
+      if (!ordersByUser[uid]) ordersByUser[uid] = [];
+      ordersByUser[uid].push(order);
+    }
+
+    const affectedUserIds = Object.keys(ordersByUser);
+    console.log(`[Autopay Cron] Found ${allOrders.length} autopay orders across ${affectedUserIds.length} users`);
+
+    // Batch fetch only the users who actually have orders (not all autopay-enabled users)
     const users = await User.find({
-      "autopaySettings.enabled": true,
+      _id: { $in: affectedUserIds },
     }).select("_id wallet autopaySettings");
 
-    console.log(`[Autopay Cron] Found ${users.length} users with autopay enabled`);
+    // Build userId → user map for O(1) lookup
+    const userMap = {};
+    for (const u of users) {
+      userMap[u._id.toString()] = u;
+    }
 
-    // Process each user
-    for (const user of users) {
+    // Process each user using pre-fetched orders and user data
+    for (const uid of affectedUserIds) {
+      const user = userMap[uid];
+      if (!user) continue;
+
       try {
-        const userResult = await processAutopayForUser(user);
+        const userResult = await processAutopayForUser(user, ordersByUser[uid]);
 
         totalProcessed += userResult.processed;
         totalSuccess += userResult.success;
@@ -144,10 +171,11 @@ async function processAutopayForTimeSlot(timeSlot) {
 /**
  * Process autopay for a single user
  *
- * @param {Object} user - User document
+ * @param {Object} user - User document (pre-fetched by caller)
+ * @param {Array}  orders - Pre-fetched orders for this user (already sorted by priority)
  * @returns {Object} Processing result
  */
-async function processAutopayForUser(user) {
+async function processAutopayForUser(user, orders) {
   const result = {
     processed: 0,
     success: 0,
@@ -159,21 +187,14 @@ async function processAutopayForUser(user) {
   };
 
   try {
-    // Get active orders with autopay enabled, sorted by priority
-    const orders = await InstallmentOrder.find({
-      user: user._id,
-      status: "ACTIVE",
-      "autopay.enabled": true,
-    }).sort({ "autopay.priority": 1 });
-
-    if (orders.length === 0) {
+    if (!orders || orders.length === 0) {
       return result;
     }
 
     console.log(`[Autopay Cron] Processing ${orders.length} orders for user ${user._id}`);
 
-    // Refresh user for latest balance
-    const freshUser = await User.findById(user._id).select("wallet autopaySettings");
+    // Use the already-fetched user as the fresh reference (balance updated inline below)
+    const freshUser = user;
 
     for (const order of orders) {
       result.processed++;
