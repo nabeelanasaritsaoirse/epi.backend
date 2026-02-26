@@ -106,7 +106,6 @@ function generateProduct(mainCategory, subCategory) {
 // MAIN SEED FUNCTION
 // ======================================
 async function seedCatalog() {
-
   // ✅ FIX FOR NODE 20 ESM FAKER
   faker = (await import("@faker-js/faker")).faker;
   try {
@@ -119,8 +118,12 @@ async function seedCatalog() {
     const existingCategories = await Category.countDocuments();
 
     if (existingCategories > 0) {
-      console.log("⚠️ Catalog already exists. Skipping seed.");
-      process.exit(0);
+      console.log("⚠️ Old catalog found. Cleaning...");
+
+      await Category.deleteMany({});
+      await Product.deleteMany({});
+
+      console.log("✅ Old catalog removed");
     }
 
     for (const cat of catalog) {
@@ -149,10 +152,7 @@ async function seedCatalog() {
 
         // Create products
         for (let i = 0; i < 5; i++) {
-          const product = generateProduct(
-            mainCategory,
-            subCategory
-          );
+          const product = generateProduct(mainCategory, subCategory);
 
           await Product.create(product);
         }
