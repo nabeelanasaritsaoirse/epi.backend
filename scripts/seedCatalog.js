@@ -5,11 +5,10 @@
  * Works with Mongo Atlas
  * ============================================
  */
-
+let faker;
 require("dotenv").config();
 
 const connectDB = require("../config/database");
-const { faker } = require("@faker-js/faker");
 const slugify = require("slugify");
 
 const Category = require("../models/Category");
@@ -107,6 +106,9 @@ function generateProduct(mainCategory, subCategory) {
 // MAIN SEED FUNCTION
 // ======================================
 async function seedCatalog() {
+
+  // ✅ FIX FOR NODE 20 ESM FAKER
+  faker = (await import("@faker-js/faker")).faker;
   try {
     await connectDB();
 
