@@ -335,46 +335,167 @@ router.post("/unlock", verifyToken, isAdmin, async (req, res) => {
      - limit: number of records (default: 50)
      - page: page number (default: 1)
 ----------------------------------------------------*/
+/* ---------------------------------------------------
+   GET ALL WITHDRAWAL REQUESTS
+   Query params:
+     - status: pending/completed/failed/all (default: all)
+     - limit: number of records (default: 50)
+     - page: page number (default: 1)
+     - search: name/email/phone search
+     - fromDate: ISO date
+     - toDate: ISO date
+----------------------------------------------------*/
 router.get("/withdrawals", verifyToken, isAdmin, async (req, res) => {
   try {
-    const { status = 'all', limit = 50, page = 1 } = req.query;
+    const {
+      status = "all",
+      limit = 50,
+      page = 1,
+      search,
+      fromDate,
+      toDate
+    } = req.query;
 
-    // Build query filter
-    const filter = { type: 'withdrawal' };
-    if (status !== 'all') {
+    const parsedLimit = parseInt(limit);
+    const parsedPage = parseInt(page);
+    const skip = (parsedPage - 1) * parsedLimit;
+
+    // =========================
+    // BASE FILTER
+    // =========================
+    const filter = { type: "withdrawal" };
+
+    if (status !== "all") {
       filter.status = status;
     }
 
-    // Calculate pagination
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    if (fromDate && toDate) {
+      filter.createdAt = {
+        $gte: new Date(fromDate),
+        $lte: new Date(toDate)
+      };
+    }
 
-    // Get total count
-    const totalCount = await Transaction.countDocuments(filter);
+    // =========================
+    // SEARCH MATCH (for aggregation)
+    // =========================
+    const searchMatch = search
+      ? {
+          $or: [
+            { "userDetails.name": { $regex: search, $options: "i" } },
+            { "userDetails.email": { $regex: search, $options: "i" } },
+            { "userDetails.phoneNumber": { $regex: search, $options: "i" } }
+          ]
+        }
+      : null;
 
-    // Fetch withdrawal transactions with user details
-    const withdrawals = await Transaction.find(filter)
-      .populate('user', 'name email phoneNumber')
-      .sort({ createdAt: -1 })
-      .limit(parseInt(limit))
-      .skip(skip);
+    // =========================
+    // MAIN AGGREGATION (DATA)
+    // =========================
+    const aggregation = [
+      { $match: filter },
 
-    // Calculate summary statistics
+      {
+        $lookup: {
+          from: "users",
+          localField: "user",
+          foreignField: "_id",
+          as: "userDetails"
+        }
+      },
+      {
+        $unwind: {
+          path: "$userDetails",
+          preserveNullAndEmptyArrays: true
+        }
+      },
+
+      ...(searchMatch ? [{ $match: searchMatch }] : []),
+
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: parsedLimit }
+    ];
+
+    const rawWithdrawals = await Transaction.aggregate(aggregation);
+
+    // =========================
+    // COUNT (IMPORTANT — must respect search)
+    // =========================
+    let totalCount;
+
+    if (searchMatch) {
+      const countAggregation = [
+        { $match: filter },
+        {
+          $lookup: {
+            from: "users",
+            localField: "user",
+            foreignField: "_id",
+            as: "userDetails"
+          }
+        },
+        {
+          $unwind: {
+            path: "$userDetails",
+            preserveNullAndEmptyArrays: true
+          }
+        },
+        { $match: searchMatch },
+        { $count: "total" }
+      ];
+
+      const countResult = await Transaction.aggregate(countAggregation);
+      totalCount = countResult[0]?.total || 0;
+    } else {
+      totalCount = await Transaction.countDocuments(filter);
+    }
+
+    // =========================
+    // NORMALIZE USER FIELD
+    // =========================
+    const withdrawals = rawWithdrawals.map((w) => ({
+      ...w,
+      user: w.userDetails || null
+    }));
+
+    // =========================
+    // SUMMARY (kept as-is)
+    // =========================
     const summary = {
       total: totalCount,
-      pending: await Transaction.countDocuments({ type: 'withdrawal', status: 'pending' }),
-      completed: await Transaction.countDocuments({ type: 'withdrawal', status: 'completed' }),
-      failed: await Transaction.countDocuments({ type: 'withdrawal', status: 'failed' }),
-      cancelled: await Transaction.countDocuments({ type: 'withdrawal', status: 'cancelled' }),
+      pending: await Transaction.countDocuments({
+        type: "withdrawal",
+        status: "pending"
+      }),
+      completed: await Transaction.countDocuments({
+        type: "withdrawal",
+        status: "completed"
+      }),
+      failed: await Transaction.countDocuments({
+        type: "withdrawal",
+        status: "failed"
+      }),
+      cancelled: await Transaction.countDocuments({
+        type: "withdrawal",
+        status: "cancelled"
+      }),
 
-      totalPendingAmount: (await Transaction.aggregate([
-        { $match: { type: 'withdrawal', status: 'pending' } },
-        { $group: { _id: null, total: { $sum: '$amount' } } }
-      ]))[0]?.total || 0,
+      totalPendingAmount:
+        (
+          await Transaction.aggregate([
+            { $match: { type: "withdrawal", status: "pending" } },
+            { $group: { _id: null, total: { $sum: "$amount" } } }
+          ])
+        )[0]?.total || 0,
 
-      totalCompletedAmount: (await Transaction.aggregate([
-        { $match: { type: 'withdrawal', status: 'completed' } },
-        { $group: { _id: null, total: { $sum: '$amount' } } }
-      ]))[0]?.total || 0
+      totalCompletedAmount:
+        (
+          await Transaction.aggregate([
+            { $match: { type: "withdrawal", status: "completed" } },
+            { $group: { _id: null, total: { $sum: "$amount" } } }
+          ])
+        )[0]?.total || 0
     };
 
     return res.json({
@@ -382,10 +503,10 @@ router.get("/withdrawals", verifyToken, isAdmin, async (req, res) => {
       withdrawals,
       summary,
       pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(totalCount / parseInt(limit)),
+        currentPage: parsedPage,
+        totalPages: Math.ceil(totalCount / parsedLimit),
         totalRecords: totalCount,
-        limit: parseInt(limit)
+        limit: parsedLimit
       }
     });
 
@@ -393,7 +514,7 @@ router.get("/withdrawals", verifyToken, isAdmin, async (req, res) => {
     console.error("Admin get withdrawals error:", err);
     return res.status(500).json({
       success: false,
-      message: "Server error",
+      message: "Server error"
     });
   }
 });

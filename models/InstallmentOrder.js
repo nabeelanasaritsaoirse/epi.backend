@@ -273,9 +273,17 @@ installmentOrderSchema.index({ user: 1, createdAt: -1 });
 installmentOrderSchema.index({ status: 1, deliveryStatus: 1 });
 installmentOrderSchema.index({ referrer: 1, createdAt: -1 });
 installmentOrderSchema.index({ "paymentSchedule.status": 1 });
-// Autopay indexes
-installmentOrderSchema.index({ "autopay.enabled": 1, status: 1 });
-installmentOrderSchema.index({ "autopay.priority": 1 });
+// Autopay — partial filter: only indexes documents where autopay is actually enabled (saves RAM)
+installmentOrderSchema.index(
+  { "autopay.enabled": 1, "autopay.priority": 1, status: 1 },
+  { partialFilterExpression: { "autopay.enabled": true } }
+);
+// Product-level order queries (admin dashboard, sales reports)
+installmentOrderSchema.index({ product: 1, status: 1 });
+// Bulk order tracking
+installmentOrderSchema.index({ bulkOrderId: 1 });
+// Delivery management queue
+installmentOrderSchema.index({ deliveryStatus: 1, createdAt: -1 });
 
 /** PRE-SAVE **/
 installmentOrderSchema.pre("save", function (next) {

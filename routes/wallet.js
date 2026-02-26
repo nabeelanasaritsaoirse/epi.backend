@@ -538,7 +538,7 @@ router.get('/withdrawal-status', verifyToken, async (req, res) => {
       holdBalance,
       availableBalance,
 
-      // 10% rule details
+      // 10% rule details 
       commissionRule: {
         applies: ruleApplies,
         met: ruleMet,

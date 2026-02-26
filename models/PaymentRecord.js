@@ -230,6 +230,11 @@ paymentRecordSchema.index({ user: 1, status: 1 });
 paymentRecordSchema.index({ user: 1, createdAt: -1 });
 paymentRecordSchema.index({ status: 1, createdAt: -1 });
 paymentRecordSchema.index({ razorpayPaymentId: 1 }, { sparse: true });
+paymentRecordSchema.index({ idempotencyKey: 1 }, { sparse: true });
+// Commission reconciliation — find payments with unprocessed commissions
+paymentRecordSchema.index({ commissionCalculated: 1, commissionCreditedToReferrer: 1, status: 1 });
+// Order-level payment status lookup
+paymentRecordSchema.index({ order: 1, status: 1 });
 
 // ============================================
 // PRE-SAVE MIDDLEWARE
