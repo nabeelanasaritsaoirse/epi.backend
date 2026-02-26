@@ -19,7 +19,7 @@ const Product = require("../models/Product");
 // ======================================
 const createImage = (keyword, type = "main") => ({
   type,
-  url: `https://source.unsplash.com/600x600/?${keyword},product`,
+  url: `https://picsum.photos/seed/${encodeURIComponent(keyword)}/600/600`,
   altText: keyword,
   order: 1,
   isActive: true,
@@ -90,7 +90,7 @@ function generateProduct(mainCategory, subCategory) {
 
     images: [
       {
-        url: `https://source.unsplash.com/600x600/?${subCategory.name}`,
+        url: `https://picsum.photos/seed/${encodeURIComponent(subCategory.name)}/600/600`,
         isPrimary: true,
         altText: subCategory.name,
         order: 1,
