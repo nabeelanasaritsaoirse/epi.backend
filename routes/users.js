@@ -134,10 +134,8 @@ router.get('/me/profile', verifyToken, async (req, res) => {
 
     const user = await User.findById(userId)
       .select('-__v')
-      .populate('wallet.transactions')
       .populate('savedPlans.product')
       .populate('referredBy', 'name email')
-      .populate('referredUsers', 'name email')
       .populate({
         path: 'wishlist',
         select: 'name price originalPrice brand images category rating'
@@ -251,10 +249,8 @@ router.get('/profile/:userId', async (req, res) => {
     }
     const user = await User.findById(req.params.userId)
       .select('-__v')
-      .populate('wallet.transactions')
       .populate('savedPlans.product')
       .populate('referredBy', 'name email')
-      .populate('referredUsers', 'name email')
       .populate({
         path: 'wishlist',
         select: 'name price originalPrice brand images category rating'
@@ -288,10 +284,8 @@ router.get('/:userId', verifyToken, isAdmin, async (req, res) => {
     }
     const user = await User.findById(req.params.userId)
       .select('-__v')
-      .populate('wallet.transactions')
       .populate('savedPlans.product')
-      .populate('referredBy')
-      .populate('referredUsers');
+      .populate('referredBy');
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
