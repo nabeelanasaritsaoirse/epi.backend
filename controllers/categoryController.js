@@ -260,6 +260,7 @@ exports.getAllCategoriesForAdmin = async (req, res) => {
       isActive,
       showDeleted,
       region,
+      level,
       page = 1,
       limit = 10,
     } = req.query;
@@ -291,7 +292,12 @@ exports.getAllCategoriesForAdmin = async (req, res) => {
     if (isActive !== undefined && isActive !== "all") {
       filter.isActive = isActive === "true";
     }
-
+/* =============================
+   LEVEL FILTER ✅ FIX
+============================= */
+if (level !== undefined && level !== "all") {
+  filter.level = Number(level);
+}
     /* =============================
        REGION FILTER
     ============================= */
@@ -552,6 +558,10 @@ exports.updateCategory = async (req, res) => {
 
     // Description
     if (description !== undefined) category.description = description;
+    // ✅ STATUS UPDATE FIX
+if (req.body.isActive !== undefined) {
+  category.isActive = req.body.isActive;
+}
 
     // Meta
     if (meta !== undefined) category.meta = meta;
