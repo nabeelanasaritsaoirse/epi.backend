@@ -34,26 +34,27 @@ const {
  * }
  */
 const getCompletedOrders = asyncHandler(async (req, res) => {
-  const { deliveryStatus, limit = 50, skip = 0, page } = req.query;
+  const { deliveryStatus, limit = 10, page = 1, search } = req.query;
 
-  // Calculate skip from page if provided
-  const actualSkip = page ? (page - 1) * limit : skip;
+  const actualLimit = Math.min(parseInt(limit), 100);
+  const actualPage = parseInt(page);
+  const skip = (actualPage - 1) * actualLimit;
 
-  const options = {
+  const { orders, totalCount } = await orderService.getCompletedOrders({
     deliveryStatus,
-    limit: Math.min(limit, 100), // Cap at 100
-    skip: actualSkip,
-  };
-
-  const orders = await orderService.getCompletedOrders(options);
+    limit: actualLimit,
+    skip,
+    search: search ? search.trim() : undefined,
+  });
 
   successResponse(
     res,
     {
       orders,
-      count: orders.length,
-      page: page || Math.floor(actualSkip / limit) + 1,
-      limit,
+      totalCount,
+      page: actualPage,
+      limit: actualLimit,
+      totalPages: Math.ceil(totalCount / actualLimit),
     },
     "Completed orders retrieved successfully"
   );
@@ -1025,78 +1026,281 @@ const getOrdersWithMetadata = asyncHandler(async (req, res) => {
   const {
     status,
     completionBucket,
-    limit = 50,
+    limit = 10,
     page = 1,
     sortBy = "createdAt",
     sortOrder = "desc",
+    search,
   } = req.query;
 
   const actualLimit = Math.min(parseInt(limit), 100);
   const actualPage = parseInt(page);
   const skip = (actualPage - 1) * actualLimit;
+  const sortDir = sortOrder === "asc" ? 1 : -1;
 
-  // Build query
-  const query = {};
-  if (status) query.status = status;
+  const pipeline = [];
 
-  // Get orders
-  let orders = await InstallmentOrder.find(query)
-    .sort({
-      [sortBy === "createdAt" ? "createdAt" : "createdAt"]:
-        sortOrder === "asc" ? 1 : -1,
-    })
-    .populate("user", "name email phoneNumber")
-    .populate("product", "name images pricing")
-    .populate("referrer", "name email")
-    .lean();
+  // Stage 1: Filter by status at DB level
+  if (status) {
+    pipeline.push({ $match: { status } });
+  }
 
-  // Add derived metadata to each order
-  orders = orders.map((order) => ({
-    ...order,
-    metadata: deriveOrderMetadata(order),
-  }));
+  // Stage 2: Lookup user (needed for search and output)
+  pipeline.push({
+    $lookup: {
+      from: "users",
+      localField: "user",
+      foreignField: "_id",
+      as: "_userArr",
+    },
+  });
+  pipeline.push({
+    $addFields: { _userObj: { $arrayElemAt: ["$_userArr", 0] } },
+  });
 
-  // Filter by completion bucket if specified
+  // Stage 3: Apply search filter on user fields at DB level
+  if (search) {
+    const searchRegex = {
+      $regex: search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+      $options: "i",
+    };
+    pipeline.push({
+      $match: {
+        $or: [
+          { "_userObj.name": searchRegex },
+          { "_userObj.email": searchRegex },
+          { "_userObj.phoneNumber": searchRegex },
+        ],
+      },
+    });
+  }
+
+  // Stage 4: Compute derived metadata fields at DB level
+  // 4a: Pending payable schedule items (amount > 0 AND status PENDING)
+  pipeline.push({
+    $addFields: {
+      _pendingPayable: {
+        $filter: {
+          input: "$paymentSchedule",
+          as: "item",
+          cond: {
+            $and: [
+              { $gt: ["$$item.amount", 0] },
+              { $eq: ["$$item.status", "PENDING"] },
+            ],
+          },
+        },
+      },
+    },
+  });
+
+  // 4b: Last pending due date and remaining installment count
+  pipeline.push({
+    $addFields: {
+      _remainingInstallments: { $size: "$_pendingPayable" },
+      _lastDueDate: {
+        $cond: {
+          if: { $gt: [{ $size: "$_pendingPayable" }, 0] },
+          then: {
+            $let: {
+              vars: { last: { $arrayElemAt: ["$_pendingPayable", -1] } },
+              in: "$$last.dueDate",
+            },
+          },
+          else: null,
+        },
+      },
+    },
+  });
+
+  // 4c: Effective status (COMPLETED if no pending installments)
+  pipeline.push({
+    $addFields: {
+      _effectiveStatus: {
+        $cond: {
+          if: { $eq: ["$_remainingInstallments", 0] },
+          then: "COMPLETED",
+          else: "$status",
+        },
+      },
+    },
+  });
+
+  // 4d: Days to complete — UTC midnight-truncated integer
+  // Uses toLong (epoch ms) and mod 86400000 to strip time component
+  pipeline.push({
+    $addFields: {
+      _daysToComplete: {
+        $cond: {
+          if: {
+            $and: [
+              { $ne: ["$_lastDueDate", null] },
+              { $ne: ["$status", "CANCELLED"] },
+            ],
+          },
+          then: {
+            $let: {
+              vars: {
+                nowMs: { $toLong: "$$NOW" },
+                dueMs: { $toLong: "$_lastDueDate" },
+              },
+              in: {
+                $divide: [
+                  {
+                    $subtract: [
+                      { $subtract: ["$$dueMs", { $mod: ["$$dueMs", 86400000] }] },
+                      { $subtract: ["$$nowMs", { $mod: ["$$nowMs", 86400000] }] },
+                    ],
+                  },
+                  86400000,
+                ],
+              },
+            },
+          },
+          else: null,
+        },
+      },
+    },
+  });
+
+  // 4e: Completion bucket (mirrors getCompletionBucket helper logic)
+  pipeline.push({
+    $addFields: {
+      _completionBucket: {
+        $switch: {
+          branches: [
+            { case: { $eq: ["$_effectiveStatus", "COMPLETED"] }, then: "completed" },
+            { case: { $eq: ["$_effectiveStatus", "CANCELLED"] }, then: "cancelled" },
+            { case: { $eq: ["$status", "CANCELLED"] }, then: "cancelled" },
+            { case: { $eq: ["$_lastDueDate", null] }, then: "completed" },
+            { case: { $lt: ["$_daysToComplete", 0] }, then: "overdue" },
+            { case: { $eq: ["$_daysToComplete", 0] }, then: "due-today" },
+            { case: { $lte: ["$_daysToComplete", 7] }, then: "1-7-days" },
+            { case: { $lte: ["$_daysToComplete", 30] }, then: "8-30-days" },
+          ],
+          default: "30+-days",
+        },
+      },
+    },
+  });
+
+  // 4f: Progress percentage and remaining amount
+  pipeline.push({
+    $addFields: {
+      _progressPercentage: {
+        $cond: {
+          if: { $gt: ["$productPrice", 0] },
+          then: {
+            $round: [
+              { $multiply: [{ $divide: ["$totalPaidAmount", "$productPrice"] }, 100] },
+              0,
+            ],
+          },
+          else: 0,
+        },
+      },
+      _remainingAmount: {
+        $max: [0, { $subtract: ["$productPrice", "$totalPaidAmount"] }],
+      },
+    },
+  });
+
+  // Stage 5: Filter by completionBucket at DB level (now that it's computed)
   if (completionBucket) {
-    orders = orders.filter(
-      (order) => order.metadata.completionBucket === completionBucket
-    );
+    pipeline.push({ $match: { _completionBucket: completionBucket } });
   }
 
-  // Sort by derived fields if needed
-  if (sortBy === "daysToComplete") {
-    orders.sort((a, b) => {
-      const aVal = a.metadata.daysToComplete ?? Infinity;
-      const bVal = b.metadata.daysToComplete ?? Infinity;
-      return sortOrder === "asc" ? aVal - bVal : bVal - aVal;
-    });
-  } else if (sortBy === "progressPercentage") {
-    orders.sort((a, b) => {
-      return sortOrder === "asc"
-        ? a.metadata.progressPercentage - b.metadata.progressPercentage
-        : b.metadata.progressPercentage - a.metadata.progressPercentage;
-    });
-  } else if (sortBy === "remainingAmount") {
-    orders.sort((a, b) => {
-      return sortOrder === "asc"
-        ? a.metadata.remainingAmount - b.metadata.remainingAmount
-        : b.metadata.remainingAmount - a.metadata.remainingAmount;
-    });
-  }
+  // Stage 6: Sort — map sortBy aliases to computed field names
+  const sortFieldMap = {
+    daysToComplete: "_daysToComplete",
+    progressPercentage: "_progressPercentage",
+    remainingAmount: "_remainingAmount",
+    createdAt: "createdAt",
+  };
+  const sortField = sortFieldMap[sortBy] || "createdAt";
+  pipeline.push({ $sort: { [sortField]: sortDir } });
 
-  const totalCount = orders.length;
+  // Stage 7: Facet — DB-level count + paginated results in one query
+  pipeline.push({
+    $facet: {
+      totalCount: [{ $count: "count" }],
+      orders: [
+        { $skip: skip },
+        { $limit: actualLimit },
+        // Populate product
+        {
+          $lookup: {
+            from: "products",
+            localField: "product",
+            foreignField: "_id",
+            as: "_productArr",
+          },
+        },
+        // Populate referrer
+        {
+          $lookup: {
+            from: "users",
+            localField: "referrer",
+            foreignField: "_id",
+            as: "_referrerArr",
+          },
+        },
+        // Shape final output
+        {
+          $addFields: {
+            user: {
+              _id: "$_userObj._id",
+              name: "$_userObj.name",
+              email: "$_userObj.email",
+              phoneNumber: "$_userObj.phoneNumber",
+            },
+            product: { $arrayElemAt: ["$_productArr", 0] },
+            referrer: { $arrayElemAt: ["$_referrerArr", 0] },
+            metadata: {
+              remainingInstallments: "$_remainingInstallments",
+              lastDueDate: "$_lastDueDate",
+              daysToComplete: "$_daysToComplete",
+              completionBucket: "$_completionBucket",
+              progressPercentage: "$_progressPercentage",
+              remainingAmount: "$_remainingAmount",
+              paidInstallments: { $ifNull: ["$paidInstallments", 0] },
+              totalInstallments: { $size: "$paymentSchedule" },
+            },
+          },
+        },
+        // Remove all temp fields
+        {
+          $project: {
+            _userArr: 0,
+            _userObj: 0,
+            _productArr: 0,
+            _referrerArr: 0,
+            _pendingPayable: 0,
+            _remainingInstallments: 0,
+            _lastDueDate: 0,
+            _effectiveStatus: 0,
+            _daysToComplete: 0,
+            _completionBucket: 0,
+            _progressPercentage: 0,
+            _remainingAmount: 0,
+          },
+        },
+      ],
+    },
+  });
 
-  // Apply pagination after filtering
-  const paginatedOrders = orders.slice(skip, skip + actualLimit);
+  const [result] = await InstallmentOrder.aggregate(pipeline);
+  const totalCount = result.totalCount[0]?.count || 0;
+  const orders = result.orders;
 
   successResponse(
     res,
     {
-      orders: paginatedOrders,
+      orders,
       totalCount,
       page: actualPage,
       limit: actualLimit,
-      hasMore: skip + paginatedOrders.length < totalCount,
+      totalPages: Math.ceil(totalCount / actualLimit),
     },
     "Orders with metadata retrieved successfully"
   );

@@ -76,6 +76,102 @@ const paymentRecordSchema = new mongoose.Schema({
     default: false
   },
 
+  // ============================================
+  // RAZORPAY ENRICHED DATA (populated by webhook)
+  // ============================================
+
+  // Core payment snapshot from Razorpay API
+  razorpayAmount: { type: Number, default: null },       // Amount in paise as received from Razorpay
+  razorpayCurrency: { type: String, default: null },
+  razorpayStatus: {
+    type: String,
+    enum: ['created', 'authorized', 'captured', 'refunded', 'failed', null],
+    default: null
+  },
+  razorpayMethod: {
+    type: String,
+    enum: ['card', 'netbanking', 'wallet', 'emi', 'upi', null],
+    default: null
+  },
+  razorpayCaptured: { type: Boolean, default: null },
+  razorpayFee: { type: Number, default: null },          // Razorpay fee in paise
+  razorpayTax: { type: Number, default: null },          // GST on fee in paise
+  razorpayEmail: { type: String, default: null },        // Customer email from Razorpay
+  razorpayContact: { type: String, default: null },      // Customer phone from Razorpay
+  razorpayInternational: { type: Boolean, default: false },
+  razorpayNotes: { type: Object, default: {} },
+  razorpayCreatedAt: { type: Date, default: null },      // Razorpay's own creation timestamp
+  razorpayAmountRefunded: { type: Number, default: 0 },  // Total refunded so far in paise
+  razorpayRefundStatus: { type: String, default: null }, // 'full' | 'partial' | null
+
+  // Card details (populated when razorpayMethod = 'card')
+  cardDetails: {
+    cardId:        { type: String, default: null },
+    name:          { type: String, default: null },      // Cardholder name
+    last4:         { type: String, default: null },
+    network:       { type: String, default: null },      // Visa, Mastercard, RuPay, etc.
+    type:          { type: String, default: null },      // credit / debit
+    issuer:        { type: String, default: null },      // Issuer bank code
+    international: { type: Boolean, default: false },
+    subType:       { type: String, default: null },      // consumer / commercial
+    iin:           { type: String, default: null }       // Issuer Identification Number
+  },
+
+  // UPI details (populated when razorpayMethod = 'upi')
+  upiDetails: {
+    vpa:      { type: String, default: null },           // Virtual Payment Address e.g. user@upi
+    username: { type: String, default: null },
+    handle:   { type: String, default: null }            // UPI provider handle e.g. oksbi, okaxis
+  },
+
+  // Netbanking details (populated when razorpayMethod = 'netbanking')
+  netbankingDetails: {
+    bank:     { type: String, default: null },           // 4-char code e.g. HDFC, ICIC
+    bankName: { type: String, default: null }
+  },
+
+  // Wallet details (populated when razorpayMethod = 'wallet')
+  walletDetails: {
+    wallet: { type: String, default: null }              // e.g. olamoney, mobikwik
+  },
+
+  // EMI details (populated when razorpayMethod = 'emi')
+  emiDetails: {
+    issuer:        { type: String, default: null },
+    rate:          { type: Number, default: null },      // Interest rate percentage
+    duration:      { type: Number, default: null },      // Tenure in months
+    monthlyAmount: { type: Number, default: null }       // Monthly EMI in paise
+  },
+
+  // Bank/acquirer-level transaction references
+  acquirerData: {
+    rrn:               { type: String, default: null }, // Retrieval Reference Number
+    authCode:          { type: String, default: null }, // Authorization code
+    bankTransactionId: { type: String, default: null },
+    upiTransactionId:  { type: String, default: null },
+    arn:               { type: String, default: null }  // Acquirer Reference Number
+  },
+
+  // Razorpay error details (populated on payment failure)
+  errorCode:        { type: String, default: null },    // e.g. BAD_REQUEST_ERROR
+  errorDescription: { type: String, default: null },
+  errorSource:      { type: String, default: null },    // customer / bank / gateway / business
+  errorStep:        { type: String, default: null },    // otp_verification / authorization etc.
+  errorReason:      { type: String, default: null },    // authentication_failed / insufficient_funds etc.
+
+  // Refunds initiated from admin panel
+  refunds: [{
+    razorpayRefundId:      { type: String, required: true },
+    amount:                { type: Number, required: true },   // paise
+    status:                { type: String, default: 'pending' }, // pending/processed/failed
+    speedProcessed:        { type: String, default: null },    // normal / optimum
+    arn:                   { type: String, default: null },
+    reason:                { type: String, default: null },
+    initiatedByAdminId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    initiatedByAdminEmail: { type: String, default: null },
+    createdAt:             { type: Date, default: Date.now }
+  }],
+
   // Wallet Transaction (if applicable)
   walletTransactionId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -235,6 +331,10 @@ paymentRecordSchema.index({ idempotencyKey: 1 }, { sparse: true });
 paymentRecordSchema.index({ commissionCalculated: 1, commissionCreditedToReferrer: 1, status: 1 });
 // Order-level payment status lookup
 paymentRecordSchema.index({ order: 1, status: 1 });
+// Admin payment intelligence — filter by method + date, customer contact
+paymentRecordSchema.index({ razorpayMethod: 1, createdAt: -1 });
+paymentRecordSchema.index({ razorpayEmail: 1 });
+paymentRecordSchema.index({ razorpayContact: 1 });
 
 // ============================================
 // PRE-SAVE MIDDLEWARE

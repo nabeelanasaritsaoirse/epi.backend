@@ -718,21 +718,105 @@ async function getUserOrders(userId, options = {}) {
  * Get completed orders for admin
  *
  * @param {Object} options - Query options
- * @returns {Promise<Array>} Array of completed orders
+ * @returns {Promise<{ orders: Array, totalCount: number }>}
  */
 async function getCompletedOrders(options = {}) {
-  const { deliveryStatus, limit = 50, skip = 0 } = options;
+  const { deliveryStatus, limit = 10, skip = 0, search } = options;
 
-  const query = { status: "COMPLETED" };
-  if (deliveryStatus) query.deliveryStatus = deliveryStatus;
+  const matchStage = { status: "COMPLETED" };
+  if (deliveryStatus) matchStage.deliveryStatus = deliveryStatus;
 
-  return InstallmentOrder.find(query)
-    .sort({ completedAt: -1 })
-    .limit(limit)
-    .skip(skip)
-    .populate("user", "name email phoneNumber")
-    .populate("product", "name images pricing")
-    .populate("referrer", "name email");
+  if (!search) {
+    // No search — efficient path: find + countDocuments in parallel
+    const [orders, totalCount] = await Promise.all([
+      InstallmentOrder.find(matchStage)
+        .sort({ completedAt: -1 })
+        .limit(limit)
+        .skip(skip)
+        .populate("user", "name email phoneNumber")
+        .populate("product", "name images pricing")
+        .populate("referrer", "name email"),
+      InstallmentOrder.countDocuments(matchStage),
+    ]);
+    return { orders, totalCount };
+  }
+
+  // Search path — requires $lookup to match on user fields
+  const searchRegex = { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" };
+
+  const pipeline = [
+    { $match: matchStage },
+    {
+      $lookup: {
+        from: "users",
+        localField: "user",
+        foreignField: "_id",
+        as: "_userArr",
+      },
+    },
+    { $addFields: { _userObj: { $arrayElemAt: ["$_userArr", 0] } } },
+    {
+      $match: {
+        $or: [
+          { "_userObj.name": searchRegex },
+          { "_userObj.email": searchRegex },
+          { "_userObj.phoneNumber": searchRegex },
+        ],
+      },
+    },
+    { $sort: { completedAt: -1 } },
+    {
+      $facet: {
+        totalCount: [{ $count: "count" }],
+        orders: [
+          { $skip: skip },
+          { $limit: limit },
+          {
+            $lookup: {
+              from: "products",
+              localField: "product",
+              foreignField: "_id",
+              as: "_productArr",
+            },
+          },
+          {
+            $lookup: {
+              from: "users",
+              localField: "referrer",
+              foreignField: "_id",
+              as: "_referrerArr",
+            },
+          },
+          {
+            $addFields: {
+              user: {
+                _id: "$_userObj._id",
+                name: "$_userObj.name",
+                email: "$_userObj.email",
+                phoneNumber: "$_userObj.phoneNumber",
+              },
+              product: { $arrayElemAt: ["$_productArr", 0] },
+              referrer: { $arrayElemAt: ["$_referrerArr", 0] },
+            },
+          },
+          {
+            $project: {
+              _userArr: 0,
+              _userObj: 0,
+              _productArr: 0,
+              _referrerArr: 0,
+            },
+          },
+        ],
+      },
+    },
+  ];
+
+  const [result] = await InstallmentOrder.aggregate(pipeline);
+  return {
+    orders: result.orders,
+    totalCount: result.totalCount[0]?.count || 0,
+  };
 }
 
 /**
