@@ -255,70 +255,83 @@ exports.getAllCategories = async (req, res) => {
  */
 exports.getAllCategoriesForAdmin = async (req, res) => {
   try {
-    const { parentCategoryId, isActive, showDeleted, region } = req.query;
+    const {
+      parentCategoryId,
+      isActive,
+      showDeleted,
+      region,
+      page = 1,
+      limit = 10,
+    } = req.query;
+
+    const pageNumber = Number(page);
+    const pageLimit = Number(limit);
+    const skip = (pageNumber - 1) * pageLimit;
 
     let filter = {};
 
-    // Show deleted categories only if explicitly requested
+    // Deleted filter
     if (showDeleted !== "true") {
       filter.isDeleted = false;
     }
 
     // Parent filter
-    if (parentCategoryId) {
+    if (parentCategoryId && parentCategoryId !== "all") {
       filter.parentCategoryId =
         parentCategoryId === "null" ? null : parentCategoryId;
     }
 
-    // Status filter ONLY if provided
+    // Active filter
     if (isActive !== undefined && isActive !== "all") {
-      filter.isActive = isActive === "true" || isActive === true;
+      filter.isActive = isActive === "true";
     }
 
-    // Region filter - OPTIONAL for admin
-    // Admin by default sees ALL regions
-    // Use ?region=india to filter by specific region
-    // Categories with empty availableInRegions array are global (visible everywhere)
+    // Region filter
     if (region && region !== "all" && region !== "global") {
       filter.$or = [
         { availableInRegions: region },
-        { availableInRegions: { $size: 0 } }, // Global categories
-        { availableInRegions: { $exists: false } }, // Legacy categories without region field
+        { availableInRegions: { $size: 0 } },
+        { availableInRegions: { $exists: false } },
       ];
     }
 
+    // ✅ TOTAL COUNT FIRST
+    const totalCount = await Category.countDocuments(filter);
+
+    // ✅ PAGINATED DATA
     const categories = await Category.find(filter)
       .populate(
         "subCategories",
-        "categoryId name slug image mainImage iconImage icon displayOrder isDeleted"
+        "categoryId name slug image mainImage iconImage displayOrder isDeleted"
       )
       .populate("deletedBy", "name email")
       .sort({ displayOrder: 1, name: 1 })
+      .skip(skip)
+      .limit(pageLimit)
       .exec();
 
-    // Apply parent image fallback for subcategories
     const categoriesWithFallback = categories.map(cat => {
       const catObj = cat.toObject();
-      if (catObj.subCategories && catObj.subCategories.length > 0) {
-        catObj.subCategories = applyParentImageFallback(catObj, catObj.subCategories);
+      if (catObj.subCategories?.length) {
+        catObj.subCategories = applyParentImageFallback(
+          catObj,
+          catObj.subCategories
+        );
       }
       return catObj;
     });
 
     res.status(200).json({
       success: true,
-      count: categoriesWithFallback.length,
+      count: totalCount,
+      page: pageNumber,
+      limit: pageLimit,
+      totalPages: Math.ceil(totalCount / pageLimit),
       data: categoriesWithFallback,
-      // Include applied filters for debugging
-      appliedFilters: {
-        parentCategoryId: parentCategoryId || "all",
-        isActive: isActive || "all",
-        region: region || "all",
-        showDeleted: showDeleted === "true",
-      },
     });
+
   } catch (error) {
-    console.error("Error fetching categories for admin:", error);
+    console.error("Error fetching categories:", error);
     res.status(500).json({
       success: false,
       message: error.message,
