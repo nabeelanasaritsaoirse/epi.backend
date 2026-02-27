@@ -270,23 +270,31 @@ exports.getAllCategoriesForAdmin = async (req, res) => {
 
     let filter = {};
 
-    // Deleted filter
+    /* =============================
+       DELETED FILTER
+    ============================= */
     if (showDeleted !== "true") {
       filter.isDeleted = false;
     }
 
-    // Parent filter
+    /* =============================
+       PARENT FILTER
+    ============================= */
     if (parentCategoryId && parentCategoryId !== "all") {
       filter.parentCategoryId =
         parentCategoryId === "null" ? null : parentCategoryId;
     }
 
-    // Active filter
+    /* =============================
+       ACTIVE FILTER
+    ============================= */
     if (isActive !== undefined && isActive !== "all") {
       filter.isActive = isActive === "true";
     }
 
-    // Region filter
+    /* =============================
+       REGION FILTER
+    ============================= */
     if (region && region !== "all" && region !== "global") {
       filter.$or = [
         { availableInRegions: region },
@@ -295,10 +303,32 @@ exports.getAllCategoriesForAdmin = async (req, res) => {
       ];
     }
 
-    // ✅ TOTAL COUNT FIRST
+    /* =============================
+       TOTAL COUNT (FOR PAGINATION)
+    ============================= */
     const totalCount = await Category.countDocuments(filter);
 
-    // ✅ PAGINATED DATA
+    /* =============================
+       GLOBAL STATS (NEW ✅)
+    ============================= */
+    const activeCount = await Category.countDocuments({
+      ...filter,
+      isActive: true,
+    });
+
+    const featuredCount = await Category.countDocuments({
+      ...filter,
+      isFeatured: true,
+    });
+
+    const rootCount = await Category.countDocuments({
+      ...filter,
+      parentCategoryId: null,
+    });
+
+    /* =============================
+       PAGINATED DATA
+    ============================= */
     const categories = await Category.find(filter)
       .populate(
         "subCategories",
@@ -310,35 +340,52 @@ exports.getAllCategoriesForAdmin = async (req, res) => {
       .limit(pageLimit)
       .exec();
 
-    const categoriesWithFallback = categories.map(cat => {
+    /* =============================
+       IMAGE FALLBACK
+    ============================= */
+    const categoriesWithFallback = categories.map((cat) => {
       const catObj = cat.toObject();
+
       if (catObj.subCategories?.length) {
         catObj.subCategories = applyParentImageFallback(
           catObj,
           catObj.subCategories
         );
       }
+
       return catObj;
     });
 
+    /* =============================
+       FINAL RESPONSE
+    ============================= */
     res.status(200).json({
       success: true,
+
+      /* pagination */
       count: totalCount,
       page: pageNumber,
       limit: pageLimit,
       totalPages: Math.ceil(totalCount / pageLimit),
+
+      /* stats (NEW) */
+      activeCount,
+      featuredCount,
+      rootCount,
+
+      /* data */
       data: categoriesWithFallback,
     });
 
   } catch (error) {
     console.error("Error fetching categories:", error);
+
     res.status(500).json({
       success: false,
       message: error.message,
     });
   }
 };
-
 /**
  * @desc    Get category by ID
  * @route   GET /api/categories/:categoryId
