@@ -284,8 +284,33 @@ const userSchema = new Schema({
   }],
   role: {
     type: String,
-    enum: ['user', 'admin', 'super_admin', 'sales_team'],
+    enum: ['user', 'admin', 'super_admin', 'sales_team', 'seller'],
     default: 'user'
+  },
+
+  // ── Seller Profile (populated only when role === 'seller') ──────────────
+  sellerProfile: {
+    storeName:        { type: String, default: null, trim: true },
+    storeDescription: { type: String, default: null, trim: true },
+    storeImage:       { type: String, default: null },          // S3 URL
+    gstNumber:        { type: String, default: null, trim: true, uppercase: true },
+    panNumber:        { type: String, default: null, trim: true, uppercase: true },
+    // Platform commission override: null → inherit from Category.commissionRate
+    commissionRate:   { type: Number, default: null, min: 0, max: 100 },
+    isVerified:       { type: Boolean, default: false },
+    verifiedAt:       { type: Date, default: null },
+    verifiedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    // Running counters — updated via $inc on each order event
+    totalProducts:    { type: Number, default: 0, min: 0 },
+    totalSales:       { type: Number, default: 0, min: 0 },
+    totalRevenue:     { type: Number, default: 0, min: 0 },
+    // Aggregate seller rating from product reviews
+    rating:           { type: Number, default: 0, min: 0, max: 5 },
+    ratingCount:      { type: Number, default: 0, min: 0 },
   },
 
   // Admin-specific fields for password-based login (not Firebase)

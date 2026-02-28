@@ -4,7 +4,7 @@ const Product = require('../models/Product');
 /**
  * Export products to Excel file
  * @param {Object} filters - MongoDB query filters
- * @returns {ExcelJS.Workbook} Excel workbook
+ * @returns {Promise<ExcelJS.Workbook>} Excel workbook
  */
 exports.exportProductsToExcel = async (filters = {}) => {
   try {
@@ -84,7 +84,7 @@ exports.exportProductsToExcel = async (filters = {}) => {
 /**
  * Export products to CSV
  * @param {Object} filters - MongoDB query filters
- * @returns {string} CSV string
+ * @returns {Promise<string>} CSV string
  */
 exports.exportProductsToCSV = async (filters = {}) => {
   try {

@@ -294,9 +294,10 @@
 const { admin } = require('../config/firebase');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const { hasRole, hasAnyRole, isAdmin, isSuperAdmin, isSalesTeam, canAccessPanel } = require('../utils/roleHelpers');
+const { hasRole, hasAnyRole, isAdmin, isSuperAdmin, isSalesTeam, isSeller, canAccessPanel } = require('../utils/roleHelpers');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-this-in-production';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error('JWT_SECRET environment variable is not set');
 const JWT_EXPIRY = '7d';
 const REFRESH_TOKEN_EXPIRY = '30d';
 
@@ -571,6 +572,30 @@ exports.canAccessPanel = (req, res, next) => {
     success: false,
     message: 'Access denied. Panel access required.',
     code: 'PANEL_ACCESS_REQUIRED'
+  });
+};
+
+// 🔥 CHECK SELLER
+exports.isSeller = (req, res, next) => {
+  if (req.user && isSeller(req.user)) {
+    return next();
+  }
+  return res.status(403).json({
+    success: false,
+    message: 'Access denied. Seller account required.',
+    code: 'SELLER_REQUIRED',
+  });
+};
+
+// 🔥 CHECK SELLER OR ADMIN (seller can act on own resources; admin has full access)
+exports.isSellerOrAdmin = (req, res, next) => {
+  if (req.user && hasAnyRole(req.user, ['seller', 'admin', 'super_admin'])) {
+    return next();
+  }
+  return res.status(403).json({
+    success: false,
+    message: 'Access denied. Seller or admin required.',
+    code: 'SELLER_OR_ADMIN_REQUIRED',
   });
 };
 

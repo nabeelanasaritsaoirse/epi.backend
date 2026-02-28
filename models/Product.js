@@ -65,11 +65,17 @@ const referralBonusSchema = new mongoose.Schema({
 const variantSchema = new mongoose.Schema({
   variantId: { type: String, required: true },
   sku: { type: String, required: true },
-  attributes: {
-    size: String,
-    color: String,
-    material: String,
-  },
+  // Extensible key-value pairs driven by category.attributeSchema
+  // e.g. [{name:"Color",value:"Red"},{name:"Size",value:"L"}]
+  attributes: [
+    {
+      name: { type: String, required: true },
+      value: { type: String, required: true },
+    },
+  ],
+  // Computed: "Color:Red|Size:L" — sorted alphabetically, auto-built in pre-save
+  // Used for duplicate detection and indexed filtering
+  attributeKey: { type: String, default: "" },
   // Optional human-readable description for the variant
   description: {
     short: { type: String },
@@ -86,15 +92,17 @@ const variantSchema = new mongoose.Schema({
   isActive: { type: Boolean, default: true },
 });
 
-// FIXED: Remove required: true from finalPrice
-// FIXED: Remove required: true from finalPrice
 const regionalPricingSchema = new mongoose.Schema({
   region: { type: String, required: true },
-  currency: { type: String, default: "USD" },
+  currency: { type: String, default: "INR" },
   regularPrice: { type: Number, required: true, min: 0 },
   salePrice: { type: Number, min: 0 },
   costPrice: { type: Number, min: 0 },
   finalPrice: { type: Number, min: 0 },
+  // false = auto-converted from base price via ExchangeRateService
+  // true  = seller has manually pinned a specific price for this region
+  isManualOverride: { type: Boolean, default: false },
+  lastSyncedAt: { type: Date },
 });
 
 const regionalSeoSchema = new mongoose.Schema({
@@ -139,14 +147,29 @@ const productSchema = new mongoose.Schema({
   },
   name: {
     type: String,
-    required: true,
+    required: [true, "Product name is required"],
     trim: true,
+    minlength: [2, "Product name must be at least 2 characters"],
+    maxlength: [200, "Product name cannot exceed 200 characters"],
   },
   description: {
-    short: { type: String, required: true },
+    short: {
+      type: String,
+      required: [true, "Short description is required"],
+      minlength: [10, "Short description must be at least 10 characters"],
+      maxlength: [500, "Short description cannot exceed 500 characters"],
+    },
     long: String,
     features: [String],
-    specifications: mongoose.Schema.Types.Mixed,
+    // Structured key-value specs — queryable and filterable (replaces Mixed)
+    // e.g. [{key:"RAM", value:"8", unit:"GB"}, {key:"Display", value:"6.5", unit:"inches"}]
+    specifications: [
+      {
+        key: { type: String },
+        value: { type: String },
+        unit: { type: String },
+      },
+    ],
   },
   category: {
     mainCategoryId: {
@@ -163,6 +186,28 @@ const productSchema = new mongoose.Schema({
   },
   brand: { type: String, required: true },
   sku: { type: String, unique: true, sparse: true },
+
+  // URL-friendly identifier — auto-generated from name on create if not provided
+  slug: { type: String, unique: true, sparse: true, lowercase: true, trim: true },
+
+  // Product condition — essential for multi-seller / refurbished listings
+  condition: {
+    type: String,
+    enum: ["new", "refurbished", "used", "pre-owned"],
+    default: "new",
+  },
+
+  // Internal search + display tags (separate from SEO keywords)
+  tags: [{ type: String, lowercase: true, trim: true }],
+
+  // Indian GST compliance — required for valid tax invoices
+  taxInfo: {
+    hsnCode: { type: String, trim: true },      // 6–8 digit HSN code
+    gstRate: {                                   // Indian GST slab
+      type: Number,
+      enum: [0, 5, 12, 18, 28],
+    },
+  },
 
   // Enhanced Availability
   availability: {
@@ -181,7 +226,9 @@ const productSchema = new mongoose.Schema({
     salePrice: { type: Number, min: 0 },
     finalPrice: { type: Number, min: 0 },
     costPrice: { type: Number, min: 0 },
-    currency: { type: String, default: "USD" },
+    currency: { type: String, default: "INR" },
+    // Canonical currency all prices are stored in before conversion
+    baseCurrency: { type: String, default: "INR" },
   },
 
   isGlobalProduct: {
@@ -220,6 +267,8 @@ const productSchema = new mongoose.Schema({
 
   variants: [variantSchema],
   hasVariants: { type: Boolean, default: false },
+  // Which variant is shown by default on the product card (e.g. cheapest or most popular)
+  defaultVariantId: { type: String, default: null },
 
   images: [imageSchema],
 
@@ -230,14 +279,21 @@ const productSchema = new mongoose.Schema({
 
   dimensions: {
     weight: { type: Number, min: 0 },
+    weightUnit: { type: String, enum: ["g", "kg", "lb", "oz"], default: "kg" },
     length: { type: Number, min: 0 },
     width: { type: Number, min: 0 },
     height: { type: Number, min: 0 },
+    dimensionUnit: { type: String, enum: ["cm", "in", "mm"], default: "cm" },
   },
 
   warranty: {
     period: { type: Number, min: 0 },
-    returnPolicy: { type: Number, min: 0 },
+    warrantyUnit: {
+      type: String,
+      enum: ["days", "months", "years"],
+      default: "months",
+    },
+    returnPolicy: { type: Number, min: 0 }, // number of days
   },
 
   // Review Statistics (denormalized for performance)
@@ -272,9 +328,41 @@ const productSchema = new mongoose.Schema({
     keywords: [String],
   },
 
+  // ── Seller Ownership ────────────────────────────────────────────────────
+  // null = platform-owned product (created by admin, always published)
+  sellerId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    default: null,
+    index: true,
+  },
+  // Denormalised seller snapshot — avoids populate on every product read
+  sellerInfo: {
+    storeName:  { type: String, default: null },
+    rating:     { type: Number, default: null, min: 0, max: 5 },
+    isVerified: { type: Boolean, default: false },
+  },
+
+  // ── Listing Status (controls visibility) ────────────────────────────────
+  // Admin products default to "published" (zero breaking change).
+  // Seller products are forced to "pending_approval" by the controller.
+  listingStatus: {
+    type: String,
+    enum: ["draft", "pending_approval", "published", "rejected", "archived"],
+    default: "published",
+    index: true,
+  },
+  listingRejectionReason: { type: String, default: null },
+  listingReviewedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    default: null,
+  },
+  listingReviewedAt: { type: Date, default: null },
+
   status: {
     type: String,
-    enum: ["draft", "published", "archived", "active"],
+    enum: ["draft", "published", "archived"],
     default: "draft",
   },
 
@@ -323,6 +411,48 @@ productSchema.pre("save", function (next) {
 
   this.updatedAt = Date.now();
 
+  // ── Slug: auto-generate from name if not set ──────────────────────────────
+  if (!this.slug && this.name) {
+    this.slug = this.name
+      .toLowerCase()
+      .trim()
+      .replace(/[^\w\s-]/g, "")   // strip non-alphanumeric except hyphens
+      .replace(/[\s_]+/g, "-")    // spaces/underscores → hyphens
+      .replace(/^-+|-+$/g, "");   // trim leading/trailing hyphens
+  }
+
+  // ── Sale price guard: salePrice must be strictly less than regularPrice ─────
+  if (
+    this.pricing &&
+    this.pricing.salePrice != null &&
+    this.pricing.regularPrice != null &&
+    this.pricing.salePrice >= this.pricing.regularPrice
+  ) {
+    const validationError = new mongoose.Error.ValidationError(this);
+    validationError.errors["pricing.salePrice"] =
+      new mongoose.Error.ValidatorError({
+        message: `Sale price (${this.pricing.salePrice}) must be less than regular price (${this.pricing.regularPrice})`,
+        path: "pricing.salePrice",
+        value: this.pricing.salePrice,
+      });
+    return next(validationError);
+  }
+
+  // ── attributeKey: compute sorted key for each variant ────────────────────
+  if (this.variants && this.variants.length > 0) {
+    this.variants.forEach((variant) => {
+      if (Array.isArray(variant.attributes) && variant.attributes.length > 0) {
+        variant.attributeKey = variant.attributes
+          .slice()
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((a) => `${a.name}:${a.value}`)
+          .join("|");
+      } else {
+        variant.attributeKey = "";
+      }
+    });
+  }
+
   // plans
   if (this.plans && this.plans.length > 0) {
     this.plans.forEach((plan) => {
@@ -332,15 +462,13 @@ productSchema.pre("save", function (next) {
     });
   }
 
-  // regional pricing
+  // regional pricing — always recompute finalPrice
   if (this.regionalPricing && this.regionalPricing.length > 0) {
     this.regionalPricing.forEach((pricing) => {
-      if (!pricing.finalPrice) {
-        pricing.finalPrice =
-          pricing.salePrice && pricing.salePrice > 0
-            ? pricing.salePrice
-            : pricing.regularPrice;
-      }
+      pricing.finalPrice =
+        pricing.salePrice != null && pricing.salePrice > 0
+          ? pricing.salePrice
+          : pricing.regularPrice;
     });
   }
 
@@ -359,10 +487,10 @@ productSchema.pre("save", function (next) {
     });
   }
 
-  // pricing
-  if (this.pricing && !this.pricing.finalPrice) {
+  // pricing — always recompute finalPrice so it stays in sync when sale ends
+  if (this.pricing) {
     this.pricing.finalPrice =
-      this.pricing.salePrice && this.pricing.salePrice > 0
+      this.pricing.salePrice != null && this.pricing.salePrice > 0
         ? this.pricing.salePrice
         : this.pricing.regularPrice;
   }
@@ -428,6 +556,16 @@ productSchema.index(
 productSchema.index({ "pricing.finalPrice": 1, status: 1, isDeleted: 1 });
 // Brand filtering
 productSchema.index({ brand: 1, status: 1, isDeleted: 1 });
+
+// Slug lookup
+productSchema.index({ slug: 1, isDeleted: 1 });
+
+// Tags search
+productSchema.index({ tags: 1 });
+
+// Variant attribute filtering: ?attr[Color]=Red&attr[Size]=L
+productSchema.index({ "variants.attributes.name": 1, "variants.attributes.value": 1 });
+productSchema.index({ "variants.attributeKey": 1 });
 
 const Product = mongoose.model("Product", productSchema);
 

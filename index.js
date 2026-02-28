@@ -46,7 +46,8 @@ const dashboardRoutes = require("./routes/dashboardRoutes");
 const featuredListRoutes = require("./routes/featuredListRoutes");
 const adminReferralRoutes = require("./routes/adminReferralRoutes");
 const reviewRoutes = require("./routes/reviewRoutes");
-const backupRoutes = require("./routes/backupRoutes");
+const backupRoutes  = require("./routes/backupRoutes");
+const sellerRoutes  = require("./routes/sellerRoutes");
 
 // Payment intelligence
 const webhookRoutes       = require("./routes/webhook");
@@ -130,11 +131,13 @@ require("./services/kycAutoApproveService");
 const { startNotificationCron } = require("./jobs/notificationCron");
 const { startAutopayCron } = require("./jobs/autopayCron");
 const { startAccountDeletionCron } = require("./jobs/accountDeletionCron");
+const { startExchangeRateSyncJob } = require("./jobs/syncExchangeRates");
 
 // Start cron jobs
 startNotificationCron();
 startAutopayCron();
 startAccountDeletionCron();
+startExchangeRateSyncJob(); // Hourly exchange rate refresh + regional price sync
 
 // Weekly backup cron (every Sunday at 2:00 AM IST)
 const cron = require('node-cron');
@@ -198,6 +201,9 @@ app.use("/api/admin-mgmt", adminManagementRoutes);
 
 // SALES TEAM ROUTES
 app.use("/api/sales", salesTeamRoutes);
+
+// SELLER ROUTES
+app.use("/api/seller", sellerRoutes);
 
 // ADMIN REFERRAL ROUTES
 app.use("/api/admin/referrals", adminReferralRoutes);

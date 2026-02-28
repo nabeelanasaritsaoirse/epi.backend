@@ -66,6 +66,15 @@ const isSalesTeam = (user) => {
 };
 
 /**
+ * Check if user is a seller
+ * @param {Object} user - User object
+ * @returns {Boolean}
+ */
+const isSeller = (user) => {
+  return hasRole(user, 'seller');
+};
+
+/**
  * Check if user can access admin panel (admin, super_admin, or sales_team)
  * @param {Object} user - User object
  * @returns {Boolean}
@@ -145,6 +154,7 @@ module.exports = {
   isAdmin,
   isSuperAdmin,
   isSalesTeam,
+  isSeller,
   canAccessPanel,
   getAllRoles,
   addRole,

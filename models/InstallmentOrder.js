@@ -196,6 +196,39 @@ const installmentOrderSchema = new mongoose.Schema(
     },
     createdByAdminEmail: { type: String, default: null },
 
+    /** SELLER ROUTING **/
+    // Copied from Product.sellerId at order-creation time.
+    // null = platform-owned product (no seller involved).
+    sellerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
+    // Effective platform commission rate captured at order time
+    // (seller earns 100 - sellerCommissionPercentage)%
+    sellerCommissionPercentage: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100,
+    },
+    sellerFulfillmentStatus: {
+      type: String,
+      enum: [
+        "not_applicable",   // platform-owned product
+        "pending",          // waiting for seller to confirm
+        "confirmed",        // seller accepted the order
+        "packed",           // seller has packed the item
+        "shipped",          // seller handed to courier
+        "delivered",        // mirrors delivery confirmation
+      ],
+      default: "not_applicable",
+      index: true,
+    },
+    sellerFulfilledAt: { type: Date, default: null },
+    sellerNotes:       { type: String, default: "" },
+
     /** BULK ORDER **/
     bulkOrderId: {
       type: String,

@@ -42,6 +42,10 @@ const {
   BulkOrderNotFoundError,
   ValidationError,
 } = require("../utils/customErrors");
+const {
+  resolveSellerCommissionRate,
+  creditSellerEarning,
+} = require("./sellerService");
 
 /**
  * Create new installment order with first payment
@@ -359,6 +363,15 @@ async function createOrder(orderData) {
     commissionPercentage = 25;
   }
 
+  // ── Seller routing ──────────────────────────────────────────────────────────
+  // Resolve seller commission once at order creation; stored immutably on order
+  const categoryCommissionRate = product.category?.commissionRate ?? null;
+  const sellerCommissionPercentage = await resolveSellerCommissionRate(
+    product.sellerId,
+    categoryCommissionRate,
+  );
+  // ────────────────────────────────────────────────────────────────────────────
+
   const productSnapshot = {
     productId: product.productId,
     name: product.name,
@@ -439,6 +452,12 @@ async function createOrder(orderData) {
       referrer: referrer?._id || null,
       productCommissionPercentage: commissionPercentage,
       commissionPercentage,
+
+      // ── Seller routing ────────────────────────────────────────────────────
+      sellerId:                   product.sellerId || null,
+      sellerCommissionPercentage: sellerCommissionPercentage,
+      sellerFulfillmentStatus:    product.sellerId ? "pending" : "not_applicable",
+      // ─────────────────────────────────────────────────────────────────────
 
       firstPaymentMethod: paymentMethod,
       lastPaymentDate: paymentMethod === "WALLET" ? new Date() : null,
@@ -908,6 +927,19 @@ async function updateDeliveryStatus(orderId, status) {
 
   order.deliveryStatus = status;
   await order.save();
+
+  // Credit seller wallet when delivery is confirmed (idempotent — safe if called twice)
+  if (status === "DELIVERED") {
+    try {
+      await creditSellerEarning(order);
+    } catch (sellerErr) {
+      // Log but don't fail the delivery status update — seller credit can be retried
+      console.error(
+        `[sellerEarning] Failed to credit seller for order ${order.orderId}:`,
+        sellerErr.message,
+      );
+    }
+  }
 
   return order;
 }
@@ -1646,6 +1678,14 @@ async function createBulkOrder(bulkOrderData) {
         category: itemData.product.category,
       };
 
+      // ── Seller routing ────────────────────────────────────────────────────
+      const itemCategoryCommissionRate = itemData.product.category?.commissionRate ?? null;
+      const itemSellerCommissionPercentage = await resolveSellerCommissionRate(
+        itemData.product.sellerId,
+        itemCategoryCommissionRate,
+      );
+      // ─────────────────────────────────────────────────────────────────────
+
       // Create order (status will be PENDING for RAZORPAY, ACTIVE for WALLET after payment)
       const generatedOrderId = generateOrderId();
 
@@ -1687,6 +1727,12 @@ async function createBulkOrder(bulkOrderData) {
         referrer: referrer?._id || null,
         productCommissionPercentage: commissionPercentage,
         commissionPercentage,
+
+        // ── Seller routing ──────────────────────────────────────────────────
+        sellerId:                   itemData.product.sellerId || null,
+        sellerCommissionPercentage: itemSellerCommissionPercentage,
+        sellerFulfillmentStatus:    itemData.product.sellerId ? "pending" : "not_applicable",
+        // ───────────────────────────────────────────────────────────────────
 
         firstPaymentMethod: paymentMethod,
         lastPaymentDate: null,
