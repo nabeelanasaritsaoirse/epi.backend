@@ -17,11 +17,13 @@
  *
  *   GET  /api/admin/payments/settlements
  *        Fetch settlement list from Razorpay API
- *        Query: count, skip
+ *        Query: page, limit, from (ISO date), to (ISO date)
+ *        Response: settlements[], pagination { page, limit, count, hasMore, nextPage }
  *
  *   GET  /api/admin/payments/settlements/:settlementId
  *        Fetch settlement detail + recon items from Razorpay API
- *        Query: reconCount, reconSkip
+ *        Query: reconPage, reconLimit
+ *        Response: settlement{}, recon { items[], pagination { page, limit, count, hasMore, nextPage } }
  *
  *   GET  /api/admin/payments/:paymentId
  *        Full payment record (all Razorpay fields including card/UPI/acquirer data)

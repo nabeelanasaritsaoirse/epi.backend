@@ -183,6 +183,12 @@ async function processPayment(paymentData) {
       razorpayPaymentId,
       razorpaySignature
     );
+  } else if (paymentMethod === "WEBHOOK") {
+    // Payment was authenticated server-to-server via HMAC-SHA256 webhook
+    // signature at the route entry point — no client-side sig is available.
+    if (!razorpayOrderId || !razorpayPaymentId) {
+      throw new Error("Missing Razorpay order/payment ID for WEBHOOK payment");
+    }
   }
 
   // ========================================
@@ -225,24 +231,27 @@ async function processPayment(paymentData) {
       payment = existingPayment;
       payment.razorpayPaymentId = razorpayPaymentId || null;
       payment.razorpaySignature = razorpaySignature || null;
-      payment.razorpayVerified = paymentMethod === "RAZORPAY" ? true : false;
+      payment.razorpayVerified = ["RAZORPAY", "WEBHOOK"].includes(paymentMethod);
       payment.walletTransactionId = walletTransactionId;
       payment.status = "COMPLETED";
       payment.processedAt = new Date();
       payment.completedAt = new Date();
       console.log(`✅ Updated existing PENDING payment to COMPLETED`);
     } else {
-      // Create new payment record
+      // Create new payment record.
+      // Normalize WEBHOOK → RAZORPAY: from the user's perspective the payment
+      // was made via Razorpay regardless of which path confirmed it.
+      // The WebhookEvent collection is the audit trail for the webhook path.
       payment = new PaymentRecord({
         order: order._id,
         user: userId,
         amount: paymentAmount,
         installmentNumber,
-        paymentMethod,
+        paymentMethod: paymentMethod === "WEBHOOK" ? "RAZORPAY" : paymentMethod,
         razorpayOrderId: razorpayOrderId || null,
         razorpayPaymentId: razorpayPaymentId || null,
         razorpaySignature: razorpaySignature || null,
-        razorpayVerified: paymentMethod === "RAZORPAY" ? true : false,
+        razorpayVerified: ["RAZORPAY", "WEBHOOK"].includes(paymentMethod),
         walletTransactionId,
         status: "COMPLETED",
         idempotencyKey,
@@ -841,6 +850,11 @@ async function processSelectedDailyPayments(data) {
       razorpaySignature
     );
     console.log("✅ Razorpay signature verified");
+  } else if (paymentMethod === "WEBHOOK") {
+    // Payment authenticated via webhook HMAC-SHA256 — no client-side sig needed.
+    if (!razorpayOrderId || !razorpayPaymentId) {
+      throw new Error("Missing Razorpay order/payment ID for WEBHOOK payment");
+    }
   }
 
   // ========================================
@@ -898,19 +912,18 @@ async function processSelectedDailyPayments(data) {
         walletTransactionId = walletResult.walletTransaction._id;
       }
 
-      // Create payment record
+      // Create payment record.
+      // Normalize WEBHOOK → RAZORPAY for the same reason as processPayment above.
       const payment = new PaymentRecord({
         order: order._id,
         user: userId,
         amount: paymentAmount,
         installmentNumber: nextInstallment.installmentNumber,
-        paymentMethod,
-        razorpayOrderId: paymentMethod === "RAZORPAY" ? razorpayOrderId : null,
-        razorpayPaymentId:
-          paymentMethod === "RAZORPAY" ? razorpayPaymentId : null,
-        razorpaySignature:
-          paymentMethod === "RAZORPAY" ? razorpaySignature : null,
-        razorpayVerified: paymentMethod === "RAZORPAY",
+        paymentMethod: paymentMethod === "WEBHOOK" ? "RAZORPAY" : paymentMethod,
+        razorpayOrderId:   ["RAZORPAY", "WEBHOOK"].includes(paymentMethod) ? razorpayOrderId   : null,
+        razorpayPaymentId: ["RAZORPAY", "WEBHOOK"].includes(paymentMethod) ? razorpayPaymentId : null,
+        razorpaySignature: paymentMethod === "RAZORPAY"                    ? razorpaySignature : null,
+        razorpayVerified:  ["RAZORPAY", "WEBHOOK"].includes(paymentMethod),
         walletTransactionId,
         status: "COMPLETED",
         idempotencyKey: idempotencyKey,

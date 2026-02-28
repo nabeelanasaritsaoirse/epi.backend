@@ -52,7 +52,7 @@ const paymentRecordSchema = new mongoose.Schema({
   // Payment Method
   paymentMethod: {
     type: String,
-    enum: ['RAZORPAY', 'WALLET', 'ADMIN_MARKED', 'CASH', 'UPI', 'BANK_TRANSFER', 'OTHER'],
+    enum: ['RAZORPAY', 'WALLET', 'ADMIN_MARKED', 'CASH', 'UPI', 'BANK_TRANSFER', 'WEBHOOK', 'OTHER'],
     required: true
   },
 

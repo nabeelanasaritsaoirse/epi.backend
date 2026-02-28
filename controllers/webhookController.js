@@ -1,386 +1,495 @@
 /**
  * Razorpay Webhook Controller
  *
- * Handles server-side payment event notifications from Razorpay.
- * This is the secure way to capture payment status — Razorpay calls this
- * endpoint directly, so it cannot be faked by a malicious client.
+ * Handles server-to-server payment events from Razorpay, making the system
+ * resilient to Flutter app crashes that occur after payment but before the
+ * client calls verify-payment.
  *
- * Supported Events:
- *   - payment.captured  → enrich PaymentRecord with full Razorpay data
- *   - payment.failed    → mark PaymentRecord as FAILED + store error details
- *   - refund.created    → add refund entry to PaymentRecord.refunds[]
- *   - refund.processed  → update refund status to 'processed'
- *   - refund.failed     → update refund status to 'failed'
+ * Security model:
+ *   Every request is verified with HMAC-SHA256 over the raw body using
+ *   RAZORPAY_WEBHOOK_SECRET (set in Razorpay Dashboard → Settings → Webhooks).
+ *   This is completely separate from the per-payment RAZORPAY_KEY_SECRET used
+ *   for client-side signature verification.
  *
- * Security: Every request is verified against RAZORPAY_WEBHOOK_SECRET
- * before any processing occurs.
+ * Idempotency model:
+ *   A WebhookEvent document is inserted (unique index on razorpayEventId)
+ *   before any business logic runs.  Duplicate deliveries — or race conditions
+ *   across multiple server instances — are caught by the 11000 duplicate-key
+ *   error and return HTTP 200 immediately without re-processing.
  *
- * Registration: This route MUST be mounted before express.json() in index.js
- * so that req.body contains the raw Buffer needed for HMAC verification.
+ * HTTP response policy:
+ *   Always return HTTP 200, even on signature failure or processing errors.
+ *   Razorpay retries events that receive non-2xx responses for up to 24 hours.
+ *   We never want infinite retries for events we intentionally ignore.
+ *
+ * Events handled:
+ *   payment.captured — credit the user (wallet deposit or installment payment)
+ *   payment.failed   — mark the pending record as failed
  */
 
-const crypto = require('crypto');
+'use strict';
+
+const crypto        = require('crypto');
+const WebhookEvent  = require('../models/WebhookEvent');
+const Transaction   = require('../models/Transaction');
 const PaymentRecord = require('../models/PaymentRecord');
-const razorpay = require('../config/razorpay');
+const InstallmentOrder = require('../models/InstallmentOrder');
+const recalcWallet  = require('../services/walletCalculator');
 
-// ============================================================
-// HELPER — Map Razorpay payment entity to PaymentRecord fields
-// ============================================================
+// ─────────────────────────────────────────────────────────────────────────────
+// SIGNATURE VERIFICATION
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Maps a full Razorpay payment object (from API fetch) onto a PaymentRecord document.
- * All fields are optional — if Razorpay doesn't return a value, the field stays null.
+ * Verify Razorpay webhook HMAC-SHA256 signature.
  *
- * @param {Object} record - Mongoose PaymentRecord document
- * @param {Object} rzpPayment - Razorpay payment entity from razorpay.payments.fetch()
+ * @param {Buffer} rawBody   - Raw request body from express.raw()
+ * @param {string} signature - Value of X-Razorpay-Signature header
+ * @returns {boolean}
  */
-function mapRazorpayPaymentToRecord(record, rzpPayment) {
-  // Core fields
-  record.razorpayAmount       = rzpPayment.amount        ?? null;
-  record.razorpayCurrency     = rzpPayment.currency       ?? null;
-  record.razorpayStatus       = rzpPayment.status         ?? null;
-  record.razorpayMethod       = rzpPayment.method         ?? null;
-  record.razorpayCaptured     = rzpPayment.captured       ?? null;
-  record.razorpayFee          = rzpPayment.fee            ?? null;
-  record.razorpayTax          = rzpPayment.tax            ?? null;
-  record.razorpayEmail        = rzpPayment.email          ?? null;
-  record.razorpayContact      = rzpPayment.contact        ?? null;
-  record.razorpayInternational = rzpPayment.international ?? false;
-  record.razorpayNotes        = rzpPayment.notes          ?? {};
-  record.razorpayAmountRefunded = rzpPayment.amount_refunded ?? 0;
-  record.razorpayRefundStatus = rzpPayment.refund_status  ?? null;
-
-  if (rzpPayment.created_at) {
-    record.razorpayCreatedAt = new Date(rzpPayment.created_at * 1000); // Unix → Date
+function verifyWebhookSignature(rawBody, signature) {
+  const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+  if (!secret) {
+    console.error('[Webhook] RAZORPAY_WEBHOOK_SECRET is not set');
+    return false;
   }
-
-  // Acquirer data (bank-level references available on all methods)
-  if (rzpPayment.acquirer_data) {
-    const a = rzpPayment.acquirer_data;
-    record.acquirerData = {
-      rrn:               a.rrn                ?? null,
-      authCode:          a.auth_code          ?? null,
-      bankTransactionId: a.bank_transaction_id ?? null,
-      upiTransactionId:  a.upi_transaction_id  ?? null,
-      arn:               a.arn                ?? null
-    };
-  }
-
-  // Method-specific details
-  switch (rzpPayment.method) {
-    case 'card': {
-      const c = rzpPayment.card || {};
-      record.cardDetails = {
-        cardId:        c.id            ?? null,
-        name:          c.name          ?? null,
-        last4:         c.last4         ?? null,
-        network:       c.network       ?? null,
-        type:          c.type          ?? null,
-        issuer:        c.issuer        ?? null,
-        international: c.international ?? false,
-        subType:       c.sub_type      ?? null,
-        iin:           c.iin           ?? null
-      };
-      break;
-    }
-    case 'upi': {
-      const u = rzpPayment.upi || {};
-      record.upiDetails = {
-        vpa:      rzpPayment.vpa ?? u.vpa  ?? null,
-        username: u.username               ?? null,
-        handle:   u.handle                 ?? null
-      };
-      break;
-    }
-    case 'netbanking': {
-      record.netbankingDetails = {
-        bank:     rzpPayment.bank     ?? null,
-        bankName: rzpPayment.bank_name ?? null
-      };
-      break;
-    }
-    case 'wallet': {
-      record.walletDetails = {
-        wallet: rzpPayment.wallet ?? null
-      };
-      break;
-    }
-    case 'emi': {
-      const e = rzpPayment.emi || {};
-      record.emiDetails = {
-        issuer:        e.issuer         ?? null,
-        rate:          e.rate           ?? null,
-        duration:      e.duration       ?? null,
-        monthlyAmount: e.monthly_amount ?? null
-      };
-      break;
-    }
-  }
-}
-
-// ============================================================
-// HELPER — Map Razorpay error payload to PaymentRecord fields
-// ============================================================
-
-/**
- * @param {Object} record - Mongoose PaymentRecord document
- * @param {Object} errorObj - error object from Razorpay webhook payload
- */
-function mapRazorpayErrorToRecord(record, errorObj) {
-  if (!errorObj) return;
-  record.errorCode        = errorObj.code        ?? null;
-  record.errorDescription = errorObj.description ?? null;
-  record.errorSource      = errorObj.source      ?? null;
-  record.errorStep        = errorObj.step        ?? null;
-  record.errorReason      = errorObj.reason      ?? null;
-}
-
-// ============================================================
-// MAIN WEBHOOK HANDLER
-// ============================================================
-
-/**
- * POST /api/webhook/razorpay
- *
- * Entry point for all Razorpay webhook events.
- * Mounted with express.raw() so req.body is a Buffer for HMAC verification.
- */
-exports.handleRazorpayWebhook = async (req, res) => {
-  // --- 1. Verify webhook signature ---
-  const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
-  if (!webhookSecret) {
-    console.error('❌ RAZORPAY_WEBHOOK_SECRET not set in environment');
-    return res.status(500).json({ success: false, message: 'Webhook secret not configured' });
-  }
-
-  const receivedSignature = req.headers['x-razorpay-signature'];
-  if (!receivedSignature) {
-    console.warn('⚠️  Webhook received without signature header');
-    return res.status(400).json({ success: false, message: 'Missing signature' });
-  }
-
-  // req.body is a raw Buffer (express.raw middleware)
-  const rawBody = req.body;
-  const expectedSignature = crypto
-    .createHmac('sha256', webhookSecret)
+  const expected = crypto
+    .createHmac('sha256', secret)
     .update(rawBody)
     .digest('hex');
 
-  if (expectedSignature !== receivedSignature) {
-    console.warn('⚠️  Webhook signature mismatch — possible spoofed request');
-    return res.status(400).json({ success: false, message: 'Invalid signature' });
+  try {
+    // timingSafeEqual prevents timing-based signature oracle attacks
+    return crypto.timingSafeEqual(
+      Buffer.from(expected,  'hex'),
+      Buffer.from(signature, 'hex')
+    );
+  } catch {
+    // Throws if buffers have different lengths (tampered / missing header)
+    return false;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENTRY POINT
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * POST /api/webhooks/razorpay
+ */
+exports.handleRazorpayWebhook = async (req, res) => {
+  const signature = req.headers['x-razorpay-signature'];
+  const rawBody   = req.body; // Buffer from express.raw()
+
+  // 1. Verify signature — reject invalid requests but always return 200
+  if (!signature || !verifyWebhookSignature(rawBody, signature)) {
+    console.warn('[Webhook] Invalid or missing signature — ignoring');
+    return res.status(200).json({ status: 'ignored', reason: 'invalid_signature' });
   }
 
-  // --- 2. Parse the verified payload ---
+  // 2. Parse JSON after signature check (raw bytes were needed above)
   let payload;
   try {
-    payload = JSON.parse(rawBody.toString());
+    payload = JSON.parse(rawBody.toString('utf8'));
   } catch {
-    return res.status(400).json({ success: false, message: 'Invalid JSON payload' });
+    console.error('[Webhook] Failed to parse body as JSON');
+    return res.status(200).json({ status: 'ignored', reason: 'parse_error' });
   }
 
-  const event   = payload.event;
-  const entity  = payload.payload?.payment?.entity
-                  || payload.payload?.refund?.entity
-                  || null;
+  const eventType     = payload.event;
+  const paymentEntity = payload?.payload?.payment?.entity;
 
-  console.log(`📩 Razorpay webhook: ${event}`);
+  if (!eventType || !paymentEntity) {
+    console.warn('[Webhook] Unexpected payload structure');
+    return res.status(200).json({ status: 'ignored', reason: 'unexpected_structure' });
+  }
 
-  // --- 3. Always respond 200 immediately (Razorpay retries on non-200) ---
-  // We process async after responding to avoid timeout retries.
-  res.status(200).json({ success: true, message: 'Webhook received' });
+  const razorpayPaymentId = paymentEntity.id;
+  const razorpayOrderId   = paymentEntity.order_id;
+  const amountPaisa       = paymentEntity.amount;
 
-  // --- 4. Process event asynchronously ---
+  console.log(`[Webhook] ${eventType} | pay=${razorpayPaymentId} | order=${razorpayOrderId}`);
+
+  // 3. Build idempotency key: payment ID + event type
+  const razorpayEventId = `${razorpayPaymentId}:${eventType}`;
+
+  // 4. Guard: check for an already-processed event
+  const existing = await WebhookEvent.findOne({ razorpayEventId });
+  if (existing) {
+    console.log(`[Webhook] Duplicate ${razorpayEventId} (${existing.status}) — skipping`);
+    return res.status(200).json({ status: 'duplicate' });
+  }
+
+  // 5. Claim the event by inserting a 'processing' record.
+  //    The unique index turns any concurrent duplicate insert into an 11000 error.
+  const record = new WebhookEvent({
+    razorpayEventId,
+    razorpayPaymentId,
+    razorpayOrderId,
+    eventType,
+    status:     'processing',
+    amountPaisa,
+    rawPayload: payload,
+    receivedAt: new Date()
+  });
+
   try {
-    switch (event) {
-      case 'payment.captured':
-        await handlePaymentCaptured(entity);
-        break;
-      case 'payment.failed':
-        await handlePaymentFailed(entity, payload.payload?.payment?.error);
-        break;
-      case 'refund.created':
-        await handleRefundCreated(payload.payload?.refund?.entity);
-        break;
-      case 'refund.processed':
-        await handleRefundUpdated(payload.payload?.refund?.entity, 'processed');
-        break;
-      case 'refund.failed':
-        await handleRefundUpdated(payload.payload?.refund?.entity, 'failed');
-        break;
-      default:
-        console.log(`ℹ️  Unhandled webhook event: ${event}`);
+    await record.save();
+  } catch (saveErr) {
+    if (saveErr.code === 11000) {
+      console.log(`[Webhook] Race condition on ${razorpayEventId} — another instance claimed it`);
+      return res.status(200).json({ status: 'duplicate', reason: 'race_condition' });
     }
+    // Non-duplicate save error — log and continue; processing must still happen
+    console.error('[Webhook] WebhookEvent save error:', saveErr.message);
+  }
+
+  // 6. Dispatch to the appropriate handler
+  try {
+    if (eventType === 'payment.captured') {
+      await handlePaymentCaptured(paymentEntity, record);
+    } else if (eventType === 'payment.failed') {
+      await handlePaymentFailed(paymentEntity, record);
+    } else {
+      record.status = 'ignored';
+      record.processingNote = `Unhandled event: ${eventType}`;
+      await record.save();
+    }
+
+    return res.status(200).json({ status: 'ok' });
+
   } catch (err) {
-    // Log but do NOT re-respond (we already sent 200)
-    console.error(`❌ Error processing webhook event "${event}":`, err.message);
+    console.error(`[Webhook] Handler error for ${razorpayEventId}:`, err.message);
+    try {
+      record.status = 'failed';
+      record.processingNote = err.message;
+      await record.save();
+    } catch { /* best-effort */ }
+    // Return 200 — Razorpay must not retry a server-side bug endlessly
+    return res.status(200).json({ status: 'processing_error' });
   }
 };
 
-// ============================================================
-// EVENT HANDLERS
-// ============================================================
+// ─────────────────────────────────────────────────────────────────────────────
+// payment.captured
+// ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * payment.captured
- * Razorpay confirmed the payment — fetch full details from API and enrich PaymentRecord.
- */
-async function handlePaymentCaptured(paymentEntity) {
-  if (!paymentEntity) {
-    console.error('❌ payment.captured: No payment entity in payload');
-    return;
+async function handlePaymentCaptured(paymentEntity, record) {
+  const notes             = paymentEntity.notes || {};
+  const razorpayOrderId   = paymentEntity.order_id;
+  const razorpayPaymentId = paymentEntity.id;
+  const amountRupees      = paymentEntity.amount / 100;
+  const paymentType       = determinePaymentType(notes);
+
+  record.paymentType = paymentType;
+
+  switch (paymentType) {
+    case 'deposit':
+      await handleWalletDeposit(razorpayOrderId, razorpayPaymentId, amountRupees, record);
+      break;
+    case 'daily_installment':
+      await handleDailyInstallment(notes, razorpayOrderId, razorpayPaymentId, record);
+      break;
+    case 'first_payment':
+      await handleFirstPayment(notes, razorpayOrderId, razorpayPaymentId, record);
+      break;
+    case 'combined_daily_payment':
+      await handleCombinedDailyPayment(notes, razorpayOrderId, razorpayPaymentId, record);
+      break;
+    default:
+      record.status = 'ignored';
+      record.processingNote = `Unknown payment type. notes=${JSON.stringify(notes)}`;
+      await record.save();
   }
-
-  const rzpPaymentId = paymentEntity.id;
-  const rzpOrderId   = paymentEntity.order_id;
-
-  if (!rzpOrderId) {
-    console.warn(`⚠️  payment.captured: No order_id on payment ${rzpPaymentId}`);
-    return;
-  }
-
-  // Find the PaymentRecord by Razorpay order ID
-  const record = await PaymentRecord.findOne({ razorpayOrderId: rzpOrderId });
-  if (!record) {
-    console.warn(`⚠️  payment.captured: No PaymentRecord for razorpayOrderId=${rzpOrderId}`);
-    return;
-  }
-
-  // Idempotency guard — skip if this exact payment was already verified
-  // Razorpay can retry webhooks; we must not overwrite a good COMPLETED record
-  if (record.razorpayVerified && record.razorpayPaymentId === rzpPaymentId) {
-    console.log(`ℹ️  payment.captured: already processed ${rzpPaymentId}, skipping`);
-    return;
-  }
-
-  // Fetch full payment details from Razorpay API (includes fee, tax, card, upi details)
-  let fullPayment;
-  try {
-    fullPayment = await razorpay.payments.fetch(rzpPaymentId);
-  } catch (err) {
-    console.error(`❌ Failed to fetch payment ${rzpPaymentId} from Razorpay API:`, err.message);
-    // Fall back to using the webhook payload directly
-    fullPayment = paymentEntity;
-  }
-
-  // Map all fields onto the record
-  mapRazorpayPaymentToRecord(record, fullPayment);
-
-  // Update verification and status
-  record.razorpayPaymentId = rzpPaymentId;
-  record.razorpayVerified  = true;
-  record.status            = 'COMPLETED';
-  record.completedAt       = record.completedAt || new Date();
-
-  await record.save();
-  console.log(`✅ PaymentRecord enriched: ${record.paymentId} (Razorpay: ${rzpPaymentId})`);
 }
 
-/**
- * payment.failed
- * Payment attempt failed — update status and store Razorpay error details.
- */
-async function handlePaymentFailed(paymentEntity, errorObj) {
-  if (!paymentEntity) {
-    console.error('❌ payment.failed: No payment entity in payload');
-    return;
+// ─────────────────────────────────────────────────────────────────────────────
+// payment.failed
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handlePaymentFailed(paymentEntity, record) {
+  const notes             = paymentEntity.notes || {};
+  const razorpayOrderId   = paymentEntity.order_id;
+  const razorpayPaymentId = paymentEntity.id;
+  const reason            = paymentEntity.error_description || 'Payment failed';
+  const paymentType       = determinePaymentType(notes);
+
+  record.paymentType = paymentType;
+
+  if (paymentType === 'deposit') {
+    const tx = await Transaction.findOne({
+      'paymentDetails.orderId': razorpayOrderId,
+      status: 'pending',
+      type:   'deposit'
+    });
+    if (tx) {
+      tx.status = 'failed';
+      tx.paymentDetails.paymentId = razorpayPaymentId;
+      await tx.save();
+      record.userId = tx.user;
+      console.log(`[Webhook] Deposit Transaction ${tx._id} marked failed`);
+    } else {
+      console.warn(`[Webhook] payment.failed: no pending deposit for order ${razorpayOrderId}`);
+    }
+  } else {
+    // daily_installment / first_payment / combined
+    const pr = await PaymentRecord.findOne({
+      razorpayOrderId,
+      status: { $in: ['PENDING', 'PROCESSING'] }
+    });
+    if (pr) {
+      pr.status   = 'FAILED';
+      pr.failedAt = new Date();
+      await pr.save();
+      console.log(`[Webhook] PaymentRecord ${pr.paymentId} marked FAILED`);
+    } else {
+      console.warn(`[Webhook] payment.failed: no pending PaymentRecord for order ${razorpayOrderId}`);
+    }
   }
 
-  const rzpOrderId = paymentEntity.order_id;
-  if (!rzpOrderId) return;
-
-  const record = await PaymentRecord.findOne({ razorpayOrderId: rzpOrderId });
-  if (!record) {
-    console.warn(`⚠️  payment.failed: No PaymentRecord for razorpayOrderId=${rzpOrderId}`);
-    return;
-  }
-
-  // Only update if not already completed (prevent overwriting a success)
-  if (record.status === 'COMPLETED') {
-    console.log(`ℹ️  Skipping failed event — PaymentRecord ${record.paymentId} already COMPLETED`);
-    return;
-  }
-
-  mapRazorpayPaymentToRecord(record, paymentEntity);
-  mapRazorpayErrorToRecord(record, errorObj || paymentEntity.error);
-
-  record.status    = 'FAILED';
-  record.failedAt  = new Date();
-  record.retryCount += 1;
-
+  record.status         = 'processed';
+  record.processingNote = `Failed: ${reason}`;
+  record.processedAt    = new Date();
   await record.save();
-  console.log(`⚠️  PaymentRecord marked FAILED: ${record.paymentId} (reason: ${record.errorReason})`);
 }
 
-/**
- * refund.created
- * A refund was initiated (from admin dashboard or Razorpay dashboard).
- * Add or update the refund entry in PaymentRecord.refunds[].
- */
-async function handleRefundCreated(refundEntity) {
-  if (!refundEntity) return;
+// ─────────────────────────────────────────────────────────────────────────────
+// Wallet deposit handler
+// Replicates the exact logic of routes/wallet.js verify-payment (lines 148-156)
+// ─────────────────────────────────────────────────────────────────────────────
 
-  const rzpPaymentId = refundEntity.payment_id;
-  const record = await PaymentRecord.findOne({ razorpayPaymentId: rzpPaymentId });
-  if (!record) {
-    console.warn(`⚠️  refund.created: No PaymentRecord for razorpayPaymentId=${rzpPaymentId}`);
-    return;
-  }
-
-  // Idempotency guard — avoid double-processing on webhook retry
-  const alreadyExists = record.refunds.some(r => r.razorpayRefundId === refundEntity.id);
-  if (alreadyExists) {
-    console.log(`ℹ️  refund.created: ${refundEntity.id} already recorded, skipping`);
-    return;
-  }
-
-  record.refunds.push({
-    razorpayRefundId: refundEntity.id,
-    amount:           refundEntity.amount,
-    status:           refundEntity.status || 'pending',
-    speedProcessed:   refundEntity.speed_processed ?? null,
-    arn:              refundEntity.arn ?? null,
-    createdAt:        refundEntity.created_at
-      ? new Date(refundEntity.created_at * 1000)
-      : new Date()
+async function handleWalletDeposit(razorpayOrderId, razorpayPaymentId, amountRupees, record) {
+  const tx = await Transaction.findOne({
+    'paymentDetails.orderId': razorpayOrderId,
+    type: 'deposit'
   });
 
-  // Keep razorpayAmountRefunded in sync.
-  // Prefer Razorpay's authoritative total if provided; otherwise accumulate.
-  // This update is inside the alreadyExists guard so it only runs once per refund.
-  record.razorpayAmountRefunded = refundEntity.payment_amount_refunded
-    ?? (record.razorpayAmountRefunded + refundEntity.amount);
-
-  // Determine overall refund status
-  if (record.razorpayAmountRefunded >= (record.razorpayAmount || record.amount * 100)) {
-    record.status               = 'REFUNDED';
-    record.razorpayRefundStatus = 'full';
-  } else {
-    record.razorpayRefundStatus = 'partial';
+  if (!tx) {
+    record.status         = 'failed';
+    record.processingNote = `No deposit Transaction found for orderId ${razorpayOrderId}`;
+    await record.save();
+    return;
   }
 
+  if (tx.status === 'completed') {
+    // Client verify-payment already ran — nothing to do
+    record.status         = 'ignored';
+    record.processingNote = 'Transaction already completed (client verified first)';
+    record.userId         = tx.user;
+    await record.save();
+    return;
+  }
+
+  tx.status = 'completed';
+  tx.paymentDetails.paymentId = razorpayPaymentId;
+  await tx.save();
+
+  await recalcWallet(tx.user);
+
+  record.status         = 'processed';
+  record.userId         = tx.user;
+  record.processedAt    = new Date();
+  record.processingNote = `Wallet deposit ₹${amountRupees} credited. tx=${tx._id}`;
   await record.save();
-  console.log(`💸 Refund recorded on PaymentRecord ${record.paymentId}: ₹${refundEntity.amount / 100}`);
+
+  console.log(`[Webhook] Wallet deposit ₹${amountRupees} for user ${tx.user}`);
 }
 
-/**
- * refund.processed / refund.failed
- * Update the status of an existing refund entry.
- */
-async function handleRefundUpdated(refundEntity, newStatus) {
-  if (!refundEntity) return;
+// ─────────────────────────────────────────────────────────────────────────────
+// Daily installment payment handler
+// ─────────────────────────────────────────────────────────────────────────────
 
-  const rzpPaymentId = refundEntity.payment_id;
-  const record = await PaymentRecord.findOne({ razorpayPaymentId: rzpPaymentId });
-  if (!record) return;
-
-  const refundEntry = record.refunds.find(r => r.razorpayRefundId === refundEntity.id);
-  if (refundEntry) {
-    refundEntry.status        = newStatus;
-    refundEntry.speedProcessed = refundEntity.speed_processed ?? refundEntry.speedProcessed;
-    refundEntry.arn           = refundEntity.arn              ?? refundEntry.arn;
+async function handleDailyInstallment(notes, razorpayOrderId, razorpayPaymentId, record) {
+  // Guard: already completed by client verify call?
+  const done = await PaymentRecord.findOne({ razorpayOrderId, status: 'COMPLETED' });
+  if (done) {
+    record.status         = 'ignored';
+    record.processingNote = `PaymentRecord ${done.paymentId} already COMPLETED`;
+    await record.save();
+    return;
   }
 
-  await record.save();
-  console.log(`🔄 Refund ${refundEntity.id} status → ${newStatus} on PaymentRecord ${record.paymentId}`);
+  const mongoOrderId = notes.orderId || notes.order_id;
+  if (!mongoOrderId) {
+    record.status         = 'failed';
+    record.processingNote = 'Missing orderId in payment notes';
+    await record.save();
+    return;
+  }
+
+  const order = await InstallmentOrder.findById(mongoOrderId).catch(() => null);
+  if (!order) {
+    record.status         = 'failed';
+    record.processingNote = `InstallmentOrder not found: ${mongoOrderId}`;
+    await record.save();
+    return;
+  }
+
+  record.userId = order.user;
+
+  // Lazy-require avoids circular dependency issues at module load time
+  const paymentService = require('../services/installmentPaymentService');
+  try {
+    const result = await paymentService.processPayment({
+      orderId:           mongoOrderId,
+      userId:            order.user.toString(),
+      paymentMethod:     'WEBHOOK',      // bypasses client-side sig check in the service
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature: null            // already verified via webhook HMAC above
+    });
+
+    record.status         = 'processed';
+    record.processedAt    = new Date();
+    record.processingNote = `Installment processed. payment=${result.payment?.paymentId}`;
+    await record.save();
+    console.log(`[Webhook] Daily installment done for order ${mongoOrderId}`);
+
+  } catch (err) {
+    const alreadyDone = /already/i.test(err.message);
+    record.status         = alreadyDone ? 'ignored' : 'failed';
+    record.processingNote = err.message;
+    await record.save();
+    if (!alreadyDone) throw err;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// First payment / order activation handler
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleFirstPayment(notes, razorpayOrderId, razorpayPaymentId, record) {
+  const mongoOrderId = notes.orderId || notes.order_id;
+  if (!mongoOrderId) {
+    record.status         = 'failed';
+    record.processingNote = 'Missing orderId in notes for first_payment';
+    await record.save();
+    return;
+  }
+
+  const order = await InstallmentOrder.findById(mongoOrderId).catch(() => null);
+  if (!order) {
+    record.status         = 'failed';
+    record.processingNote = `InstallmentOrder not found: ${mongoOrderId}`;
+    await record.save();
+    return;
+  }
+
+  record.userId = order.user;
+
+  if (['ACTIVE', 'COMPLETED'].includes(order.status)) {
+    record.status         = 'ignored';
+    record.processingNote = `Order already ${order.status}`;
+    await record.save();
+    return;
+  }
+
+  const orderService = require('../services/installmentOrderService');
+  try {
+    await orderService.verifyFirstPayment({
+      orderId:                   mongoOrderId,
+      userId:                    order.user.toString(),
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature:         null,
+      skipSignatureVerification: true  // authenticated via webhook HMAC-SHA256 at route entry
+    });
+
+    record.status         = 'processed';
+    record.processedAt    = new Date();
+    record.processingNote = `First payment verified, order ${order.orderId} activated`;
+    await record.save();
+    console.log(`[Webhook] Order ${order.orderId} activated via first payment`);
+
+  } catch (err) {
+    record.status         = 'failed';
+    record.processingNote = err.message;
+    await record.save();
+    throw err;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Combined multi-order daily payment handler
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleCombinedDailyPayment(notes, razorpayOrderId, razorpayPaymentId, record) {
+  const orderIdsString = notes.orderIds;
+  const userId         = notes.userId;
+
+  if (!orderIdsString || !userId) {
+    record.status         = 'failed';
+    record.processingNote = 'Missing orderIds or userId in notes';
+    await record.save();
+    return;
+  }
+
+  const selectedOrders = orderIdsString.split(',').map(id => id.trim()).filter(Boolean);
+  record.userId = userId;
+
+  // Guard: already fully processed?
+  const completedCount = await PaymentRecord.countDocuments({
+    razorpayOrderId,
+    status: 'COMPLETED'
+  });
+  if (completedCount >= selectedOrders.length) {
+    record.status         = 'ignored';
+    record.processingNote = 'All orders already processed';
+    await record.save();
+    return;
+  }
+
+  const paymentService = require('../services/installmentPaymentService');
+  try {
+    const result = await paymentService.processSelectedDailyPayments({
+      userId,
+      selectedOrders,
+      paymentMethod:     'WEBHOOK',
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature: null
+    });
+
+    record.status         = 'processed';
+    record.processedAt    = new Date();
+    record.processingNote = `Combined: ${result.ordersProcessed} orders, ₹${result.totalAmount}`;
+    await record.save();
+    console.log(`[Webhook] Combined payment: ${result.ordersProcessed} orders for user ${userId}`);
+
+  } catch (err) {
+    record.status         = 'failed';
+    record.processingNote = err.message;
+    await record.save();
+    throw err;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Determine payment type from Razorpay order notes
+//
+// Notes are set at order-creation time in the respective service/controller:
+//
+//   Wallet deposit (routes/wallet.js add-money):
+//     no notes set → identified by absence of installment keys → 'deposit'
+//
+//   Legacy installment (paymentController.createDailyInstallmentOrder):
+//     notes.payment_type = 'daily_installment'  |  notes.order_id = mongoId
+//
+//   Modern installment (installmentPaymentService.createRazorpayOrderForPayment):
+//     notes.orderId = mongoOrderId  |  notes.installmentNumber = N
+//
+//   First payment (installmentOrderService, notes.type = 'first_payment'):
+//     notes.orderId = mongoOrderId  |  notes.type = 'first_payment'
+//
+//   Combined daily payment (installmentPaymentService.createCombinedRazorpayOrder):
+//     notes.type = 'combined_daily_payment'
+//     notes.orderIds = 'id1,id2,id3'
+// ─────────────────────────────────────────────────────────────────────────────
+
+function determinePaymentType(notes) {
+  if (notes.type === 'combined_daily_payment')    return 'combined_daily_payment';
+  if (notes.type === 'first_payment')             return 'first_payment';
+  if (notes.payment_type === 'daily_installment') return 'daily_installment';
+  if (notes.orderId || notes.order_id)            return 'daily_installment';
+  return 'deposit';
 }

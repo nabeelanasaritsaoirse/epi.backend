@@ -1134,6 +1134,7 @@ async function verifyFirstPayment(data) {
     razorpayOrderId,
     razorpayPaymentId,
     razorpaySignature,
+    skipSignatureVerification = false, // true when called from webhook (already HMAC-verified)
   } = data;
 
   // 1. Find the order
@@ -1165,14 +1166,19 @@ async function verifyFirstPayment(data) {
   }
 
   // 5. Verify Razorpay signature
-  const crypto = require("crypto");
-  const expectedSignature = crypto
-    .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-    .update(`${razorpayOrderId}|${razorpayPaymentId}`)
-    .digest("hex");
+  //    Skipped when called from the webhook controller — the entire webhook
+  //    body has already been authenticated via HMAC-SHA256 with
+  //    RAZORPAY_WEBHOOK_SECRET at the route entry point.
+  if (!skipSignatureVerification) {
+    const crypto = require("crypto");
+    const expectedSignature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+      .update(`${razorpayOrderId}|${razorpayPaymentId}`)
+      .digest("hex");
 
-  if (expectedSignature !== razorpaySignature) {
-    throw new Error("Invalid payment signature. Payment verification failed.");
+    if (expectedSignature !== razorpaySignature) {
+      throw new Error("Invalid payment signature. Payment verification failed.");
+    }
   }
 
   // 6. Payment verified! Update payment record

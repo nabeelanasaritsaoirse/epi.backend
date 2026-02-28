@@ -447,20 +447,38 @@ exports.initiateRefund = async (req, res) => {
 // ============================================================
 
 /**
- * Fetch settlement list from Razorpay API.
- * These are the bank payouts Razorpay made to your account.
+ * Fetch settlement list from Razorpay API with proper pagination.
+ *
+ * NOTE: Razorpay's Settlements API does NOT expose a total count — the
+ * `count` field in its response is the number of items returned, not a
+ * grand total.  We therefore use a "hasMore" cursor pattern:
+ *   - If the number of items returned equals the requested `limit`, there
+ *     are likely more records; set `hasMore: true` and return `nextPage`.
+ *   - If fewer items are returned, we are on the last page.
  *
  * Query params:
- *   count  {number}  Number of settlements to fetch (default 10, max 100)
- *   skip   {number}  Offset for pagination
+ *   page       {number}  Page number (1-based, default 1)
+ *   limit      {number}  Records per page (default 10, max 100)
+ *   from       {string}  ISO date string — only settlements created on/after this date
+ *   to         {string}  ISO date string — only settlements created on/before this date
  */
 exports.listSettlements = async (req, res) => {
-  const count = Math.min(100, Math.max(1, parseInt(req.query.count) || 10));
-  const skip  = Math.max(0, parseInt(req.query.skip) || 0);
+  const page  = Math.max(1, parseInt(req.query.page)  || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 10));
+  const skip  = (page - 1) * limit;
+
+  // Convert ISO date strings to Unix timestamps (seconds) that Razorpay expects.
+  // Invalid / absent dates are silently ignored.
+  const fromDate = parseDate(req.query.from);
+  const toDate   = parseDate(req.query.to);
+
+  const razorpayParams = { count: limit, skip };
+  if (fromDate) razorpayParams.from = Math.floor(fromDate.getTime() / 1000);
+  if (toDate)   razorpayParams.to   = Math.floor(toDate.getTime()   / 1000);
 
   let settlementsResponse;
   try {
-    settlementsResponse = await razorpay.settlements.all({ count, skip });
+    settlementsResponse = await razorpay.settlements.all(razorpayParams);
   } catch (err) {
     console.error('❌ Razorpay settlements.all error:', err);
     return res.status(502).json({
@@ -470,21 +488,31 @@ exports.listSettlements = async (req, res) => {
     });
   }
 
-  const settlements = (settlementsResponse.items || []).map(s => ({
-    id:          s.id,
-    amount:      s.amount,           // paise
-    amountInRs:  (s.amount / 100).toFixed(2),
-    status:      s.status,
-    fees:        s.fees,
-    tax:         s.tax,
-    utr:         s.utr,              // Unique Transaction Reference for bank transfer
-    createdAt:   s.created_at ? new Date(s.created_at * 1000) : null
+  const items = settlementsResponse.items || [];
+
+  const settlements = items.map(s => ({
+    id:         s.id,
+    amount:     s.amount,                              // paise
+    amountInRs: (s.amount / 100).toFixed(2),
+    status:     s.status,
+    fees:       s.fees,
+    tax:        s.tax,
+    utr:        s.utr,                                 // Bank transfer reference
+    createdAt:  s.created_at ? new Date(s.created_at * 1000) : null
   }));
+
+  // Razorpay does not return a total count — use hasMore pattern
+  const hasMore = settlements.length === limit;
 
   return successResponse(res, {
     settlements,
-    count:     settlements.length,
-    totalCount: settlementsResponse.count || settlements.length
+    pagination: {
+      page,
+      limit,
+      count:    settlements.length,
+      hasMore,
+      nextPage: hasMore ? page + 1 : null
+    }
   }, 'Settlements fetched successfully');
 };
 
@@ -493,19 +521,25 @@ exports.listSettlements = async (req, res) => {
 // ============================================================
 
 /**
- * Fetch a single settlement and its recon (individual transactions included).
+ * Fetch a single settlement and its reconciliation (recon) items.
+ *
+ * Recon items are the individual payments/refunds/adjustments included in the
+ * settlement payout.  They are paginated using the same hasMore pattern as
+ * listSettlements (Razorpay does not return a total recon count either).
  *
  * Params:
  *   settlementId  {string}  Razorpay settlement ID (e.g. setl_xxxxxxxx)
  *
  * Query params:
- *   reconCount  {number}  Number of recon items to fetch (default 20)
- *   reconSkip   {number}  Offset for recon pagination
+ *   reconPage   {number}  Recon page number (1-based, default 1)
+ *   reconLimit  {number}  Recon items per page (default 20, max 100)
  */
 exports.getSettlementDetail = async (req, res) => {
   const { settlementId } = req.params;
-  const reconCount = Math.min(100, Math.max(1, parseInt(req.query.reconCount) || 20));
-  const reconSkip  = Math.max(0, parseInt(req.query.reconSkip) || 0);
+
+  const reconPage  = Math.max(1, parseInt(req.query.reconPage)  || 1);
+  const reconLimit = Math.min(100, Math.max(1, parseInt(req.query.reconLimit) || 20));
+  const reconSkip  = (reconPage - 1) * reconLimit;
 
   let settlement, recon;
   try {
@@ -513,9 +547,9 @@ exports.getSettlementDetail = async (req, res) => {
       razorpay.settlements.fetch(settlementId),
       razorpay.settlements.fetchRecon({
         settlement_id: settlementId,
-        count:         reconCount,
+        count:         reconLimit,
         skip:          reconSkip
-      }).catch(() => ({ items: [] })) // recon may not be available on all plans
+      }).catch(() => ({ items: [] })) // recon may not be available on all Razorpay plans
     ]);
   } catch (err) {
     console.error(`❌ Razorpay settlement fetch error for ${settlementId}:`, err);
@@ -525,6 +559,9 @@ exports.getSettlementDetail = async (req, res) => {
       error:   err.error?.description || err.message
     });
   }
+
+  const reconItems = recon?.items || [];
+  const reconHasMore = reconItems.length === reconLimit;
 
   return successResponse(res, {
     settlement: {
@@ -537,7 +574,15 @@ exports.getSettlementDetail = async (req, res) => {
       utr:        settlement.utr,
       createdAt:  settlement.created_at ? new Date(settlement.created_at * 1000) : null
     },
-    reconItems:  recon?.items || [],
-    reconCount:  recon?.count || 0
+    recon: {
+      items: reconItems,
+      pagination: {
+        page:     reconPage,
+        limit:    reconLimit,
+        count:    reconItems.length,
+        hasMore:  reconHasMore,
+        nextPage: reconHasMore ? reconPage + 1 : null
+      }
+    }
   }, 'Settlement detail fetched successfully');
 };

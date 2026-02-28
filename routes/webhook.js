@@ -1,36 +1,40 @@
 /**
- * Razorpay Webhook Routes
+ * Webhook Routes
  *
- * IMPORTANT: This file must be imported and mounted in index.js
- * BEFORE app.use(express.json()) so that req.body remains a raw Buffer.
- * The HMAC signature verification in webhookController requires the raw body.
+ * CRITICAL — route ordering in index.js:
+ *   This file MUST be mounted BEFORE app.use(express.json(...)).
+ *   Razorpay webhook signature verification requires the raw request body
+ *   (a Buffer).  If express.json() processes the body first, the raw bytes
+ *   are gone and every HMAC check will fail.
  *
- * Mount in index.js:
- *   const webhookRoutes = require('./routes/webhook');
- *   app.use('/api/webhook', webhookRoutes);   // <-- BEFORE express.json()
+ *   Correct order in index.js:
+ *     app.use('/api/webhooks', require('./routes/webhook'));  // ← first
+ *     app.use(express.json({ limit: '10mb' }));              // ← after
+ *
+ *   express.raw() is applied per-route here, so all other routes are
+ *   completely unaffected.
+ *
+ * Razorpay Dashboard setup:
+ *   URL:     https://api.epielio.com/api/webhook/razorpay
+ *   Secret:  RAZORPAY_WEBHOOK_SECRET  (env var — different from RAZORPAY_KEY_SECRET)
+ *   Events:  payment.captured, payment.failed
  */
 
 const express = require('express');
 const router  = express.Router();
-const webhookController = require('../controllers/webhookController');
+const { handleRazorpayWebhook } = require('../controllers/webhookController');
 
 /**
- * POST /api/webhook/razorpay
+ * POST /api/webhooks/razorpay
  *
  * Receives Razorpay payment events.
- * express.raw() captures the body as a Buffer so we can compute the HMAC
- * signature for verification before parsing the JSON.
- *
- * Configure in Razorpay Dashboard:
- *   Webhook URL:    https://api.epielio.com/api/webhook/razorpay
- *   Secret:         value of RAZORPAY_WEBHOOK_SECRET in .env
- *   Active Events:  payment.captured, payment.failed,
- *                   refund.created, refund.processed, refund.failed
+ * express.raw() gives req.body as a Buffer — required for HMAC verification.
+ * No JWT auth middleware — security is handled by X-Razorpay-Signature.
  */
 router.post(
   '/razorpay',
   express.raw({ type: 'application/json' }),
-  webhookController.handleRazorpayWebhook
+  handleRazorpayWebhook
 );
 
 module.exports = router;
