@@ -356,6 +356,8 @@ exports.getAllProducts = async (req, res) => {
       req.user &&
       (req.user.role === "admin" || req.user.role === "super_admin");
 
+    console.log(`[getAllProducts] caller=${req.user?.role || "guest"} isAdmin=${isAdmin} userCountry=${req.userCountry}`);
+
     if (!isAdmin) {
       // Public users only see non-deleted, published products
       filter.isDeleted = false;
@@ -442,6 +444,8 @@ exports.getAllProducts = async (req, res) => {
           ? region
           : req.userCountry;
 
+      console.log(`[getAllProducts] region param="${region}" userRegion="${userRegion}"`);
+
       if (userRegion && userRegion !== "all" && userRegion !== "global") {
         // Show products available in user's region OR globally available products
         // Need to handle $or properly if it already exists (from search)
@@ -472,6 +476,8 @@ exports.getAllProducts = async (req, res) => {
           ],
         };
 
+        console.log(`[getAllProducts] region filter applied with ${regionFilter.$or.length} OR conditions`);
+
         // Merge with existing $or filter from search if present
         if (filter.$or) {
           filter.$and = [
@@ -482,6 +488,8 @@ exports.getAllProducts = async (req, res) => {
         } else {
           Object.assign(filter, regionFilter);
         }
+      } else {
+        console.log(`[getAllProducts] no region filter applied (userRegion="${userRegion}")`);
       }
     }
 
@@ -497,12 +505,16 @@ exports.getAllProducts = async (req, res) => {
     // ===============================
     // DB Query
     // ===============================
+    console.log(`[getAllProducts] final filter keys: ${Object.keys(filter).join(", ")}`);
+
     const products = await Product.find(filter)
       .sort({ createdAt: -1 })
       .limit(limit)
       .skip((page - 1) * limit);
 
     const total = await Product.countDocuments(filter);
+
+    console.log(`[getAllProducts] result: ${total} total products found`);
 
     res.json({
       success: true,
