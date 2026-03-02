@@ -192,6 +192,29 @@ exports.createProduct = async (req, res) => {
       );
     }
 
+    // ── Sanitize description.specifications: accept both string[] and object[] ─
+    if (req.body.description?.specifications) {
+      req.body.description.specifications = req.body.description.specifications
+        .map((s) => {
+          if (typeof s === "string") {
+            // "Key: Value unit" → { key, value, unit }
+            const [rawKey, ...rest] = s.split(":");
+            const rawVal = rest.join(":").trim();
+            const parts  = rawVal.split(" ");
+            const unit   = parts.length > 1 ? parts[parts.length - 1] : "";
+            const value  = parts.length > 1 ? parts.slice(0, -1).join(" ") : rawVal;
+            return { key: rawKey.trim(), value: value.trim(), unit };
+          }
+          return s; // already an object
+        })
+        .filter(Boolean);
+    }
+
+    // ── Sanitize description.short: ensure minimum 10 chars ─────────────────
+    if (req.body.description?.short && req.body.description.short.length < 10) {
+      req.body.description.short = req.body.description.short.padEnd(10, ".");
+    }
+
     // ── Assemble productData with safe defaults ───────────────────────────────
     const productData = {
       ...req.body,
@@ -311,8 +334,27 @@ exports.createProduct = async (req, res) => {
       productData.variants = normalizedVariants;
     }
 
-    const product = new Product(productData);
-    await product.save();
+    // ── Auto-fix duplicate SKU: append random suffix and retry once ──────────
+    let product;
+    try {
+      product = new Product(productData);
+      await product.save();
+    } catch (saveErr) {
+      if (saveErr.code === 11000 && saveErr.message.includes("sku")) {
+        const suffix = `-${Date.now().toString().slice(-5)}`;
+        productData.sku = (productData.sku || productData.productId) + suffix;
+        if (Array.isArray(productData.variants)) {
+          productData.variants = productData.variants.map((v) => ({
+            ...v,
+            sku: (v.sku || productData.sku) + suffix,
+          }));
+        }
+        product = new Product(productData);
+        await product.save();
+      } else {
+        throw saveErr;
+      }
+    }
 
     res.status(201).json({
       success: true,
@@ -790,6 +832,28 @@ exports.updateProduct = async (req, res) => {
       }
 
       product.variants = updatedVariants;
+    }
+
+    /* ============================================================
+       SANITIZE description.specifications (string → object)
+    ============================================================ */
+    if (req.body.description?.specifications) {
+      req.body.description.specifications = req.body.description.specifications
+        .map((s) => {
+          if (typeof s === "string") {
+            const [rawKey, ...rest] = s.split(":");
+            const rawVal = rest.join(":").trim();
+            const parts  = rawVal.split(" ");
+            const unit   = parts.length > 1 ? parts[parts.length - 1] : "";
+            const value  = parts.length > 1 ? parts.slice(0, -1).join(" ") : rawVal;
+            return { key: rawKey.trim(), value: value.trim(), unit };
+          }
+          return s;
+        })
+        .filter(Boolean);
+    }
+    if (req.body.description?.short && req.body.description.short.length < 10) {
+      req.body.description.short = req.body.description.short.padEnd(10, ".");
     }
 
     /* ============================================================
