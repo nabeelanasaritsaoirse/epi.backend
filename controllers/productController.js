@@ -281,7 +281,7 @@ exports.createProduct = async (req, res) => {
         const attrs = Array.isArray(v.attributes) ? v.attributes : [];
         const attrKey = attrs.length
           ? attrs.slice().sort((a, b) => a.name.localeCompare(b.name))
-              .map((a) => `${a.name}:${a.value}`).join("|")
+            .map((a) => `${a.name}:${a.value}`).join("|")
           : "";
         if (attrKey && seenVariantKeys.has(attrKey)) {
           throw new AppError(
@@ -458,8 +458,16 @@ exports.getAllProducts = async (req, res) => {
               "regionalAvailability.isAvailable": true,
             },
             {
+              // Global products should always be visible everywhere
+              isGlobalProduct: true,
+            },
+            {
               // Products with no regional restrictions (empty array)
               regionalAvailability: { $exists: true, $size: 0 },
+            },
+            {
+              // Products where regionalAvailability does not exist at all
+              regionalAvailability: { $exists: false },
             },
           ],
         };
@@ -1432,8 +1440,8 @@ exports.bulkUpdateRegionalPricing = async (req, res) => {
           reason:
             error.name === "ValidationError"
               ? Object.values(error.errors)
-                  .map((e) => e.message)
-                  .join("; ")
+                .map((e) => e.message)
+                .join("; ")
               : "Failed to update regional pricing",
         });
       }
@@ -2874,10 +2882,10 @@ exports.applyVariantMatrix = async (req, res) => {
       const attributeKey =
         attributes.length > 0
           ? attributes
-              .slice()
-              .sort((a, b) => a.name.localeCompare(b.name))
-              .map((a) => `${a.name}:${a.value}`)
-              .join("|")
+            .slice()
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map((a) => `${a.name}:${a.value}`)
+            .join("|")
           : "";
 
       // ── Duplicate-combination guard ─────────────────────────────────────────
@@ -3233,7 +3241,7 @@ exports.updateListingStatus = async (req, res) => {
 
     // Enforce valid source states for approval actions
     const approveableStatuses = ["pending_approval", "rejected"];
-    const rejectableStatuses  = ["pending_approval", "published"];
+    const rejectableStatuses = ["pending_approval", "published"];
 
     if (action === "approve" && !approveableStatuses.includes(product.listingStatus)) {
       return res.status(409).json({
@@ -3252,16 +3260,16 @@ exports.updateListingStatus = async (req, res) => {
 
     // Apply state transition
     if (action === "approve") {
-      product.listingStatus           = "published";
-      product.listingRejectionReason  = null;
+      product.listingStatus = "published";
+      product.listingRejectionReason = null;
     } else {
-      product.listingStatus           = "rejected";
-      product.listingRejectionReason  = String(reason).trim();
+      product.listingStatus = "rejected";
+      product.listingRejectionReason = String(reason).trim();
     }
 
-    product.listingReviewedBy  = req.user._id;
-    product.listingReviewedAt  = new Date();
-    product.updatedByEmail     = req.user.email;
+    product.listingReviewedBy = req.user._id;
+    product.listingReviewedAt = new Date();
+    product.updatedByEmail = req.user.email;
 
     await product.save();
 
@@ -3270,15 +3278,15 @@ exports.updateListingStatus = async (req, res) => {
       const notifPayload =
         action === "approve"
           ? {
-              title: "Product Approved!",
-              body: `Your product "${product.name}" is now live on the platform.`,
-              data: { type: "product_approved", productId: product.productId },
-            }
+            title: "Product Approved!",
+            body: `Your product "${product.name}" is now live on the platform.`,
+            data: { type: "product_approved", productId: product.productId },
+          }
           : {
-              title: "Product Rejected",
-              body: `Your product "${product.name}" was not approved. Reason: ${reason}`,
-              data: { type: "product_rejected", productId: product.productId, reason },
-            };
+            title: "Product Rejected",
+            body: `Your product "${product.name}" was not approved. Reason: ${reason}`,
+            data: { type: "product_rejected", productId: product.productId, reason },
+          };
 
       await sendPushNotification([product.sellerId], notifPayload);
     } catch (notifErr) {
@@ -3293,10 +3301,10 @@ exports.updateListingStatus = async (req, res) => {
           ? "Product approved and published"
           : "Product rejected",
       data: {
-        productId:     product.productId,
+        productId: product.productId,
         listingStatus: product.listingStatus,
-        reviewedBy:    req.user.email,
-        reviewedAt:    product.listingReviewedAt,
+        reviewedBy: req.user.email,
+        reviewedAt: product.listingReviewedAt,
         ...(action === "reject" && { rejectionReason: product.listingRejectionReason }),
       },
     });
