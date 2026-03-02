@@ -360,8 +360,9 @@ exports.getAllProducts = async (req, res) => {
 
     if (!isAdmin) {
       // Public users only see non-deleted, published products
+      // $nin matches docs where listingStatus is NOT a bad state OR field doesn't exist (legacy products)
       filter.isDeleted = false;
-      filter.listingStatus = "published";
+      filter.listingStatus = { $nin: ["draft", "pending_approval", "rejected", "archived"] };
     }
 
     // ===============================
