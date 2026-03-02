@@ -828,6 +828,14 @@ exports.updateProduct = async (req, res) => {
       "defaultVariantId",
       // Listing visibility (admin can override directly; use /listing-status for approval flow)
       "listingStatus",
+      // Seller assignment (admin-only)
+      "sellerId",
+      "sellerInfo",
+      // Product badges
+      "isFeatured",
+      "isPopular",
+      "isBestSeller",
+      "isTrending",
     ];
 
     updatableFields.forEach((field) => {
