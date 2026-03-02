@@ -168,6 +168,18 @@ exports.createCategory = async (req, res) => {
         }))
       : [];
 
+    // Marketplace configuration
+    if (req.body.showInMenu !== undefined)
+      newCategory.showInMenu =
+        req.body.showInMenu === true || req.body.showInMenu === "true";
+    if (req.body.commissionRate !== undefined)
+      newCategory.commissionRate = Number(req.body.commissionRate);
+    if (req.body.isRestricted !== undefined)
+      newCategory.isRestricted =
+        req.body.isRestricted === true || req.body.isRestricted === "true";
+    if (req.body.attributeSchema !== undefined)
+      newCategory.attributeSchema = req.body.attributeSchema;
+
     await newCategory.save();
 
     if (parentCategoryId) {
