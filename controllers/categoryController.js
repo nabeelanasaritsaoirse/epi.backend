@@ -593,6 +593,21 @@ if (req.body.isActive !== undefined) {
     // Display order
     if (displayOrder !== undefined) category.displayOrder = displayOrder;
 
+    // Marketplace configuration
+    if (req.body.isFeatured !== undefined)
+      category.isFeatured =
+        req.body.isFeatured === true || req.body.isFeatured === "true";
+    if (req.body.showInMenu !== undefined)
+      category.showInMenu =
+        req.body.showInMenu === true || req.body.showInMenu === "true";
+    if (req.body.commissionRate !== undefined)
+      category.commissionRate = Number(req.body.commissionRate);
+    if (req.body.isRestricted !== undefined)
+      category.isRestricted =
+        req.body.isRestricted === true || req.body.isRestricted === "true";
+    if (req.body.attributeSchema !== undefined)
+      category.attributeSchema = req.body.attributeSchema;
+
     // Parent handling
     if (parentCategoryId !== undefined) {
       if (parentCategoryId === categoryId) {
