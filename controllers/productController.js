@@ -2796,13 +2796,26 @@ exports.generateVariantMatrix = async (req, res) => {
       product = await Product.findById(productId);
     }
     if (!product) {
-      return res.status(404).json({ success: false, message: "Product not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Product not found"
+      });
     }
 
-    // Load category to get its attributeSchema
-    const category = await Category.findById(
-      product.category?.mainCategoryId
-    ).select("attributeSchema name");
+    // Resolve correct category (subCategory > mainCategory)
+    const resolvedCategoryId =
+      product.category?.subCategoryId ||
+      product.category?.mainCategoryId;
+
+    if (!resolvedCategoryId) {
+      return res.status(400).json({
+        success: false,
+        message: "Product has no category assigned",
+      });
+    }
+
+    const category = await Category.findById(resolvedCategoryId)
+      .select("attributeSchema name");
 
     if (!category) {
       return res.status(404).json({
@@ -2825,18 +2838,18 @@ exports.generateVariantMatrix = async (req, res) => {
 
     return res.json({
       success: true,
-      message: `Matrix preview: ${result.combinationCount} combinations (${result.newCombinations} new, ${result.preservedCombinations} preserved). POST back with save=true to apply.`,
+      message: `Matrix preview: ${result.combinationCount} combinations (${result.newCombinations} new, ${result.preservedCombinations} preserved).`,
       data: {
         productId: product.productId,
         categoryName: category.name,
         ...result,
       },
     });
+
   } catch (error) {
     return handleProductError(error, res, "generateVariantMatrix");
   }
 };
-
 // ============================================================
 // VARIANT CRUD — per-combination price, stock, and images
 // ============================================================
@@ -3428,5 +3441,6 @@ exports.updateListingStatus = async (req, res) => {
     return handleProductError(error, res, "updateListingStatus");
   }
 };
+
 
 
