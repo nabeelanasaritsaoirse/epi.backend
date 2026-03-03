@@ -142,6 +142,17 @@ exports.createProduct = async (req, res) => {
     ];
     BLOCKED_FIELDS.forEach((f) => { delete req.body[f]; });
 
+    // ── Role-based seller enforcement (defense-in-depth) ─────────────────────
+    if (req.user?.role === "seller") {
+      req.body.sellerId = req.user._id;
+      if (req.body.listingStatus === "published") {
+        req.body.listingStatus = "pending_approval";
+      }
+      if (!req.body.listingStatus) {
+        req.body.listingStatus = req.body.isDraft ? "draft" : "pending_approval";
+      }
+    }
+
     // ── Server-generated IDs (never trust client for these) ───────────────────
     const timestamp = Date.now().toString().slice(-6);
     const random = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
@@ -711,6 +722,26 @@ exports.updateProduct = async (req, res) => {
       return res
         .status(404)
         .json({ success: false, message: "Product not found" });
+    }
+
+    // ── Role-based seller enforcement (defense-in-depth) ─────────────────────
+    if (req.user?.role === "seller") {
+      // Ownership: seller may only update their own products
+      if (!product.sellerId || product.sellerId.toString() !== req.user._id.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: "You do not have permission to update this product",
+          code: "SELLER_OWNERSHIP_REQUIRED",
+        });
+      }
+      // Strip fields sellers must not control directly
+      delete req.body.listingStatus;
+      delete req.body.sellerId;
+      delete req.body.sellerInfo;
+      // If was published or rejected, move back to review queue on any edit
+      if (["published", "rejected"].includes(product.listingStatus)) {
+        product.listingStatus = "pending_approval";
+      }
     }
 
     // Validate pricing.salePrice < regularPrice before touching the document
