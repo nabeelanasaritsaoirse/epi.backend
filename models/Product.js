@@ -186,6 +186,11 @@ const productSchema = new mongoose.Schema({
   },
   brand: { type: String, required: true },
   sku: { type: String, unique: true, sparse: true },
+  attributes: {
+  type: Map,
+  of: String,
+  default: {},
+},
 
   // URL-friendly identifier — auto-generated from name on create if not provided
   slug: { type: String, unique: true, sparse: true, lowercase: true, trim: true },
@@ -643,3 +648,4 @@ productSchema.post("findOneAndDelete", async function (doc) {
 });
 
 module.exports = Product;
+
