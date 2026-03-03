@@ -2152,6 +2152,7 @@ exports.getAllProductsForAdmin = async (req, res) => {
       minPrice,
       maxPrice,
       status,
+      listingStatus,
       region, // No default - admin sees all regions by default
       hasVariants,
       simpleOnly,
@@ -2209,6 +2210,7 @@ exports.getAllProductsForAdmin = async (req, res) => {
     }
     if (brand) filter.brand = brand;
     if (status) filter.status = status;
+    if (listingStatus) filter.listingStatus = listingStatus;
 
     // Region filter - ONLY apply if specific region requested
     // Admin by default sees ALL regions
