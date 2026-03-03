@@ -863,6 +863,7 @@ exports.updateProduct = async (req, res) => {
       "name",
       "description",
       "brand",
+      "attributes",
       "pricing",
       "availability",
       "regionalPricing",
@@ -3397,3 +3398,4 @@ exports.updateListingStatus = async (req, res) => {
     return handleProductError(error, res, "updateListingStatus");
   }
 };
+
