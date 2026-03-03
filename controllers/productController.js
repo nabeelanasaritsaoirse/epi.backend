@@ -3002,9 +3002,37 @@ exports.applyVariantMatrix = async (req, res) => {
       });
     }
 
-    product.variants = mergedVariants;
-    product.hasVariants = mergedVariants.length > 0;
-    await product.save();
+    // Create map of existing variants by variantId
+const existingMap = new Map();
+for (const v of product.variants || []) {
+  existingMap.set(v.variantId, v);
+}
+
+for (const newVariant of mergedVariants) {
+  const existing = existingMap.get(newVariant.variantId);
+
+  if (existing) {
+    // UPDATE existing variant
+    existing.price = newVariant.price;
+    existing.salePrice = newVariant.salePrice;
+    existing.stock = newVariant.stock;
+    existing.attributes = newVariant.attributes;
+    existing.attributeKey = newVariant.attributeKey;
+    existing.description = newVariant.description;
+    existing.paymentPlan = newVariant.paymentPlan;
+    existing.isActive = newVariant.isActive;
+    // IMPORTANT: DO NOT TOUCH IMAGES
+  } else {
+    // ADD new variant
+    product.variants.push(newVariant);
+  }
+}
+
+// DO NOT remove old variants automatically
+
+product.hasVariants = product.variants.length > 0;
+
+await product.save();
 
     return res.status(200).json({
       success: true,
@@ -3398,4 +3426,5 @@ exports.updateListingStatus = async (req, res) => {
     return handleProductError(error, res, "updateListingStatus");
   }
 };
+
 
