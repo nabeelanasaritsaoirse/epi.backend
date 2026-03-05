@@ -303,8 +303,9 @@ exports.getProducts = async (req, res) => {
 
     if (req.query.search) {
       filter.$or = [
-        { name:        { $regex: req.query.search, $options: "i" } },
-        { description: { $regex: req.query.search, $options: "i" } },
+        { name:                { $regex: req.query.search, $options: "i" } },
+        { "description.short": { $regex: req.query.search, $options: "i" } },
+        { "description.long":  { $regex: req.query.search, $options: "i" } },
       ];
     }
 
@@ -781,6 +782,7 @@ exports.updateFulfillment = async (req, res) => {
     }
     if (status === "shipped") {
       order.sellerFulfilledAt = new Date();
+      order.deliveryStatus = "SHIPPED";
     }
 
     await order.save();

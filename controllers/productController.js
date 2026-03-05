@@ -1,5 +1,6 @@
 const Product = require("../models/Product");
 const Category = require("../models/Category");
+const User = require("../models/User");
 const mongoose = require("mongoose");
 const {
   uploadMultipleFilesToS3,
@@ -135,19 +136,63 @@ exports.createProduct = async (req, res) => {
       "restoredAt", "restoredByEmail",
       "createdByEmail", "updatedByEmail",
       "reviewStats",
-      // Seller ownership — assigned server-side only
-      "sellerId", "sellerInfo",
       // Listing lifecycle — managed via /listing-status endpoint
       "listingRejectionReason", "listingReviewedBy", "listingReviewedAt",
     ];
     BLOCKED_FIELDS.forEach((f) => { delete req.body[f]; });
 
-    // ── Role-based seller enforcement (defense-in-depth) ─────────────────────
+    // ── Seller assignment ─────────────────────────────────────────────────────
     if (req.user?.role === "seller") {
+      // Seller calling directly → force their own ID, enforce approval flow
       req.body.sellerId = req.user._id;
       if (req.body.listingStatus === "published") {
         req.body.listingStatus = "pending_approval";
       }
+      if (!req.body.listingStatus) {
+        req.body.listingStatus = req.body.isDraft ? "draft" : "pending_approval";
+      }
+    } else if (req.body.sellerId || req.body.sellerEmail || req.body.sellerMobile) {
+      // Admin assigning product to a seller — resolve by ObjectId / email / mobile
+      let sellerQuery;
+      if (req.body.sellerEmail) {
+        sellerQuery = { email: req.body.sellerEmail.trim().toLowerCase() };
+      } else if (req.body.sellerMobile) {
+        sellerQuery = { mobile: req.body.sellerMobile.trim() };
+      } else {
+        sellerQuery = mongoose.isValidObjectId(req.body.sellerId)
+          ? { _id: req.body.sellerId }
+          : null;
+      }
+
+      if (!sellerQuery) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid sellerId format",
+          code: "INVALID_SELLER_ID",
+        });
+      }
+
+      const seller = await User.findOne({ ...sellerQuery, role: "seller" })
+        .select("_id sellerProfile email mobile");
+
+      if (!seller) {
+        return res.status(404).json({
+          success: false,
+          message: "Seller not found",
+          code: "SELLER_NOT_FOUND",
+        });
+      }
+
+      req.body.sellerId   = seller._id;
+      delete req.body.sellerEmail;
+      delete req.body.sellerMobile;
+
+      req.body.sellerInfo = {
+        storeName:  seller.sellerProfile?.storeName  || "",
+        rating:     seller.sellerProfile?.rating     || 0,
+        isVerified: seller.sellerProfile?.isVerified || false,
+      };
+
       if (!req.body.listingStatus) {
         req.body.listingStatus = req.body.isDraft ? "draft" : "pending_approval";
       }

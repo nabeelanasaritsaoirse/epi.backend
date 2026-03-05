@@ -323,6 +323,10 @@ installmentOrderSchema.pre("save", function (next) {
   if (this.isNew && !this.orderId) {
     this.orderId = generateOrderId();
   }
+  // Auto-set sellerFulfillmentStatus on new orders based on whether a seller is involved
+  if (this.isNew && this.sellerFulfillmentStatus === "not_applicable" && this.sellerId) {
+    this.sellerFulfillmentStatus = "pending";
+  }
   next();
 });
 

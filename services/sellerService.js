@@ -68,6 +68,14 @@ exports.creditSellerEarning = async (order) => {
   // Idempotency guard — never credit the same order twice
   if (order.sellerFulfillmentStatus === "delivered") return;
 
+  // DB-level idempotency — guard against race conditions where two calls run
+  // concurrently before the first one has saved the "delivered" status
+  const existing = await WalletTransaction.findOne({
+    "meta.orderIdStr": order.orderId,
+    type: "seller_earning",
+  });
+  if (existing) return;
+
   // Guard against missing/invalid totalProductPrice
   const grossValue = Number(order.totalProductPrice);
   if (!isFinite(grossValue) || grossValue <= 0) {
