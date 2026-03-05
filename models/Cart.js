@@ -29,12 +29,10 @@ const cartProductSchema = new mongoose.Schema({
   // Variant Details Snapshot (saved at time of adding to cart)
   variantDetails: {
     sku: { type: String, default: null },
+    // Array of {name, value} pairs matching Product variant schema
     attributes: {
-      size: { type: String, default: null },
-      color: { type: String, default: null },
-      weight: { type: String, default: null },
-      purity: { type: String, default: null },
-      material: { type: String, default: null }
+      type: [{ name: String, value: String }],
+      default: []
     },
     price: { type: Number, default: null },
     description: { type: String, default: null }

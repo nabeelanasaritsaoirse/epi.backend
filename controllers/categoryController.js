@@ -168,6 +168,18 @@ exports.createCategory = async (req, res) => {
         }))
       : [];
 
+    // Marketplace configuration
+    if (req.body.showInMenu !== undefined)
+      newCategory.showInMenu =
+        req.body.showInMenu === true || req.body.showInMenu === "true";
+    if (req.body.commissionRate !== undefined)
+      newCategory.commissionRate = Number(req.body.commissionRate);
+    if (req.body.isRestricted !== undefined)
+      newCategory.isRestricted =
+        req.body.isRestricted === true || req.body.isRestricted === "true";
+    if (req.body.attributeSchema !== undefined)
+      newCategory.attributeSchema = req.body.attributeSchema;
+
     await newCategory.save();
 
     if (parentCategoryId) {
@@ -255,77 +267,143 @@ exports.getAllCategories = async (req, res) => {
  */
 exports.getAllCategoriesForAdmin = async (req, res) => {
   try {
-    const { parentCategoryId, isActive, showDeleted, region } = req.query;
+    const {
+      parentCategoryId,
+      isActive,
+      showDeleted,
+      region,
+      level,
+      page = 1,
+      limit = 10,
+    } = req.query;
+
+    const pageNumber = Number(page);
+    const pageLimit = Number(limit);
+    const skip = (pageNumber - 1) * pageLimit;
 
     let filter = {};
 
-    // Show deleted categories only if explicitly requested
+    /* =============================
+       DELETED FILTER
+    ============================= */
     if (showDeleted !== "true") {
       filter.isDeleted = false;
     }
 
-    // Parent filter
-    if (parentCategoryId) {
+    /* =============================
+       PARENT FILTER
+    ============================= */
+    if (parentCategoryId && parentCategoryId !== "all") {
       filter.parentCategoryId =
         parentCategoryId === "null" ? null : parentCategoryId;
     }
 
-    // Status filter ONLY if provided
+    /* =============================
+       ACTIVE FILTER
+    ============================= */
     if (isActive !== undefined && isActive !== "all") {
-      filter.isActive = isActive === "true" || isActive === true;
+      filter.isActive = isActive === "true";
     }
-
-    // Region filter - OPTIONAL for admin
-    // Admin by default sees ALL regions
-    // Use ?region=india to filter by specific region
-    // Categories with empty availableInRegions array are global (visible everywhere)
+/* =============================
+   LEVEL FILTER ✅ FIX
+============================= */
+if (level !== undefined && level !== "all") {
+  filter.level = Number(level);
+}
+    /* =============================
+       REGION FILTER
+    ============================= */
     if (region && region !== "all" && region !== "global") {
       filter.$or = [
         { availableInRegions: region },
-        { availableInRegions: { $size: 0 } }, // Global categories
-        { availableInRegions: { $exists: false } }, // Legacy categories without region field
+        { availableInRegions: { $size: 0 } },
+        { availableInRegions: { $exists: false } },
       ];
     }
 
+    /* =============================
+       TOTAL COUNT (FOR PAGINATION)
+    ============================= */
+    const totalCount = await Category.countDocuments(filter);
+
+    /* =============================
+       GLOBAL STATS (NEW ✅)
+    ============================= */
+    const activeCount = await Category.countDocuments({
+      ...filter,
+      isActive: true,
+    });
+
+    const featuredCount = await Category.countDocuments({
+      ...filter,
+      isFeatured: true,
+    });
+
+    const rootCount = await Category.countDocuments({
+      ...filter,
+      parentCategoryId: null,
+    });
+
+    /* =============================
+       PAGINATED DATA
+    ============================= */
     const categories = await Category.find(filter)
       .populate(
         "subCategories",
-        "categoryId name slug image mainImage iconImage icon displayOrder isDeleted"
+        "categoryId name slug image mainImage iconImage displayOrder isDeleted"
       )
       .populate("deletedBy", "name email")
       .sort({ displayOrder: 1, name: 1 })
+      .skip(skip)
+      .limit(pageLimit)
       .exec();
 
-    // Apply parent image fallback for subcategories
-    const categoriesWithFallback = categories.map(cat => {
+    /* =============================
+       IMAGE FALLBACK
+    ============================= */
+    const categoriesWithFallback = categories.map((cat) => {
       const catObj = cat.toObject();
-      if (catObj.subCategories && catObj.subCategories.length > 0) {
-        catObj.subCategories = applyParentImageFallback(catObj, catObj.subCategories);
+
+      if (catObj.subCategories?.length) {
+        catObj.subCategories = applyParentImageFallback(
+          catObj,
+          catObj.subCategories
+        );
       }
+
       return catObj;
     });
 
+    /* =============================
+       FINAL RESPONSE
+    ============================= */
     res.status(200).json({
       success: true,
-      count: categoriesWithFallback.length,
+
+      /* pagination */
+      count: totalCount,
+      page: pageNumber,
+      limit: pageLimit,
+      totalPages: Math.ceil(totalCount / pageLimit),
+
+      /* stats (NEW) */
+      activeCount,
+      featuredCount,
+      rootCount,
+
+      /* data */
       data: categoriesWithFallback,
-      // Include applied filters for debugging
-      appliedFilters: {
-        parentCategoryId: parentCategoryId || "all",
-        isActive: isActive || "all",
-        region: region || "all",
-        showDeleted: showDeleted === "true",
-      },
     });
+
   } catch (error) {
-    console.error("Error fetching categories for admin:", error);
+    console.error("Error fetching categories:", error);
+
     res.status(500).json({
       success: false,
       message: error.message,
     });
   }
 };
-
 /**
  * @desc    Get category by ID
  * @route   GET /api/categories/:categoryId
@@ -492,6 +570,10 @@ exports.updateCategory = async (req, res) => {
 
     // Description
     if (description !== undefined) category.description = description;
+    // ✅ STATUS UPDATE FIX
+if (req.body.isActive !== undefined) {
+  category.isActive = req.body.isActive;
+}
 
     // Meta
     if (meta !== undefined) category.meta = meta;
@@ -522,6 +604,21 @@ exports.updateCategory = async (req, res) => {
 
     // Display order
     if (displayOrder !== undefined) category.displayOrder = displayOrder;
+
+    // Marketplace configuration
+    if (req.body.isFeatured !== undefined)
+      category.isFeatured =
+        req.body.isFeatured === true || req.body.isFeatured === "true";
+    if (req.body.showInMenu !== undefined)
+      category.showInMenu =
+        req.body.showInMenu === true || req.body.showInMenu === "true";
+    if (req.body.commissionRate !== undefined)
+      category.commissionRate = Number(req.body.commissionRate);
+    if (req.body.isRestricted !== undefined)
+      category.isRestricted =
+        req.body.isRestricted === true || req.body.isRestricted === "true";
+    if (req.body.attributeSchema !== undefined)
+      category.attributeSchema = req.body.attributeSchema;
 
     // Parent handling
     if (parentCategoryId !== undefined) {

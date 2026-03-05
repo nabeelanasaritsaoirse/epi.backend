@@ -249,6 +249,16 @@ couponSchema.methods.incrementUsage = async function () {
   await this.save();
 };
 
+couponSchema.methods.canUserUse = function (userId) {
+  if (this.maxUsagePerUser === null || this.maxUsagePerUser === undefined) return true;
+
+  const userUsageCount = this.usageHistory.filter(
+    h => h.user && h.user.toString() === userId.toString()
+  ).length;
+
+  return userUsageCount < this.maxUsagePerUser;
+};
+
 // --------------------------------------
 // STATIC METHODS
 // --------------------------------------

@@ -42,6 +42,10 @@ const {
   BulkOrderNotFoundError,
   ValidationError,
 } = require("../utils/customErrors");
+const {
+  resolveSellerCommissionRate,
+  creditSellerEarning,
+} = require("./sellerService");
 
 /**
  * Create new installment order with first payment
@@ -359,6 +363,15 @@ async function createOrder(orderData) {
     commissionPercentage = 25;
   }
 
+  // ── Seller routing ──────────────────────────────────────────────────────────
+  // Resolve seller commission once at order creation; stored immutably on order
+  const categoryCommissionRate = product.category?.commissionRate ?? null;
+  const sellerCommissionPercentage = await resolveSellerCommissionRate(
+    product.sellerId,
+    categoryCommissionRate,
+  );
+  // ────────────────────────────────────────────────────────────────────────────
+
   const productSnapshot = {
     productId: product.productId,
     name: product.name,
@@ -439,6 +452,12 @@ async function createOrder(orderData) {
       referrer: referrer?._id || null,
       productCommissionPercentage: commissionPercentage,
       commissionPercentage,
+
+      // ── Seller routing ────────────────────────────────────────────────────
+      sellerId:                   product.sellerId || null,
+      sellerCommissionPercentage: sellerCommissionPercentage,
+      sellerFulfillmentStatus:    product.sellerId ? "pending" : "not_applicable",
+      // ─────────────────────────────────────────────────────────────────────
 
       firstPaymentMethod: paymentMethod,
       lastPaymentDate: paymentMethod === "WALLET" ? new Date() : null,
@@ -718,21 +737,105 @@ async function getUserOrders(userId, options = {}) {
  * Get completed orders for admin
  *
  * @param {Object} options - Query options
- * @returns {Promise<Array>} Array of completed orders
+ * @returns {Promise<{ orders: Array, totalCount: number }>}
  */
 async function getCompletedOrders(options = {}) {
-  const { deliveryStatus, limit = 50, skip = 0 } = options;
+  const { deliveryStatus, limit = 10, skip = 0, search } = options;
 
-  const query = { status: "COMPLETED" };
-  if (deliveryStatus) query.deliveryStatus = deliveryStatus;
+  const matchStage = { status: "COMPLETED" };
+  if (deliveryStatus) matchStage.deliveryStatus = deliveryStatus;
 
-  return InstallmentOrder.find(query)
-    .sort({ completedAt: -1 })
-    .limit(limit)
-    .skip(skip)
-    .populate("user", "name email phoneNumber")
-    .populate("product", "name images pricing")
-    .populate("referrer", "name email");
+  if (!search) {
+    // No search — efficient path: find + countDocuments in parallel
+    const [orders, totalCount] = await Promise.all([
+      InstallmentOrder.find(matchStage)
+        .sort({ completedAt: -1 })
+        .limit(limit)
+        .skip(skip)
+        .populate("user", "name email phoneNumber")
+        .populate("product", "name images pricing")
+        .populate("referrer", "name email"),
+      InstallmentOrder.countDocuments(matchStage),
+    ]);
+    return { orders, totalCount };
+  }
+
+  // Search path — requires $lookup to match on user fields
+  const searchRegex = { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" };
+
+  const pipeline = [
+    { $match: matchStage },
+    {
+      $lookup: {
+        from: "users",
+        localField: "user",
+        foreignField: "_id",
+        as: "_userArr",
+      },
+    },
+    { $addFields: { _userObj: { $arrayElemAt: ["$_userArr", 0] } } },
+    {
+      $match: {
+        $or: [
+          { "_userObj.name": searchRegex },
+          { "_userObj.email": searchRegex },
+          { "_userObj.phoneNumber": searchRegex },
+        ],
+      },
+    },
+    { $sort: { completedAt: -1 } },
+    {
+      $facet: {
+        totalCount: [{ $count: "count" }],
+        orders: [
+          { $skip: skip },
+          { $limit: limit },
+          {
+            $lookup: {
+              from: "products",
+              localField: "product",
+              foreignField: "_id",
+              as: "_productArr",
+            },
+          },
+          {
+            $lookup: {
+              from: "users",
+              localField: "referrer",
+              foreignField: "_id",
+              as: "_referrerArr",
+            },
+          },
+          {
+            $addFields: {
+              user: {
+                _id: "$_userObj._id",
+                name: "$_userObj.name",
+                email: "$_userObj.email",
+                phoneNumber: "$_userObj.phoneNumber",
+              },
+              product: { $arrayElemAt: ["$_productArr", 0] },
+              referrer: { $arrayElemAt: ["$_referrerArr", 0] },
+            },
+          },
+          {
+            $project: {
+              _userArr: 0,
+              _userObj: 0,
+              _productArr: 0,
+              _referrerArr: 0,
+            },
+          },
+        ],
+      },
+    },
+  ];
+
+  const [result] = await InstallmentOrder.aggregate(pipeline);
+  return {
+    orders: result.orders,
+    totalCount: result.totalCount[0]?.count || 0,
+  };
 }
 
 /**
@@ -824,6 +927,19 @@ async function updateDeliveryStatus(orderId, status) {
 
   order.deliveryStatus = status;
   await order.save();
+
+  // Credit seller wallet when delivery is confirmed (idempotent — safe if called twice)
+  if (status === "DELIVERED") {
+    try {
+      await creditSellerEarning(order);
+    } catch (sellerErr) {
+      // Log but don't fail the delivery status update — seller credit can be retried
+      console.error(
+        `[sellerEarning] Failed to credit seller for order ${order.orderId}:`,
+        sellerErr.message,
+      );
+    }
+  }
 
   return order;
 }
@@ -1018,6 +1134,7 @@ async function verifyFirstPayment(data) {
     razorpayOrderId,
     razorpayPaymentId,
     razorpaySignature,
+    skipSignatureVerification = false, // true when called from webhook (already HMAC-verified)
   } = data;
 
   // 1. Find the order
@@ -1049,14 +1166,19 @@ async function verifyFirstPayment(data) {
   }
 
   // 5. Verify Razorpay signature
-  const crypto = require("crypto");
-  const expectedSignature = crypto
-    .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-    .update(`${razorpayOrderId}|${razorpayPaymentId}`)
-    .digest("hex");
+  //    Skipped when called from the webhook controller — the entire webhook
+  //    body has already been authenticated via HMAC-SHA256 with
+  //    RAZORPAY_WEBHOOK_SECRET at the route entry point.
+  if (!skipSignatureVerification) {
+    const crypto = require("crypto");
+    const expectedSignature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+      .update(`${razorpayOrderId}|${razorpayPaymentId}`)
+      .digest("hex");
 
-  if (expectedSignature !== razorpaySignature) {
-    throw new Error("Invalid payment signature. Payment verification failed.");
+    if (expectedSignature !== razorpaySignature) {
+      throw new Error("Invalid payment signature. Payment verification failed.");
+    }
   }
 
   // 6. Payment verified! Update payment record
@@ -1562,6 +1684,14 @@ async function createBulkOrder(bulkOrderData) {
         category: itemData.product.category,
       };
 
+      // ── Seller routing ────────────────────────────────────────────────────
+      const itemCategoryCommissionRate = itemData.product.category?.commissionRate ?? null;
+      const itemSellerCommissionPercentage = await resolveSellerCommissionRate(
+        itemData.product.sellerId,
+        itemCategoryCommissionRate,
+      );
+      // ─────────────────────────────────────────────────────────────────────
+
       // Create order (status will be PENDING for RAZORPAY, ACTIVE for WALLET after payment)
       const generatedOrderId = generateOrderId();
 
@@ -1603,6 +1733,12 @@ async function createBulkOrder(bulkOrderData) {
         referrer: referrer?._id || null,
         productCommissionPercentage: commissionPercentage,
         commissionPercentage,
+
+        // ── Seller routing ──────────────────────────────────────────────────
+        sellerId:                   itemData.product.sellerId || null,
+        sellerCommissionPercentage: itemSellerCommissionPercentage,
+        sellerFulfillmentStatus:    itemData.product.sellerId ? "pending" : "not_applicable",
+        // ───────────────────────────────────────────────────────────────────
 
         firstPaymentMethod: paymentMethod,
         lastPaymentDate: null,

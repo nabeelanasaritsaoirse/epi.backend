@@ -11,7 +11,8 @@ const walletTransactionSchema = new mongoose.Schema({
       "investment",
       "withdrawal",
       "withdrawal_locked",
-      "withdrawal_released"
+      "withdrawal_released",
+      "seller_earning"
     ],
     required: true
   },

@@ -157,6 +157,61 @@ router.put(
 );
 
 // ============================================
+// LISTING APPROVAL (Admin) — approve / reject seller products
+// ============================================
+router.patch(
+  "/:productId/listing-status",
+  verifyToken,
+  isAdmin,
+  productController.updateListingStatus
+);
+
+// ============================================
+// VARIANT MATRIX + EXCHANGE RATES (Admin)
+// ============================================
+
+// Preview cartesian-product variant matrix from category attributeSchema
+// Returns proposed variants WITHOUT saving; admin confirms in Flutter UI
+router.post(
+  "/:productId/generate-variant-matrix",
+  verifyToken,
+  isAdmin,
+  productController.generateVariantMatrix
+);
+
+// Save confirmed variant matrix (admin fills prices in Flutter, then POSTs here)
+router.post(
+  "/:productId/apply-variant-matrix",
+  verifyToken,
+  isAdmin,
+  productController.applyVariantMatrix
+);
+
+// Per-variant CRUD — price, stock, images per combination
+router.get("/:productId/variants", productController.getProductVariants);
+router.get("/:productId/variants/:variantId", productController.getVariantById);
+router.patch(
+  "/:productId/variants/:variantId",
+  verifyToken,
+  isAdmin,
+  productController.updateVariant
+);
+router.delete(
+  "/:productId/variants/:variantId",
+  verifyToken,
+  isAdmin,
+  productController.deleteVariant
+);
+
+// Force-refresh exchange rates + recalculate non-overridden regional prices
+router.post(
+  "/sync-exchange-rates",
+  verifyToken,
+  isAdmin,
+  productController.syncExchangeRates
+);
+
+// ============================================
 // SPECIFIC UPDATE ROUTES
 // ============================================
 router.put(

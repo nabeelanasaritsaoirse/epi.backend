@@ -46,6 +46,12 @@ const dashboardRoutes = require("./routes/dashboardRoutes");
 const featuredListRoutes = require("./routes/featuredListRoutes");
 const adminReferralRoutes = require("./routes/adminReferralRoutes");
 const reviewRoutes = require("./routes/reviewRoutes");
+const backupRoutes  = require("./routes/backupRoutes");
+const sellerRoutes  = require("./routes/sellerRoutes");
+
+// Payment intelligence
+const webhookRoutes       = require("./routes/webhook");
+const adminPaymentsRoutes = require("./routes/adminPayments");
 
 const app = express();
 
@@ -78,6 +84,12 @@ app.use(
     credentials: true,
   })
 );
+
+// ======================================================================
+// RAZORPAY WEBHOOK — must be mounted BEFORE express.json()
+// express.raw() preserves the raw Buffer body needed for HMAC signature verification
+// ======================================================================
+app.use("/api/webhook", webhookRoutes);
 
 // ======================================================================
 // BODY PARSER
@@ -119,11 +131,26 @@ require("./services/kycAutoApproveService");
 const { startNotificationCron } = require("./jobs/notificationCron");
 const { startAutopayCron } = require("./jobs/autopayCron");
 const { startAccountDeletionCron } = require("./jobs/accountDeletionCron");
+const { startExchangeRateSyncJob } = require("./jobs/syncExchangeRates");
 
 // Start cron jobs
 startNotificationCron();
 startAutopayCron();
 startAccountDeletionCron();
+startExchangeRateSyncJob(); // Hourly exchange rate refresh + regional price sync
+
+// Weekly backup cron (every Sunday at 2:00 AM IST)
+const cron = require('node-cron');
+const { runBackup } = require('./services/backupService');
+cron.schedule('0 2 * * 0', async () => {
+  console.log('[Backup Cron] Starting weekly backup...');
+  try {
+    const result = await runBackup();
+    console.log(`[Backup Cron] ✅ Weekly backup complete: ${result.fileName}`);
+  } catch (err) {
+    console.error('[Backup Cron] ❌ Weekly backup failed:', err.message);
+  }
+}, { timezone: 'Asia/Kolkata' });
 
 // ======================================================================
 // ROUTES
@@ -175,14 +202,23 @@ app.use("/api/admin-mgmt", adminManagementRoutes);
 // SALES TEAM ROUTES
 app.use("/api/sales", salesTeamRoutes);
 
+// SELLER ROUTES
+app.use("/api/seller", sellerRoutes);
+
 // ADMIN REFERRAL ROUTES
 app.use("/api/admin/referrals", adminReferralRoutes);
+
+// ADMIN PAYMENT INTELLIGENCE ROUTES
+app.use("/api/admin/payments", adminPaymentsRoutes);
 
 // REVIEW ROUTES
 app.use("/api/reviews", reviewRoutes);
 
 // HEALTH CHECK
 app.use("/api/health-check", healthCheckRoutes);
+
+// BACKUP ROUTES (Super Admin only)
+app.use("/api/admin/backup", backupRoutes);
 
 // ======================================================================
 // ROOT

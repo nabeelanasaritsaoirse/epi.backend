@@ -84,6 +84,35 @@ const categorySchema = new mongoose.Schema({
     keywords: [String],
   },
 
+  // ── Multi-seller fields ──────────────────────────────────────────────────
+  // Seller commission rate for products in this category (percentage 0–100)
+  commissionRate: { type: Number, min: 0, max: 100, default: 0 },
+
+  // Restrict category to verified sellers / age-verified users
+  isRestricted: { type: Boolean, default: false },
+
+  // ── Variant attribute schema ─────────────────────────────────────────────
+  // Defines which filterable attributes products in this category can have.
+  // The Flutter product creation form reads this to build the variant builder.
+  // e.g. for "Smartphones": [{name:"Color",type:"color_swatch",options:["Black","White"]},
+  //                           {name:"RAM",type:"text",options:["4GB","8GB","12GB"]},
+  //                           {name:"Storage",type:"text",options:["128GB","256GB"]}]
+  attributeSchema: [
+    {
+      name: { type: String, required: true },        // "Color", "Size", "RAM"
+      type: {
+        type: String,
+        enum: ["text", "color_swatch", "number", "boolean"],
+        default: "text",
+      },
+      options: [String],                             // predefined values; empty = free-text
+      isRequired: { type: Boolean, default: false },
+      isFilterable: { type: Boolean, default: true },
+      unit: { type: String },                        // "GB", "inches", etc.
+      displayOrder: { type: Number, default: 0 },
+    },
+  ],
+
   availableInRegions: [{ type: String, lowercase: true, trim: true }],
 
   regionalMeta: [

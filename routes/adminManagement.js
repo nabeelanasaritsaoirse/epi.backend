@@ -1,8 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
+const mongoose = require('mongoose');
 const { verifyToken } = require('../middlewares/auth');
 const User = require('../models/User');
+const Product = require('../models/Product');
+const InstallmentOrder = require('../models/InstallmentOrder');
 const { hasRole, addRole, removeRole, getAllRoles } = require('../utils/roleHelpers');
 const {
   getRegistrationRequests,
@@ -1418,6 +1421,203 @@ router.get('/users-with-panel-access', verifyToken, requireSuperAdmin, async (re
       message: 'Failed to get panel users',
       error: error.message
     });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SELLER MANAGEMENT (Admin view of all sellers + their products)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/admin-mgmt/sellers
+ * List all sellers with live product counts and revenue stats.
+ * Query: ?search=&page=1&limit=20
+ */
+router.get('/sellers', verifyToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const page   = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit  = Math.min(100, parseInt(req.query.limit) || 20);
+    const search = (req.query.search || '').trim();
+
+    const filter = { role: 'seller' };
+    if (search) {
+      filter.$or = [
+        { name:  { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { 'sellerProfile.storeName': { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const [sellers, total] = await Promise.all([
+      User.find(filter)
+        .select('_id name email phone createdAt sellerProfile wallet')
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .lean(),
+      User.countDocuments(filter),
+    ]);
+
+    // Aggregate live product counts per seller in one DB round-trip
+    const sellerIds = sellers.map(s => s._id);
+    const productCounts = await Product.aggregate([
+      { $match: { sellerId: { $in: sellerIds }, isDeleted: false } },
+      { $group: {
+          _id:            '$sellerId',
+          total:          { $sum: 1 },
+          published:      { $sum: { $cond: [{ $eq: ['$listingStatus', 'published']        }, 1, 0] } },
+          pendingApproval:{ $sum: { $cond: [{ $eq: ['$listingStatus', 'pending_approval'] }, 1, 0] } },
+          rejected:       { $sum: { $cond: [{ $eq: ['$listingStatus', 'rejected']         }, 1, 0] } },
+      }},
+    ]);
+
+    const countMap = {};
+    productCounts.forEach(c => { countMap[c._id.toString()] = c; });
+
+    const data = sellers.map(s => ({
+      _id:           s._id,
+      name:          s.name,
+      email:         s.email,
+      phone:         s.phone,
+      joinedAt:      s.createdAt,
+      storeName:     s.sellerProfile?.storeName     || null,
+      isVerified:    s.sellerProfile?.isVerified    || false,
+      commissionRate:s.sellerProfile?.commissionRate|| null,
+      totalRevenue:  s.sellerProfile?.totalRevenue  || 0,
+      totalSales:    s.sellerProfile?.totalSales    || 0,
+      rating:        s.sellerProfile?.rating        || 0,
+      walletBalance: s.wallet?.balance              || 0,
+      products:      countMap[s._id.toString()] || { total: 0, published: 0, pendingApproval: 0, rejected: 0 },
+    }));
+
+    return res.json({
+      success: true,
+      data,
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+    });
+  } catch (error) {
+    console.error('Error listing sellers:', error);
+    return res.status(500).json({ success: false, message: 'Failed to list sellers', error: error.message });
+  }
+});
+
+/**
+ * GET /api/admin-mgmt/sellers/:sellerId
+ * Full detail for a single seller: profile + product breakdown + order stats.
+ */
+router.get('/sellers/:sellerId', verifyToken, requireSuperAdmin, async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.sellerId)) {
+      return res.status(400).json({ success: false, message: 'Invalid seller ID' });
+    }
+
+    const seller = await User.findOne({ _id: req.params.sellerId, role: 'seller' })
+      .select('_id name email phone createdAt sellerProfile wallet')
+      .lean();
+
+    if (!seller) {
+      return res.status(404).json({ success: false, message: 'Seller not found' });
+    }
+
+    const sellerId = seller._id;
+
+    const [productStats, orderStats] = await Promise.all([
+      Product.aggregate([
+        { $match: { sellerId, isDeleted: false } },
+        { $group: {
+            _id:            null,
+            total:          { $sum: 1 },
+            published:      { $sum: { $cond: [{ $eq: ['$listingStatus', 'published']        }, 1, 0] } },
+            pendingApproval:{ $sum: { $cond: [{ $eq: ['$listingStatus', 'pending_approval'] }, 1, 0] } },
+            rejected:       { $sum: { $cond: [{ $eq: ['$listingStatus', 'rejected']         }, 1, 0] } },
+            draft:          { $sum: { $cond: [{ $eq: ['$listingStatus', 'draft']            }, 1, 0] } },
+            archived:       { $sum: { $cond: [{ $eq: ['$listingStatus', 'archived']         }, 1, 0] } },
+        }},
+      ]),
+      InstallmentOrder.aggregate([
+        { $match: { sellerId } },
+        { $group: {
+            _id:      null,
+            total:    { $sum: 1 },
+            pending:  { $sum: { $cond: [{ $eq: ['$sellerFulfillmentStatus', 'pending']   }, 1, 0] } },
+            confirmed:{ $sum: { $cond: [{ $eq: ['$sellerFulfillmentStatus', 'confirmed'] }, 1, 0] } },
+            shipped:  { $sum: { $cond: [{ $eq: ['$sellerFulfillmentStatus', 'shipped']   }, 1, 0] } },
+            delivered:{ $sum: { $cond: [{ $eq: ['$sellerFulfillmentStatus', 'delivered'] }, 1, 0] } },
+        }},
+      ]),
+    ]);
+
+    return res.json({
+      success: true,
+      data: {
+        _id:           seller._id,
+        name:          seller.name,
+        email:         seller.email,
+        phone:         seller.phone,
+        joinedAt:      seller.createdAt,
+        sellerProfile: seller.sellerProfile,
+        walletBalance: seller.wallet?.balance || 0,
+        products: productStats[0] || { total: 0, published: 0, pendingApproval: 0, rejected: 0, draft: 0, archived: 0 },
+        orders:   orderStats[0]   || { total: 0, pending: 0, confirmed: 0, shipped: 0, delivered: 0 },
+      },
+    });
+  } catch (error) {
+    console.error('Error getting seller detail:', error);
+    return res.status(500).json({ success: false, message: 'Failed to get seller detail', error: error.message });
+  }
+});
+
+/**
+ * GET /api/admin-mgmt/sellers/:sellerId/products
+ * All products for a specific seller, with optional listingStatus filter.
+ * Query: ?listingStatus=pending_approval&page=1&limit=20
+ */
+router.get('/sellers/:sellerId/products', verifyToken, requireSuperAdmin, async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.sellerId)) {
+      return res.status(400).json({ success: false, message: 'Invalid seller ID' });
+    }
+
+    // Verify the seller exists
+    const sellerExists = await User.exists({ _id: req.params.sellerId, role: 'seller' });
+    if (!sellerExists) {
+      return res.status(404).json({ success: false, message: 'Seller not found' });
+    }
+
+    const page          = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit         = Math.min(100, parseInt(req.query.limit) || 20);
+    const listingStatus = req.query.listingStatus; // optional
+
+    const VALID_LISTING_STATUSES = ['draft', 'pending_approval', 'published', 'rejected', 'archived'];
+    if (listingStatus && !VALID_LISTING_STATUSES.includes(listingStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid listingStatus. Must be one of: ${VALID_LISTING_STATUSES.join(', ')}`,
+      });
+    }
+
+    const filter = { sellerId: req.params.sellerId, isDeleted: false };
+    if (listingStatus) filter.listingStatus = listingStatus;
+
+    const [products, total] = await Promise.all([
+      Product.find(filter)
+        .select('productId name listingStatus status pricing.regularPrice pricing.salePrice availability.stockQuantity createdAt updatedAt listingRejectionReason category.mainCategoryName category.subCategoryName')
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .lean(),
+      Product.countDocuments(filter),
+    ]);
+
+    return res.json({
+      success: true,
+      data: products,
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+      appliedFilters: { listingStatus: listingStatus || 'all' },
+    });
+  } catch (error) {
+    console.error('Error getting seller products:', error);
+    return res.status(500).json({ success: false, message: 'Failed to get seller products', error: error.message });
   }
 });
 
