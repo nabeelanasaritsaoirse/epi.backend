@@ -131,13 +131,13 @@ require("./services/kycAutoApproveService");
 const { startNotificationCron } = require("./jobs/notificationCron");
 const { startAutopayCron } = require("./jobs/autopayCron");
 const { startAccountDeletionCron } = require("./jobs/accountDeletionCron");
-const { startExchangeRateSyncJob } = require("./jobs/syncExchangeRates");
+// const { startExchangeRateSyncJob } = require("./jobs/syncExchangeRates"); // Disabled temporarily
 
 // Start cron jobs
 startNotificationCron();
 startAutopayCron();
 startAccountDeletionCron();
-startExchangeRateSyncJob(); // Hourly exchange rate refresh + regional price sync
+// startExchangeRateSyncJob(); // Disabled temporarily — re-enable when EXCHANGE_RATE_API_KEY is set
 
 // Weekly backup cron (every Sunday at 2:00 AM IST)
 const cron = require('node-cron');
