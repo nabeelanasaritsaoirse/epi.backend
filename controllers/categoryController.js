@@ -1207,9 +1207,13 @@ exports.updateCategoryImages = async (req, res) => {
       const fileArr = req.files[field];
       if (!fileArr || !fileArr[0]) continue;
 
-      // 🔥 DELETE OLD IMAGE FROM S3 (CRITICAL FIX)
+      // Delete old image from S3 (non-fatal — upload proceeds even if delete fails)
       if (category[field]?.url) {
-        await deleteImageFromS3(category[field].url);
+        try {
+          await deleteImageFromS3(category[field].url);
+        } catch (err) {
+          console.warn(`[updateCategoryImages] S3 delete skipped for field "${field}": ${err.message}`);
+        }
       }
 
       const file = fileArr[0];
