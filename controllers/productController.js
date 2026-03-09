@@ -126,6 +126,42 @@ async function getAllSubcategoryIds(categoryId) {
   }
 }
 
+/**
+ * Resolves the correct category hierarchy for a product.
+ * If the selected category has a parentCategoryId, the parent becomes
+ * mainCategory and the selected one becomes subCategory.
+ * If it's a root category, it stays as mainCategory with no sub.
+ */
+async function resolveCategoryHierarchy(categoryInput) {
+  if (!categoryInput || !categoryInput.mainCategoryId) return categoryInput;
+
+  const selectedId = categoryInput.mainCategoryId;
+  if (!mongoose.isValidObjectId(selectedId)) return categoryInput;
+
+  const selected = await Category.findById(selectedId).select("name parentCategoryId").lean();
+  if (!selected) return categoryInput;
+
+  if (selected.parentCategoryId) {
+    const parent = await Category.findById(selected.parentCategoryId).select("name").lean();
+    if (!parent) return categoryInput;
+
+    return {
+      mainCategoryId: parent._id,
+      mainCategoryName: parent.name,
+      subCategoryId: selected._id,
+      subCategoryName: selected.name,
+    };
+  }
+
+  // Root category — it is the main, no sub
+  return {
+    mainCategoryId: selected._id,
+    mainCategoryName: selected.name,
+    subCategoryId: categoryInput.subCategoryId || null,
+    subCategoryName: categoryInput.subCategoryName || null,
+  };
+}
+
 // Create product and a number of product CRUD helpers with enhanced regional features
 exports.createProduct = async (req, res) => {
   try {
@@ -269,6 +305,11 @@ exports.createProduct = async (req, res) => {
     // ── Sanitize description.short: ensure minimum 10 chars ─────────────────
     if (req.body.description?.short && req.body.description.short.length < 10) {
       req.body.description.short = req.body.description.short.padEnd(10, ".");
+    }
+
+    // ── Resolve category hierarchy from DB ───────────────────────────────────
+    if (req.body.category) {
+      req.body.category = await resolveCategoryHierarchy(req.body.category);
     }
 
     // ── Assemble productData with safe defaults ───────────────────────────────
@@ -930,6 +971,11 @@ exports.updateProduct = async (req, res) => {
     }
     if (req.body.description?.short && req.body.description.short.length < 10) {
       req.body.description.short = req.body.description.short.padEnd(10, ".");
+    }
+
+    // ── Resolve category hierarchy from DB ───────────────────────────────────
+    if (req.body.category) {
+      req.body.category = await resolveCategoryHierarchy(req.body.category);
     }
 
     /* ============================================================
