@@ -28,14 +28,8 @@ router.get('/', verifyToken, async (req, res) => {
       });
     }
 
-    // Filter out inactive/deleted products
-    const activeProducts = cart.products.filter(item => {
-      const product = item.productId;
-      return product &&
-        product.availability &&
-        product.availability.isAvailable &&
-        (product.status === 'active' || product.status === 'published');
-    });
+    // Filter out products that no longer exist in DB
+    const activeProducts = cart.products.filter(item => item.productId != null);
 
     // Update cart if products were filtered
     if (activeProducts.length !== cart.products.length) {
