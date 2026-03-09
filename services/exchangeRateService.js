@@ -141,7 +141,7 @@ function getCacheInfo() {
 }
 
 // Warm up on first import (fire-and-forget, does not block module load)
-fetchRates().catch(() => {});
+// fetchRates().catch(() => {}); // Disabled — re-enable when EXCHANGE_RATE_API_KEY is set
 
 module.exports = {
   fetchRates,

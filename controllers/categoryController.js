@@ -1212,7 +1212,7 @@ exports.updateCategoryImages = async (req, res) => {
         try {
           await deleteImageFromS3(category[field].url);
         } catch (err) {
-          console.warn(`[updateCategoryImages] S3 delete skipped for field "${field}": ${err.message}`);
+          // non-fatal — continue with upload
         }
       }
 

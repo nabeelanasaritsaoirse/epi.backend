@@ -108,6 +108,14 @@ router.delete(
 // Create category
 router.post("/", verifyToken, isAdmin, categoryController.createCategory);
 
+// Bulk reorder categories — MUST be before PUT /:categoryId
+router.put(
+  "/bulk/reorder",
+  verifyToken,
+  isAdmin,
+  categoryController.reorderCategories
+);
+
 // Update category
 router.put(
   "/:categoryId",
@@ -150,15 +158,7 @@ router.put(
   categoryController.toggleFeatured
 );
 
-// Delete category (soft delete)
-router.delete(
-  "/:categoryId",
-  verifyToken,
-  isAdmin,
-  categoryController.deleteCategory
-);
-
-// Hard delete category (permanent deletion)
+// Hard delete category (permanent deletion) — MUST be before /:categoryId
 router.delete(
   "/:categoryId/hard",
   verifyToken,
@@ -166,12 +166,12 @@ router.delete(
   categoryController.hardDeleteCategory
 );
 
-// Bulk reorder categories
-router.put(
-  "/bulk/reorder",
+// Delete category (soft delete)
+router.delete(
+  "/:categoryId",
   verifyToken,
   isAdmin,
-  categoryController.reorderCategories
+  categoryController.deleteCategory
 );
 
 // Sync product counts for all categories
