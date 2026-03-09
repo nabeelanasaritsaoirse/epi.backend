@@ -210,21 +210,7 @@ router.post('/add/:productId', verifyToken, async (req, res) => {
       });
     }
 
-    if (!product.availability || !product.availability.isAvailable) {
-      return res.status(400).json({
-        success: false,
-        message: 'Product is not available'
-      });
-    }
-
-    if (product.status !== 'published') {
-      return res.status(400).json({
-        success: false,
-        message: 'Product is not available for purchase'
-      });
-    }
-
-    const stock = product.availability.stockQuantity || 0;
+    const stock = product.availability?.stockQuantity || 0;
     if (stock < quantity) {
       return res.status(400).json({
         success: false,
