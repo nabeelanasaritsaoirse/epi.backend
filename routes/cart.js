@@ -217,10 +217,10 @@ router.post('/add/:productId', verifyToken, async (req, res) => {
       });
     }
 
-    if (product.status !== 'active' && product.status !== 'published') {
+    if (product.status !== 'published') {
       return res.status(400).json({
         success: false,
-        message: 'Product is not active'
+        message: 'Product is not available for purchase'
       });
     }
 
