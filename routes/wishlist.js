@@ -24,13 +24,8 @@ router.get('/', verifyToken, async (req, res) => {
       });
     }
 
-    // Filter out inactive/deleted products
-    const activeProducts = wishlist.products.filter(product => {
-      return product &&
-             product.availability &&
-             product.availability.isAvailable &&
-             (product.status === 'active' || product.status === 'published');
-    });
+    // Filter out products that no longer exist in DB
+    const activeProducts = wishlist.products.filter(product => product != null);
 
     // Update wishlist if products were filtered
     if (activeProducts.length !== wishlist.products.length) {
@@ -131,20 +126,6 @@ router.post('/add/:productId', verifyToken, async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Product not found'
-      });
-    }
-
-    if (!product.availability || !product.availability.isAvailable) {
-      return res.status(400).json({
-        success: false,
-        message: 'Product is not available'
-      });
-    }
-
-    if (product.status !== 'active' && product.status !== 'published') {
-      return res.status(400).json({
-        success: false,
-        message: 'Product is not active'
       });
     }
 
@@ -255,20 +236,6 @@ router.post('/toggle/:productId', verifyToken, async (req, res) => {
       });
     } else {
       // Product doesn't exist, add it
-      if (!product.availability || !product.availability.isAvailable) {
-        return res.status(400).json({
-          success: false,
-          message: 'Product is not available'
-        });
-      }
-
-      if (product.status !== 'active' && product.status !== 'published') {
-        return res.status(400).json({
-          success: false,
-          message: 'Product is not active'
-        });
-      }
-
       wishlist.products.push(productId);
       await wishlist.save();
 
@@ -312,22 +279,8 @@ router.post('/move-to-cart/:productId', verifyToken, async (req, res) => {
       });
     }
 
-    if (!product.availability || !product.availability.isAvailable) {
-      return res.status(400).json({
-        success: false,
-        message: 'Product is not available'
-      });
-    }
-
-    if (product.status !== 'active' && product.status !== 'published') {
-      return res.status(400).json({
-        success: false,
-        message: 'Product is not active'
-      });
-    }
-
     // Check stock availability
-    const stock = product.availability.stockQuantity || 0;
+    const stock = product.availability?.stockQuantity || 0;
     if (stock < quantity) {
       return res.status(400).json({
         success: false,
