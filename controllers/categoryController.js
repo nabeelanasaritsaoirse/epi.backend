@@ -1379,12 +1379,19 @@ exports.deleteCategoryBannerImage = async (req, res) => {
     }
 
     // delete from S3
-    if (banner.url) {
-      await deleteImageFromS3(banner.url);
-    }
+if (banner.url) {
+  await deleteImageFromS3(banner.url);
+}
 
-    banner.remove();
-    category.bannerImages.forEach((b, i) => (b.order = i + 1));
+// remove banner from array
+category.bannerImages = category.bannerImages.filter(
+  (b) => b._id.toString() !== bannerImageId
+);
+
+// reorder banners
+category.bannerImages.forEach((b, i) => {
+  b.order = i + 1;
+});
 
     await category.save();
 
