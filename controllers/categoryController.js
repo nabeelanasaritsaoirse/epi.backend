@@ -1201,10 +1201,22 @@ exports.updateCategoryImages = async (req, res) => {
   try {
     const { categoryId } = req.params;
 
-    if (!req.files || Object.keys(req.files).length === 0) {
+    const hasFiles = req.files && Object.keys(req.files).length > 0;
+    const altFields = [
+      "mainImageAlt",
+      "illustrationImageAlt",
+      "subcategoryImageAlt",
+      "mobileImageAlt",
+      "iconImageAlt",
+    ];
+    const hasAltText = altFields.some(
+      (k) => req.body?.[k] !== undefined && req.body[k] !== ""
+    );
+
+    if (!hasFiles && !hasAltText) {
       return res.status(400).json({
         success: false,
-        message: "No category images uploaded",
+        message: "Nothing to update — provide at least one image file or alt text field",
       });
     }
 
@@ -1225,28 +1237,38 @@ exports.updateCategoryImages = async (req, res) => {
     };
 
     for (const field in fieldMap) {
-      const fileArr = req.files[field];
-      if (!fileArr || !fileArr[0]) continue;
+      const fileArr = req.files?.[field];
+      const altValue = req.body?.[`${field}Alt`];
 
-      // Delete old image from S3 (non-fatal — upload proceeds even if delete fails)
-      if (category[field]?.url) {
-        try {
-          await deleteImageFromS3(category[field].url);
-        } catch (err) {
-          // non-fatal — continue with upload
+      if (fileArr && fileArr[0]) {
+        // New file uploaded — replace image (and apply new alt text if provided)
+        if (category[field]?.url) {
+          try {
+            await deleteImageFromS3(category[field].url);
+          } catch (err) {
+            // non-fatal — continue with upload
+          }
         }
+
+        const uploadResult = await uploadSingleFileToS3(fileArr[0], "categories/", 800);
+
+        category[field] = {
+          type: fieldMap[field],
+          url: uploadResult.url,
+          altText: altValue !== undefined ? altValue : (category[field]?.altText || category.name),
+          order: 1,
+          isActive: true,
+        };
+      } else if (altValue !== undefined) {
+        // No new file — only update alt text if image already exists
+        if (!category[field]?.url) {
+          return res.status(400).json({
+            success: false,
+            message: `Cannot set alt text for ${field} — image does not exist yet. Upload an image first.`,
+          });
+        }
+        category[field].altText = altValue;
       }
-
-      const file = fileArr[0];
-      const uploadResult = await uploadSingleFileToS3(file, "categories/", 800);
-
-      category[field] = {
-        type: fieldMap[field],
-        url: uploadResult.url,
-        altText: req.body?.[`${field}Alt`] || category.name,
-        order: 1,
-        isActive: true,
-      };
     }
 
     await category.save();
