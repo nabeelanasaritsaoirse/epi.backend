@@ -35,6 +35,14 @@ router.put(
   uploadCategoryImages,
   categoryController.updateCategoryImages
 );
+
+// Delete a single category image by type (mainImage, illustrationImage, subcategoryImage, mobileImage, iconImage)
+router.delete(
+  "/:categoryId/category-images/:imageType",
+  verifyToken,
+  isAdmin,
+  categoryController.deleteCategorySingleImage
+);
 /**
  * Public routes
  */

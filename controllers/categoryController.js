@@ -605,6 +605,27 @@ if (req.body.isActive !== undefined) {
     // Display order
     if (displayOrder !== undefined) category.displayOrder = displayOrder;
 
+    // Image alt text updates (without re-uploading images)
+    const imageAltFields = [
+      "mainImage",
+      "illustrationImage",
+      "subcategoryImage",
+      "mobileImage",
+      "iconImage",
+    ];
+    for (const field of imageAltFields) {
+      const altKey = `${field}Alt`;
+      if (req.body[altKey] !== undefined) {
+        if (!category[field] || !category[field].url) {
+          return res.status(400).json({
+            success: false,
+            message: `Cannot set alt text for ${field} — image does not exist yet`,
+          });
+        }
+        category[field].altText = req.body[altKey];
+      }
+    }
+
     // Marketplace configuration
     if (req.body.isFeatured !== undefined)
       category.isFeatured =
@@ -1364,6 +1385,66 @@ exports.reorderCategoryBanners = async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message,
+    });
+  }
+};
+
+const VALID_SINGLE_IMAGE_FIELDS = [
+  "mainImage",
+  "illustrationImage",
+  "subcategoryImage",
+  "mobileImage",
+  "iconImage",
+];
+
+exports.deleteCategorySingleImage = async (req, res) => {
+  try {
+    const { categoryId, imageType } = req.params;
+
+    // Validate imageType
+    if (!VALID_SINGLE_IMAGE_FIELDS.includes(imageType)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid imageType. Must be one of: ${VALID_SINGLE_IMAGE_FIELDS.join(", ")}`,
+      });
+    }
+
+    const category = await Category.findById(categoryId);
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found",
+      });
+    }
+
+    if (!category[imageType] || !category[imageType].url) {
+      return res.status(404).json({
+        success: false,
+        message: `No ${imageType} found for this category`,
+      });
+    }
+
+    // Delete from S3
+    try {
+      await deleteImageFromS3(category[imageType].url);
+    } catch (s3Err) {
+      console.error(`S3 delete failed for ${imageType}:`, s3Err.message);
+      // Non-fatal: still clear DB field even if S3 delete fails
+    }
+
+    // Clear the field in DB
+    category[imageType] = undefined;
+    await category.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `${imageType} deleted successfully`,
+    });
+  } catch (error) {
+    console.error("Error deleting category single image:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while deleting image",
     });
   }
 };
