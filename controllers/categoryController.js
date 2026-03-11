@@ -1273,9 +1273,23 @@ exports.uploadCategoryBanners = async (req, res) => {
       category.bannerImages = [];
     }
 
-    let orderStart = category.bannerImages.length + 1;
+    const MAX_BANNERS = 10;
+    const existing = category.bannerImages.length;
+    const incoming = req.files.length;
 
-    for (const file of req.files) {
+    if (existing >= MAX_BANNERS) {
+      return res.status(400).json({
+        success: false,
+        message: `Maximum ${MAX_BANNERS} banner images allowed. This category already has ${existing}.`,
+      });
+    }
+
+    const allowed = MAX_BANNERS - existing;
+    const filesToUpload = req.files.slice(0, allowed);
+
+    let orderStart = existing + 1;
+
+    for (const file of filesToUpload) {
       const uploadResult = await uploadSingleFileToS3(
         file,
         "categories/banners/",
@@ -1293,9 +1307,12 @@ exports.uploadCategoryBanners = async (req, res) => {
 
     await category.save();
 
+    const skipped = incoming - filesToUpload.length;
     res.status(200).json({
       success: true,
-      message: "Banner images uploaded successfully",
+      message: skipped > 0
+        ? `${filesToUpload.length} banner image(s) uploaded. ${skipped} skipped (max ${MAX_BANNERS} reached).`
+        : "Banner images uploaded successfully",
       data: category.bannerImages,
     });
   } catch (error) {

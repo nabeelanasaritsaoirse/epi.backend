@@ -39,6 +39,44 @@ const CRON_SCHEDULES = {
 // Batch size for processing
 const BATCH_SIZE = 50;
 
+// Fields required for instance methods (canProcessAutopay, canPayToday, isSkipDate, isFullyPaid, isAutopayActive)
+const ORDER_SELECT_FIELDS =
+  "user product orderId productName dailyPaymentAmount autopay paymentSchedule firstPaymentMethod totalPaidAmount productPrice status lastPaymentDate";
+
+// ============================================
+// HELPERS
+// ============================================
+
+/**
+ * Returns the specific reason an order cannot process autopay.
+ * Used for diagnostic logging — keeps skip logs actionable.
+ *
+ * @param {Object} order - InstallmentOrder document (must have status, lastPaymentDate, autopay, totalPaidAmount, productPrice)
+ * @returns {string} Human-readable reason
+ */
+function getSkipReason(order) {
+  if (!order.autopay?.enabled) return "autopay_disabled";
+  if (order.status !== "ACTIVE") return `order_status_${order.status || "unknown"}`;
+  if (order.autopay?.pausedUntil && new Date() < new Date(order.autopay.pausedUntil)) {
+    return `paused_until_${new Date(order.autopay.pausedUntil).toISOString()}`;
+  }
+  if (order.lastPaymentDate) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const last = new Date(order.lastPaymentDate);
+    last.setHours(0, 0, 0, 0);
+    if (last.getTime() >= today.getTime()) return "already_paid_today";
+  }
+  if (order.autopay?.skipDates?.length) {
+    const now = new Date();
+    const checkDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const isSkip = order.autopay.skipDates.some((d) => new Date(d).getTime() === checkDate.getTime());
+    if (isSkip) return "skip_date";
+  }
+  if ((order.totalPaidAmount || 0) >= (order.productPrice || 0)) return "fully_paid";
+  return "unknown";
+}
+
 // ============================================
 // MAIN AUTOPAY PROCESSOR
 // ============================================
@@ -71,7 +109,7 @@ async function processAutopayForTimeSlot(timeSlot) {
       status: "ACTIVE",
     })
       .sort({ "autopay.priority": 1 })
-      .select("user product orderId productName dailyPaymentAmount autopay paymentSchedule firstPaymentMethod totalPaidAmount productPrice")
+      .select(ORDER_SELECT_FIELDS)
       .lean(false); // lean(false) required — instance methods (canProcessAutopay, isSkipDate) are needed
 
     // Group orders by userId in memory
@@ -202,7 +240,8 @@ async function processAutopayForUser(user, orders) {
       // Check if order can process autopay
       if (!order.canProcessAutopay()) {
         result.skipped++;
-        console.log(`[Autopay Cron] Skipped order ${order.orderId}: Cannot process autopay`);
+        const reason = getSkipReason(order);
+        console.log(`[Autopay Cron] Skipped order ${order.orderId}: ${reason}`);
         continue;
       }
 
@@ -266,7 +305,7 @@ async function sendDailyReminders(upcomingTimeSlot) {
           user: user._id,
           status: "ACTIVE",
           "autopay.enabled": true,
-        }).select("orderId productName dailyPaymentAmount");
+        }).select(ORDER_SELECT_FIELDS);
 
         // Filter orders that can pay today
         const payableOrders = orders.filter(
