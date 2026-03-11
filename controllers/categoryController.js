@@ -1237,39 +1237,45 @@ exports.updateCategoryImages = async (req, res) => {
     };
 
     for (const field in fieldMap) {
-      const fileArr = req.files?.[field];
-      const altValue = req.body?.[`${field}Alt`];
+  const fileArr = req.files?.[field];
+  const altValue = req.body?.[`${field}Alt`];
 
-      if (fileArr && fileArr[0]) {
-        // New file uploaded — replace image (and apply new alt text if provided)
-        if (category[field]?.url) {
-          try {
-            await deleteImageFromS3(category[field].url);
-          } catch (err) {
-            // non-fatal — continue with upload
-          }
-        }
+  // CASE 1: new image uploaded
+  if (fileArr && fileArr[0]) {
 
-        const uploadResult = await uploadSingleFileToS3(fileArr[0], "categories/", 800);
-
-        category[field] = {
-          type: fieldMap[field],
-          url: uploadResult.url,
-          altText: altValue !== undefined ? altValue : (category[field]?.altText || category.name),
-          order: 1,
-          isActive: true,
-        };
-      } else if (altValue !== undefined) {
-        // No new file — only update alt text if image already exists
-        if (!category[field]?.url) {
-          return res.status(400).json({
-            success: false,
-            message: `Cannot set alt text for ${field} — image does not exist yet. Upload an image first.`,
-          });
-        }
-        category[field].altText = altValue;
+    if (category[field]?.url) {
+      try {
+        await deleteImageFromS3(category[field].url);
+      } catch (err) {
+        // ignore S3 delete failure
       }
     }
+
+    const uploadResult = await uploadSingleFileToS3(
+      fileArr[0],
+      "categories/",
+      800
+    );
+
+    category[field] = {
+      type: fieldMap[field],
+      url: uploadResult.url,
+      altText:
+        altValue !== undefined && altValue !== ""
+          ? altValue
+          : category[field]?.altText || category.name,
+      order: 1,
+      isActive: true,
+    };
+  }
+
+  // CASE 2: alt text update only
+  else if (altValue !== undefined) {
+    if (category[field]?.url) {
+      category[field].altText = altValue;
+    }
+  }
+}
 
     await category.save();
 
