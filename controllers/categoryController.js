@@ -605,6 +605,27 @@ if (req.body.isActive !== undefined) {
     // Display order
     if (displayOrder !== undefined) category.displayOrder = displayOrder;
 
+    // Image alt text updates (without re-uploading images)
+    const imageAltFields = [
+      "mainImage",
+      "illustrationImage",
+      "subcategoryImage",
+      "mobileImage",
+      "iconImage",
+    ];
+    for (const field of imageAltFields) {
+      const altKey = `${field}Alt`;
+      if (req.body[altKey] !== undefined) {
+        if (!category[field] || !category[field].url) {
+          return res.status(400).json({
+            success: false,
+            message: `Cannot set alt text for ${field} — image does not exist yet`,
+          });
+        }
+        category[field].altText = req.body[altKey];
+      }
+    }
+
     // Marketplace configuration
     if (req.body.isFeatured !== undefined)
       category.isFeatured =
@@ -1273,9 +1294,23 @@ exports.uploadCategoryBanners = async (req, res) => {
       category.bannerImages = [];
     }
 
-    let orderStart = category.bannerImages.length + 1;
+    const MAX_BANNERS = 10;
+    const existing = category.bannerImages.length;
+    const incoming = req.files.length;
 
-    for (const file of req.files) {
+    if (existing >= MAX_BANNERS) {
+      return res.status(400).json({
+        success: false,
+        message: `Maximum ${MAX_BANNERS} banner images allowed. This category already has ${existing}.`,
+      });
+    }
+
+    const allowed = MAX_BANNERS - existing;
+    const filesToUpload = req.files.slice(0, allowed);
+
+    let orderStart = existing + 1;
+
+    for (const file of filesToUpload) {
       const uploadResult = await uploadSingleFileToS3(
         file,
         "categories/banners/",
@@ -1293,9 +1328,12 @@ exports.uploadCategoryBanners = async (req, res) => {
 
     await category.save();
 
+    const skipped = incoming - filesToUpload.length;
     res.status(200).json({
       success: true,
-      message: "Banner images uploaded successfully",
+      message: skipped > 0
+        ? `${filesToUpload.length} banner image(s) uploaded. ${skipped} skipped (max ${MAX_BANNERS} reached).`
+        : "Banner images uploaded successfully",
       data: category.bannerImages,
     });
   } catch (error) {
@@ -1348,6 +1386,210 @@ exports.reorderCategoryBanners = async (req, res) => {
       success: false,
       message: error.message,
     });
+  }
+};
+
+const VALID_SINGLE_IMAGE_FIELDS = [
+  "mainImage",
+  "illustrationImage",
+  "subcategoryImage",
+  "mobileImage",
+  "iconImage",
+];
+
+exports.deleteCategorySingleImage = async (req, res) => {
+  try {
+    const { categoryId, imageType } = req.params;
+
+    // Validate imageType
+    if (!VALID_SINGLE_IMAGE_FIELDS.includes(imageType)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid imageType. Must be one of: ${VALID_SINGLE_IMAGE_FIELDS.join(", ")}`,
+      });
+    }
+
+    const category = await Category.findById(categoryId);
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found",
+      });
+    }
+
+    if (!category[imageType] || !category[imageType].url) {
+      return res.status(404).json({
+        success: false,
+        message: `No ${imageType} found for this category`,
+      });
+    }
+
+    // Delete from S3
+    try {
+      await deleteImageFromS3(category[imageType].url);
+    } catch (s3Err) {
+      console.error(`S3 delete failed for ${imageType}:`, s3Err.message);
+      // Non-fatal: still clear DB field even if S3 delete fails
+    }
+
+    // Clear the field in DB
+    category[imageType] = undefined;
+    await category.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `${imageType} deleted successfully`,
+    });
+  } catch (error) {
+    console.error("Error deleting category single image:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while deleting image",
+    });
+  }
+};
+
+/**
+ * @desc    Get full nested category tree (all levels, public)
+ * @route   GET /api/categories/tree
+ * @access  Public
+ */
+exports.getCategoryTree = async (req, res) => {
+  try {
+    // Fetch all non-deleted active categories
+    const allCategories = await Category.find({ isDeleted: false, isActive: true })
+      .select("categoryId name slug displayOrder level parentCategoryId subCategories mainImage iconImage image icon isFeatured productCount")
+      .sort({ displayOrder: 1, name: 1 })
+      .lean();
+
+    // Build a map keyed by _id string
+    const map = {};
+    for (const cat of allCategories) {
+      map[cat._id.toString()] = { ...cat, children: [] };
+    }
+
+    // Assemble tree
+    const roots = [];
+    for (const cat of allCategories) {
+      const node = map[cat._id.toString()];
+      if (cat.parentCategoryId) {
+        const parentId = cat.parentCategoryId.toString();
+        if (map[parentId]) {
+          map[parentId].children.push(node);
+        } else {
+          roots.push(node);
+        }
+      } else {
+        roots.push(node);
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      count: roots.length,
+      data: roots,
+    });
+  } catch (error) {
+    console.error("Error fetching category tree:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Get direct children of a category
+ * @route   GET /api/categories/:categoryId/children
+ * @access  Public
+ */
+exports.getCategoryChildren = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+
+    const parent = await Category.findById(categoryId);
+    if (!parent) {
+      return res.status(404).json({ success: false, message: "Category not found" });
+    }
+
+    const isAdminUser =
+      req.user &&
+      (req.user.role === "admin" || req.user.role === "super_admin");
+
+    const filter = {
+      parentCategoryId: categoryId,
+    };
+    if (!isAdminUser) {
+      filter.isDeleted = false;
+      filter.isActive = true;
+    }
+
+    const children = await Category.find(filter)
+      .populate("subCategories", "categoryId name slug displayOrder mainImage iconImage")
+      .sort({ displayOrder: 1, name: 1 })
+      .exec();
+
+    const childrenWithFallback = children.map((child) => {
+      const childObj = child.toObject();
+      if (childObj.subCategories && childObj.subCategories.length > 0) {
+        childObj.subCategories = applyParentImageFallback(childObj, childObj.subCategories);
+      }
+      return childObj;
+    });
+
+    res.status(200).json({
+      success: true,
+      count: childrenWithFallback.length,
+      data: childrenWithFallback,
+    });
+  } catch (error) {
+    console.error("Error fetching category children:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Get breadcrumb path from root to a category
+ * @route   GET /api/categories/:categoryId/breadcrumb
+ * @access  Public
+ */
+exports.getCategoryBreadcrumb = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+
+    const category = await Category.findById(categoryId).populate("path", "categoryId name slug").exec();
+    if (!category) {
+      return res.status(404).json({ success: false, message: "Category not found" });
+    }
+
+    const isAdminUser =
+      req.user &&
+      (req.user.role === "admin" || req.user.role === "super_admin");
+
+    if (category.isDeleted && !isAdminUser) {
+      return res.status(404).json({ success: false, message: "Category not found" });
+    }
+
+    // Build breadcrumb from the path field (ancestors) + current category
+    const breadcrumb = [
+      ...(category.path || []).map((p) => ({
+        _id: p._id,
+        categoryId: p.categoryId,
+        name: p.name,
+        slug: p.slug,
+      })),
+      {
+        _id: category._id,
+        categoryId: category.categoryId,
+        name: category.name,
+        slug: category.slug,
+      },
+    ];
+
+    res.status(200).json({
+      success: true,
+      data: breadcrumb,
+    });
+  } catch (error) {
+    console.error("Error fetching category breadcrumb:", error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 

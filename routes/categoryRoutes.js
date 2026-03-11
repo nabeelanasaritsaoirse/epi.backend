@@ -35,6 +35,14 @@ router.put(
   uploadCategoryImages,
   categoryController.updateCategoryImages
 );
+
+// Delete a single category image by type (mainImage, illustrationImage, subcategoryImage, mobileImage, iconImage)
+router.delete(
+  "/:categoryId/category-images/:imageType",
+  verifyToken,
+  isAdmin,
+  categoryController.deleteCategorySingleImage
+);
 /**
  * Public routes
  */
@@ -63,6 +71,9 @@ router.get(
 // Get all categories
 router.get("/", optionalAuth, categoryController.getAllCategories);
 
+// Get full nested category tree
+router.get("/tree", optionalAuth, categoryController.getCategoryTree);
+
 // Search categories
 router.get("/search/:query", optionalAuth, categoryController.searchCategories);
 
@@ -71,6 +82,20 @@ router.get(
   "/:categoryId/with-subcategories",
   optionalAuth,
   categoryController.getCategoryWithSubcategories
+);
+
+// Get direct children of a category
+router.get(
+  "/:categoryId/children",
+  optionalAuth,
+  categoryController.getCategoryChildren
+);
+
+// Get breadcrumb path from root to category
+router.get(
+  "/:categoryId/breadcrumb",
+  optionalAuth,
+  categoryController.getCategoryBreadcrumb
 );
 
 // Get category by ID

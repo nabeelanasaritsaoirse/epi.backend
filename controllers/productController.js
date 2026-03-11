@@ -3438,6 +3438,531 @@ exports.syncExchangeRates = async (_req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SLUG LOOKUP
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @desc    Get single product by slug
+ * @route   GET /api/products/slug/:slug
+ * @access  Public
+ */
+exports.getProductBySlug = async (req, res) => {
+  try {
+    const { slug } = req.params;
+
+    const product = await Product.findOne({ slug: slug.toLowerCase(), isDeleted: false });
+
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    // Non-admin callers must only see published products
+    const callerIsAdmin =
+      req.user &&
+      (req.user.role === "admin" || req.user.role === "super_admin");
+    if (!callerIsAdmin && product.listingStatus !== "published") {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    // Compute price range from active variants
+    let priceRange = null;
+    if (product.hasVariants && product.variants?.length > 0) {
+      const activePrices = product.variants
+        .filter((v) => v.isActive)
+        .map((v) => (v.salePrice != null ? v.salePrice : v.price))
+        .filter((p) => typeof p === "number");
+      if (activePrices.length > 0) {
+        priceRange = {
+          min: Math.min(...activePrices),
+          max: Math.max(...activePrices),
+          currency: product.pricing?.currency || "INR",
+        };
+      }
+    }
+
+    res.json({ success: true, data: product, priceRange });
+  } catch (error) {
+    return handleProductError(error, res, "getProductBySlug");
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FEATURED PRODUCTS (alias)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @desc    Get featured products
+ * @route   GET /api/products/featured
+ * @access  Public
+ */
+exports.getFeaturedProducts = async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 10));
+
+    const filter = {
+      isDeleted: false,
+      listingStatus: "published",
+      isFeatured: true,
+    };
+
+    const products = await Product.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .skip((page - 1) * limit);
+
+    const total = await Product.countDocuments(filter);
+
+    res.json({
+      success: true,
+      data: products,
+      pagination: {
+        current: page,
+        pages: Math.ceil(total / limit),
+        total,
+        limit,
+      },
+    });
+  } catch (error) {
+    return handleProductError(error, res, "getFeaturedProducts");
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RELATED PRODUCTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @desc    Get related products for a product
+ * @route   GET /api/products/:productId/related
+ * @access  Public
+ */
+exports.getRelatedProducts = async (req, res) => {
+  try {
+    const id = req.params.productId;
+    const limit = Math.min(20, Math.max(1, parseInt(req.query.limit) || 8));
+
+    let product = await Product.findOne({ productId: id, isDeleted: false });
+    if (!product && mongoose.isValidObjectId(id)) {
+      product = await Product.findOne({ _id: id, isDeleted: false });
+    }
+
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    // 1. Use explicit relatedProducts array if populated
+    let relatedProductIds = (product.relatedProducts || []).map((r) => r.productId);
+
+    let related = [];
+
+    if (relatedProductIds.length > 0) {
+      related = await Product.find({
+        productId: { $in: relatedProductIds },
+        isDeleted: false,
+        listingStatus: "published",
+      }).limit(limit);
+    }
+
+    // 2. Fallback: same category, same brand, exclude self
+    if (related.length < limit) {
+      const fallbackFilter = {
+        isDeleted: false,
+        listingStatus: "published",
+        _id: { $ne: product._id },
+        $or: [
+          { "category.mainCategoryId": product.category?.mainCategoryId },
+          { brand: product.brand },
+        ],
+      };
+
+      const fallback = await Product.find(fallbackFilter)
+        .sort({ createdAt: -1 })
+        .limit(limit - related.length);
+
+      // Deduplicate
+      const existingIds = new Set(related.map((p) => p._id.toString()));
+      for (const p of fallback) {
+        if (!existingIds.has(p._id.toString())) {
+          related.push(p);
+        }
+      }
+    }
+
+    res.json({ success: true, data: related.slice(0, limit) });
+  } catch (error) {
+    return handleProductError(error, res, "getRelatedProducts");
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STOCK UPDATE (Admin only)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @desc    Update product stock quantity
+ * @route   PATCH /api/products/:productId/stock
+ * @access  Admin
+ */
+exports.updateProductStock = async (req, res) => {
+  try {
+    const id = req.params.productId;
+    const { stockQuantity, lowStockLevel } = req.body;
+
+    if (stockQuantity === undefined || stockQuantity === null) {
+      return res.status(400).json({ success: false, message: "stockQuantity is required" });
+    }
+
+    const newStock = Number(stockQuantity);
+    if (isNaN(newStock) || newStock < 0) {
+      return res.status(400).json({ success: false, message: "stockQuantity must be a non-negative number" });
+    }
+
+    let product = await Product.findOne({ productId: id });
+    if (!product && mongoose.isValidObjectId(id)) {
+      product = await Product.findById(id);
+    }
+
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    if (product.isDeleted) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    const lowLevel = lowStockLevel !== undefined ? Number(lowStockLevel) : (product.availability?.lowStockLevel || 10);
+
+    // Auto-update stockStatus
+    let stockStatus;
+    if (newStock <= 0) {
+      stockStatus = "out_of_stock";
+    } else if (newStock <= lowLevel) {
+      stockStatus = "low_stock";
+    } else {
+      stockStatus = "in_stock";
+    }
+
+    product.availability.stockQuantity = newStock;
+    product.availability.lowStockLevel = lowLevel;
+    product.availability.stockStatus = stockStatus;
+    product.availability.isAvailable = newStock > 0;
+    product.updatedAt = new Date();
+    product.updatedByEmail = req.user.email;
+
+    await product.save();
+
+    res.json({
+      success: true,
+      message: "Stock updated successfully",
+      data: {
+        productId: product.productId,
+        stockQuantity: newStock,
+        stockStatus,
+        lowStockLevel: lowLevel,
+      },
+    });
+  } catch (error) {
+    return handleProductError(error, res, "updateProductStock");
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATUS TOGGLE (Admin only)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @desc    Toggle product active/inactive status (listingStatus published <-> archived)
+ * @route   PATCH /api/products/:productId/status
+ * @access  Admin
+ */
+exports.updateProductStatus = async (req, res) => {
+  try {
+    const id = req.params.productId;
+    const { status, listingStatus } = req.body;
+
+    const VALID_STATUSES = ["draft", "published", "archived"];
+    const VALID_LISTING_STATUSES = ["draft", "pending_approval", "published", "rejected", "archived"];
+
+    if (status !== undefined && !VALID_STATUSES.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: `status must be one of: ${VALID_STATUSES.join(", ")}`,
+      });
+    }
+
+    if (listingStatus !== undefined && !VALID_LISTING_STATUSES.includes(listingStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `listingStatus must be one of: ${VALID_LISTING_STATUSES.join(", ")}`,
+      });
+    }
+
+    if (status === undefined && listingStatus === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: "Provide at least one of: status, listingStatus",
+      });
+    }
+
+    let product = await Product.findOne({ productId: id });
+    if (!product && mongoose.isValidObjectId(id)) {
+      product = await Product.findById(id);
+    }
+
+    if (!product || product.isDeleted) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    if (status !== undefined) product.status = status;
+    if (listingStatus !== undefined) product.listingStatus = listingStatus;
+    product.updatedAt = new Date();
+    product.updatedByEmail = req.user.email;
+
+    await product.save();
+
+    res.json({
+      success: true,
+      message: "Product status updated successfully",
+      data: {
+        productId: product.productId,
+        status: product.status,
+        listingStatus: product.listingStatus,
+      },
+    });
+  } catch (error) {
+    return handleProductError(error, res, "updateProductStatus");
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BULK OPERATIONS (Admin only)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @desc    Bulk create products
+ * @route   POST /api/products/bulk
+ * @access  Admin
+ */
+exports.bulkCreateProducts = async (req, res) => {
+  try {
+    const { products: productsData } = req.body;
+
+    if (!Array.isArray(productsData) || productsData.length === 0) {
+      return res.status(400).json({ success: false, message: "products array is required and must not be empty" });
+    }
+
+    if (productsData.length > 100) {
+      return res.status(400).json({ success: false, message: "Maximum 100 products per bulk create request" });
+    }
+
+    const results = [];
+    const errors = [];
+
+    for (let idx = 0; idx < productsData.length; idx++) {
+      try {
+        const productData = { ...productsData[idx] };
+
+        // Block server-managed fields
+        const BLOCKED = ["isDeleted", "deletedAt", "deletedByEmail", "restoredAt", "restoredByEmail", "createdByEmail", "updatedByEmail", "reviewStats"];
+        BLOCKED.forEach((f) => { delete productData[f]; });
+
+        // Auto-generate IDs
+        const timestamp = Date.now().toString().slice(-6);
+        const random = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
+        if (!productData.productId) {
+          productData.productId = `PROD${timestamp}${random}`;
+        }
+        if (!productData.variantId) {
+          productData.variantId = `VAR${timestamp}${random}00`;
+        }
+
+        // Pricing guard
+        const rp = productData.pricing?.regularPrice;
+        const sp = productData.pricing?.salePrice;
+        if (sp != null && rp != null && Number(sp) >= Number(rp)) {
+          errors.push({ index: idx, productId: productData.productId, message: `Sale price must be less than regular price` });
+          continue;
+        }
+
+        productData.createdByEmail = req.user.email;
+        productData.updatedByEmail = req.user.email;
+
+        if (productData.category) {
+          productData.category = await resolveCategoryHierarchy(productData.category);
+        }
+
+        const product = new Product(productData);
+        await product.save();
+        results.push({ index: idx, productId: product.productId, name: product.name, status: "created" });
+      } catch (err) {
+        const field = err.code === 11000 ? Object.keys(err.keyPattern || {})[0] || "field" : null;
+        errors.push({
+          index: idx,
+          message: err.name === "ValidationError"
+            ? Object.values(err.errors).map((e) => e.message).join("; ")
+            : err.code === 11000
+              ? `Duplicate ${field}`
+              : err.message,
+        });
+      }
+    }
+
+    res.status(errors.length === productsData.length ? 400 : 207).json({
+      success: errors.length < productsData.length,
+      message: `Bulk create: ${results.length} created, ${errors.length} failed`,
+      data: { results, errors },
+    });
+  } catch (error) {
+    return handleProductError(error, res, "bulkCreateProducts");
+  }
+};
+
+/**
+ * @desc    Bulk update product status / listingStatus
+ * @route   PATCH /api/products/bulk/status
+ * @access  Admin
+ */
+exports.bulkUpdateProductStatus = async (req, res) => {
+  try {
+    const { productIds, status, listingStatus } = req.body;
+
+    if (!Array.isArray(productIds) || productIds.length === 0) {
+      return res.status(400).json({ success: false, message: "productIds array is required" });
+    }
+
+    if (status === undefined && listingStatus === undefined) {
+      return res.status(400).json({ success: false, message: "Provide at least one of: status, listingStatus" });
+    }
+
+    const updateFields = { updatedByEmail: req.user.email, updatedAt: new Date() };
+    if (status !== undefined) updateFields.status = status;
+    if (listingStatus !== undefined) updateFields.listingStatus = listingStatus;
+
+    const result = await Product.updateMany(
+      {
+        $or: [
+          { productId: { $in: productIds } },
+          { _id: { $in: productIds.filter((id) => mongoose.isValidObjectId(id)) } },
+        ],
+        isDeleted: false,
+      },
+      { $set: updateFields },
+      { runValidators: false }
+    );
+
+    res.json({
+      success: true,
+      message: `Bulk status update: ${result.modifiedCount} products updated`,
+      data: {
+        matched: result.matchedCount,
+        modified: result.modifiedCount,
+        status: status || null,
+        listingStatus: listingStatus || null,
+      },
+    });
+  } catch (error) {
+    return handleProductError(error, res, "bulkUpdateProductStatus");
+  }
+};
+
+/**
+ * @desc    Bulk soft-delete products
+ * @route   DELETE /api/products/bulk
+ * @access  Admin
+ */
+exports.bulkDeleteProducts = async (req, res) => {
+  try {
+    const { productIds } = req.body;
+
+    if (!Array.isArray(productIds) || productIds.length === 0) {
+      return res.status(400).json({ success: false, message: "productIds array is required" });
+    }
+
+    const result = await Product.updateMany(
+      {
+        $or: [
+          { productId: { $in: productIds } },
+          { _id: { $in: productIds.filter((id) => mongoose.isValidObjectId(id)) } },
+        ],
+        isDeleted: false,
+      },
+      {
+        $set: {
+          isDeleted: true,
+          deletedAt: new Date(),
+          deletedByEmail: req.user.email,
+          updatedByEmail: req.user.email,
+        },
+      },
+      { runValidators: false }
+    );
+
+    res.json({
+      success: true,
+      message: `Bulk delete: ${result.modifiedCount} products deleted`,
+      data: {
+        matched: result.matchedCount,
+        deleted: result.modifiedCount,
+      },
+    });
+  } catch (error) {
+    return handleProductError(error, res, "bulkDeleteProducts");
+  }
+};
+
+/**
+ * @desc    Add images to product (POST variant — same logic as PUT /images)
+ * @route   POST /api/products/:productId/images
+ * @access  Admin
+ */
+exports.addProductImages = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const files = req.files;
+
+    if (!files || files.length === 0) {
+      return res.status(400).json({ success: false, message: "At least one image file is required" });
+    }
+
+    let product = await Product.findOne({ productId });
+    if (!product && mongoose.isValidObjectId(productId)) {
+      product = await Product.findById(productId);
+    }
+
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    const uploadResults = await uploadMultipleFilesToS3(files, "products/", 800);
+
+    const existingCount = (product.images || []).length;
+    const newImages = uploadResults.map((result, index) => ({
+      url: result.url,
+      isPrimary: existingCount === 0 && index === 0,
+      altText: req.body.altText || product.name,
+      order: existingCount + index + 1,
+    }));
+
+    product.images = [...(product.images || []), ...newImages];
+    await product.save();
+
+    res.status(201).json({
+      success: true,
+      message: "Product images added successfully",
+      data: {
+        productId: product.productId,
+        images: product.images,
+        uploadedCount: uploadResults.length,
+      },
+    });
+  } catch (error) {
+    console.error("Error adding product images:", error);
+    return handleProductError(error, res, "addProductImages");
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SELLER LISTING APPROVAL
 // ─────────────────────────────────────────────────────────────────────────────
 
