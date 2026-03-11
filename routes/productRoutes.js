@@ -17,10 +17,61 @@ router.get(
   productController.getAllProductsForAdmin
 );
 
+// Admin-only low-stock endpoint
+router.get(
+  "/admin/low-stock",
+  verifyToken,
+  isAdmin,
+  productController.getLowStockProducts
+);
+
 // ============================================
 // EXPORT ROUTE (Must be BEFORE generic routes)
 // ============================================
 router.get("/export", verifyToken, isAdmin, productController.exportProducts);
+
+// ============================================
+// BULK OPERATIONS — MUST BE BEFORE /:productId
+// ============================================
+router.post(
+  "/bulk",
+  verifyToken,
+  isAdmin,
+  productController.bulkCreateProducts
+);
+router.patch(
+  "/bulk/status",
+  verifyToken,
+  isAdmin,
+  productController.bulkUpdateProductStatus
+);
+router.delete(
+  "/bulk",
+  verifyToken,
+  isAdmin,
+  productController.bulkDeleteProducts
+);
+router.post(
+  "/bulk/mark-products",
+  verifyToken,
+  isAdmin,
+  productFeaturedController.bulkMarkProducts
+);
+router.post(
+  "/bulk/regional-pricing",
+  verifyToken,
+  isAdmin,
+  productController.bulkUpdateRegionalPricing
+);
+
+// Force-refresh exchange rates + recalculate non-overridden regional prices
+// Must be BEFORE /:productId wildcard
+router.post(
+  "/sync-exchange-rates",
+  verifyToken,
+  isAdmin,
+  productController.syncExchangeRates
+);
 
 // ============================================
 // BASIC PRODUCT ROUTES (With auto country detection for mobile users)
@@ -44,6 +95,7 @@ router.get(
   detectCountryWithCache,
   productController.searchProductsAdvanced
 );
+// Public low-stock (kept for backward compatibility; admin version above has stricter auth)
 router.get(
   "/low-stock",
   optionalAuth,
@@ -52,8 +104,25 @@ router.get(
 );
 
 // ============================================
+// SLUG LOOKUP — MUST BE BEFORE /:productId
+// ============================================
+router.get(
+  "/slug/:slug",
+  optionalAuth,
+  detectCountryWithCache,
+  productController.getProductBySlug
+);
+
+// ============================================
 // FEATURED PRODUCT ROUTES (With auto country detection)
 // ============================================
+// Generic /featured alias (required by spec)
+router.get(
+  "/featured",
+  optionalAuth,
+  detectCountryWithCache,
+  productController.getFeaturedProducts
+);
 router.get(
   "/featured/all",
   detectCountryWithCache,
@@ -136,6 +205,40 @@ router.delete(
   isAdmin,
   productController.hardDeleteProduct
 );
+
+// Related products — MUST be before GET /:productId to avoid collision
+router.get(
+  "/:productId/related",
+  optionalAuth,
+  detectCountryWithCache,
+  productController.getRelatedProducts
+);
+
+// Stock update (admin only)
+router.patch(
+  "/:productId/stock",
+  verifyToken,
+  isAdmin,
+  productController.updateProductStock
+);
+
+// Status toggle (admin only)
+router.patch(
+  "/:productId/status",
+  verifyToken,
+  isAdmin,
+  productController.updateProductStatus
+);
+
+// POST images (append images to product — admin only)
+router.post(
+  "/:productId/images",
+  verifyToken,
+  isAdmin,
+  uploadMultiple,
+  productController.addProductImages
+);
+
 router.get("/:productId", productController.getProductById);
 router.put(
   "/:productId",
@@ -201,14 +304,6 @@ router.delete(
   verifyToken,
   isAdmin,
   productController.deleteVariant
-);
-
-// Force-refresh exchange rates + recalculate non-overridden regional prices
-router.post(
-  "/sync-exchange-rates",
-  verifyToken,
-  isAdmin,
-  productController.syncExchangeRates
 );
 
 // ============================================
@@ -349,22 +444,6 @@ router.post(
   verifyToken,
   isAdmin,
   productController.syncRegionalData
-);
-
-// ============================================
-// BULK OPERATIONS
-// ============================================
-router.post(
-  "/bulk/mark-products",
-  verifyToken,
-  isAdmin,
-  productFeaturedController.bulkMarkProducts
-);
-router.post(
-  "/bulk/regional-pricing",
-  verifyToken,
-  isAdmin,
-  productController.bulkUpdateRegionalPricing
 );
 
 module.exports = router;
