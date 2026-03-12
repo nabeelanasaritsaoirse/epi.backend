@@ -10,6 +10,8 @@ const {
 const {
   exportProductsToExcel,
   exportProductsToCSV,
+  generateVendorTemplate,
+  importVendorExcel,
 } = require("../services/exportService");
 const { AppError } = require("../utils/customErrors");
 
@@ -4088,6 +4090,126 @@ exports.updateListingStatus = async (req, res) => {
     return handleProductError(error, res, "updateListingStatus");
   }
 };
+
+// ============================================================
+// VENDOR EXCEL TEMPLATE  &  IMPORT
+// ============================================================
+
+/**
+ * @desc  Download blank vendor product import template (Excel)
+ * @route GET /api/products/vendor-template
+ * @access Admin
+ */
+exports.downloadVendorTemplate = async (req, res) => {
+  try {
+    const workbook = await generateVendorTemplate();
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="vendor-product-template-${Date.now()}.xlsx"`
+    );
+    res.send(buffer);
+  } catch (error) {
+    return handleProductError(error, res, "downloadVendorTemplate");
+  }
+};
+
+/**
+ * @desc  Import products from a vendor-filled Excel file
+ * @route POST /api/products/import-excel
+ * @access Admin
+ * Body  multipart/form-data  field: file (xlsx)
+ * Query ?dryRun=true  → validate only, no DB writes
+ */
+exports.importFromExcel = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: "No Excel file uploaded. Use field name 'file'." });
+    }
+
+    const dryRun = req.query.dryRun === "true";
+    const { products, errors, stockUpdates } = await importVendorExcel(
+      req.file.buffer,
+      req.user.email
+    );
+
+    // ── Stock updates (SKU-based patch — no new products) ──────
+    const stockResults = [];
+    if (!dryRun && stockUpdates.length > 0) {
+      for (const su of stockUpdates) {
+        const update = { "availability.stockQuantity": su.stockQty };
+        if (su.salePrice !== undefined) update["pricing.salePrice"] = su.salePrice;
+        if (su.regPrice  !== undefined) update["pricing.regularPrice"] = su.regPrice;
+        const result = await Product.findOneAndUpdate(
+          { sku: su.sku, isDeleted: false },
+          { $set: update },
+          { new: true }
+        );
+        stockResults.push({ sku: su.sku, updated: !!result });
+      }
+    }
+
+    if (products.length === 0 && errors.length > 0) {
+      return res.status(422).json({
+        success: false,
+        message: "No valid products found. See errors.",
+        errors,
+        stockUpdates: dryRun ? stockUpdates : stockResults,
+      });
+    }
+
+    // ── Dry run — return preview only ─────────────────────────
+    if (dryRun) {
+      return res.status(200).json({
+        success: true,
+        message: `Dry run complete. ${products.length} product(s) ready to import, ${errors.length} error(s).`,
+        preview: products.map(p => ({
+          name: p.name, sku: p.sku, brand: p.brand,
+          category: p.category.mainCategoryName,
+          regularPrice: p.pricing.regularPrice,
+          stock: p.availability.stockQuantity,
+          hasVariants: p.hasVariants,
+          variantCount: p.variants?.length ?? 0,
+        })),
+        stockUpdates,
+        errors,
+      });
+    }
+
+    // ── Actual insert ──────────────────────────────────────────
+    const inserted = [];
+    const insertErrors = [];
+
+    for (const prod of products) {
+      try {
+        const newProd = new Product(prod);
+        await newProd.save();
+        inserted.push({ productId: newProd.productId, name: newProd.name, sku: newProd.sku });
+      } catch (err) {
+        insertErrors.push(`SKU ${prod.sku}: ${err.message}`);
+      }
+    }
+
+    const totalErrors = errors.length + insertErrors.length;
+    // Use 201 only when at least one product was actually created
+    const statusCode = inserted.length > 0 ? 201 : 200;
+    return res.status(statusCode).json({
+      success: inserted.length > 0 || stockResults.some(s => s.updated),
+      message: `Import complete. ${inserted.length} product(s) created, ${totalErrors} error(s).`,
+      inserted,
+      stockUpdates: stockResults,
+      errors: [...errors, ...insertErrors],
+    });
+  } catch (error) {
+    return handleProductError(error, res, "importFromExcel");
+  }
+};
+
 
 
 
