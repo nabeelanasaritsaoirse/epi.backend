@@ -36,12 +36,15 @@ const CRON_SCHEDULES = {
   LOW_BALANCE_CHECK: "30 18 * * *", // 12:00 AM IST (midnight for next day check) = 18:30 UTC
 };
 
-// Batch size for processing
+// Number of users processed concurrently per batch
 const BATCH_SIZE = 50;
+
+// Concurrency guard — prevents overlapping runs if processing takes longer than cron interval
+let isProcessing = false;
 
 // Fields required for instance methods (canProcessAutopay, canPayToday, isSkipDate, isFullyPaid, isAutopayActive)
 const ORDER_SELECT_FIELDS =
-  "user product orderId productName dailyPaymentAmount autopay paymentSchedule firstPaymentMethod totalPaidAmount productPrice status lastPaymentDate";
+  "user product orderId productName dailyPaymentAmount autopay paymentSchedule firstPaymentMethod totalPaidAmount productPrice status lastPaymentDate paidInstallments";
 
 // ============================================
 // HELPERS
@@ -134,48 +137,58 @@ async function processAutopayForTimeSlot(timeSlot) {
       userMap[u._id.toString()] = u;
     }
 
-    // Process each user using pre-fetched orders and user data
-    for (const uid of affectedUserIds) {
-      const user = userMap[uid];
-      if (!user) continue;
+    // Process users in parallel batches of BATCH_SIZE.
+    // Promise.allSettled ensures one user's failure never blocks others.
+    for (let i = 0; i < affectedUserIds.length; i += BATCH_SIZE) {
+      const batch = affectedUserIds.slice(i, i + BATCH_SIZE);
 
-      try {
-        const userResult = await processAutopayForUser(user, ordersByUser[uid]);
+      const settled = await Promise.allSettled(
+        batch.map(async (uid) => {
+          const user = userMap[uid];
+          if (!user) return null;
 
-        totalProcessed += userResult.processed;
-        totalSuccess += userResult.success;
-        totalFailed += userResult.failed;
-        totalSkipped += userResult.skipped;
-        totalInsufficientBalance += userResult.insufficientBalance;
+          const userResult = await processAutopayForUser(user, ordersByUser[uid]);
 
-        // Update streak if any successful payment
-        if (userResult.success > 0) {
-          try {
-            await autopayService.updatePaymentStreak(user._id);
-          } catch (streakError) {
-            console.error(`[Autopay Cron] Streak update failed for user ${user._id}:`, streakError);
+          // Streak + notifications (non-critical — errors are swallowed per user)
+          if (userResult.success > 0) {
+            try {
+              await autopayService.updatePaymentStreak(user._id);
+            } catch (streakError) {
+              console.error(`[Autopay Cron] Streak update failed for user ${user._id}:`, streakError);
+            }
+            await autopayService.sendAutopaySuccessNotification(user._id, {
+              totalAmount: userResult.totalAmountPaid,
+              orderCount: userResult.success,
+              newBalance: userResult.newBalance,
+            });
           }
 
-          // Send success notification
-          await autopayService.sendAutopaySuccessNotification(user._id, {
-            totalAmount: userResult.totalAmountPaid,
-            orderCount: userResult.success,
-            newBalance: userResult.newBalance,
-          });
-        }
+          if (userResult.failed > 0 || userResult.insufficientBalance > 0) {
+            await autopayService.sendAutopayFailedNotification(user._id, {
+              failedCount: userResult.failed + userResult.insufficientBalance,
+              reason:
+                userResult.insufficientBalance > 0
+                  ? "Insufficient wallet balance"
+                  : "Payment processing failed",
+            });
+          }
 
-        // Send failure notification if any failed
-        if (userResult.failed > 0 || userResult.insufficientBalance > 0) {
-          await autopayService.sendAutopayFailedNotification(user._id, {
-            failedCount: userResult.failed + userResult.insufficientBalance,
-            reason:
-              userResult.insufficientBalance > 0
-                ? "Insufficient wallet balance"
-                : "Payment processing failed",
-          });
+          return userResult;
+        })
+      );
+
+      // Aggregate results from this batch
+      for (const outcome of settled) {
+        if (outcome.status === "fulfilled" && outcome.value) {
+          totalProcessed += outcome.value.processed;
+          totalSuccess += outcome.value.success;
+          totalFailed += outcome.value.failed;
+          totalSkipped += outcome.value.skipped;
+          totalInsufficientBalance += outcome.value.insufficientBalance;
+        } else if (outcome.status === "rejected") {
+          console.error(`[Autopay Cron] Unhandled error in batch:`, outcome.reason);
+          totalFailed++;
         }
-      } catch (userError) {
-        console.error(`[Autopay Cron] Error processing user ${user._id}:`, userError);
       }
     }
 
@@ -289,9 +302,28 @@ async function sendDailyReminders(upcomingTimeSlot) {
   console.log(`[Autopay Cron] Sending reminders for ${upcomingTimeSlot}`);
 
   try {
-    // Get all users with autopay enabled who have reminder enabled
-    // (ignoring timePreference for now)
+    // Single query: fetch all active autopay orders (replaces N per-user queries)
+    const allOrders = await InstallmentOrder.find({
+      "autopay.enabled": true,
+      status: "ACTIVE",
+    })
+      .select(ORDER_SELECT_FIELDS)
+      .lean(false); // instance methods (canProcessAutopay) required
+
+    // Group by userId in memory
+    const ordersByUser = {};
+    for (const order of allOrders) {
+      const uid = order.user.toString();
+      if (!ordersByUser[uid]) ordersByUser[uid] = [];
+      ordersByUser[uid].push(order);
+    }
+
+    const affectedUserIds = Object.keys(ordersByUser);
+    if (affectedUserIds.length === 0) return;
+
+    // Fetch only users with reminder enabled, among those who actually have orders
     const users = await User.find({
+      _id: { $in: affectedUserIds },
       "autopaySettings.enabled": true,
       "autopaySettings.sendDailyReminder": true,
     }).select("_id");
@@ -300,14 +332,8 @@ async function sendDailyReminders(upcomingTimeSlot) {
 
     for (const user of users) {
       try {
-        // Get today's pending autopay orders
-        const orders = await InstallmentOrder.find({
-          user: user._id,
-          status: "ACTIVE",
-          "autopay.enabled": true,
-        }).select(ORDER_SELECT_FIELDS);
+        const orders = ordersByUser[user._id.toString()] || [];
 
-        // Filter orders that can pay today
         const payableOrders = orders.filter(
           (o) => o.canProcessAutopay && o.canProcessAutopay()
         );
@@ -344,8 +370,29 @@ async function checkLowBalanceAlerts() {
   console.log("[Autopay Cron] Checking low balance alerts");
 
   try {
-    // Get all users with autopay enabled
+    const now = new Date();
+    const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0));
+
+    // Single query: fetch all active autopay orders (replaces N per-user queries)
+    const allOrders = await InstallmentOrder.find({
+      "autopay.enabled": true,
+      status: "ACTIVE",
+    }).select("user dailyPaymentAmount paymentSchedule autopay");
+
+    // Group by userId in memory
+    const ordersByUser = {};
+    for (const order of allOrders) {
+      const uid = order.user.toString();
+      if (!ordersByUser[uid]) ordersByUser[uid] = [];
+      ordersByUser[uid].push(order);
+    }
+
+    const affectedUserIds = Object.keys(ordersByUser);
+    if (affectedUserIds.length === 0) return;
+
+    // Fetch only users with autopay enabled, among those who have orders
     const users = await User.find({
+      _id: { $in: affectedUserIds },
       "autopaySettings.enabled": true,
     }).select("_id wallet autopaySettings");
 
@@ -353,20 +400,10 @@ async function checkLowBalanceAlerts() {
 
     for (const user of users) {
       try {
-        // Get tomorrow's expected payments
-        const orders = await InstallmentOrder.find({
-          user: user._id,
-          status: "ACTIVE",
-          "autopay.enabled": true,
-        }).select("dailyPaymentAmount paymentSchedule autopay");
-
-        // Calculate tomorrow's total
-        const now = new Date();
-        const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0));
+        const orders = ordersByUser[user._id.toString()] || [];
 
         let tomorrowTotal = 0;
         for (const order of orders) {
-          // Check if there's a pending payment tomorrow
           const hasTomorrowPayment = order.paymentSchedule.some((inst) => {
             if (inst.status !== "PENDING") return false;
             const dueDate = new Date(inst.dueDate);
@@ -374,7 +411,6 @@ async function checkLowBalanceAlerts() {
             return dueDateUTC.getTime() === tomorrow.getTime();
           });
 
-          // Check if it's not a skip date
           const isSkipped = order.autopay?.skipDates?.some((d) => {
             return d.getTime() === tomorrow.getTime();
           });
@@ -386,20 +422,17 @@ async function checkLowBalanceAlerts() {
 
         if (tomorrowTotal === 0) continue;
 
-        // Check if balance is sufficient
         const balance = user.wallet?.balance || 0;
         const minimumLock = user.autopaySettings?.minimumBalanceLock || 0;
         const availableBalance = Math.max(0, balance - minimumLock);
 
         if (availableBalance < tomorrowTotal) {
-          // Send low balance alert
           await autopayService.sendLowBalanceAlert(user._id, {
             balance: availableBalance,
             required: tomorrowTotal,
             shortfall: tomorrowTotal - availableBalance,
           });
         } else {
-          // Check against threshold
           const threshold = user.autopaySettings?.lowBalanceThreshold || 500;
           const balanceAfterPayment = availableBalance - tomorrowTotal;
 
@@ -435,10 +468,17 @@ function startAutopayCron() {
   // Morning 6 AM autopay - This is the ONLY autopay slot for now
   // Time preference feature will be added later
   cron.schedule(CRON_SCHEDULES.MORNING_6AM, async () => {
+    if (isProcessing) {
+      console.warn("[Autopay Cron] MORNING_6AM skipped — previous run still in progress");
+      return;
+    }
+    isProcessing = true;
     try {
       await processAutopayForTimeSlot("MORNING_6AM");
     } catch (error) {
       console.error("[Autopay Cron] MORNING_6AM job failed:", error);
+    } finally {
+      isProcessing = false;
     }
   });
   console.log("[Autopay Cron] ✅ MORNING_6AM job scheduled (6:00 AM IST)");
