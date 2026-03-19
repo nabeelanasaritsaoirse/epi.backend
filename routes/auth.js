@@ -1,11 +1,40 @@
 const express = require("express");
 const router = express.Router();
+const rateLimit = require("express-rate-limit");
 const { verifyFirebaseToken, verifyToken, verifyRefreshToken, isAdmin, generateTokens } = require("../middlewares/auth");
 const User = require("../models/User");
 const { admin } = require("../config/firebase");
 
+// ── Rate limiters ────────────────────────────────────────────────────────────
+// 10 login attempts per 15 min per IP — prevents brute-force
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many login attempts. Please try again after 15 minutes.', code: 'RATE_LIMITED' }
+});
 
-router.post("/login", async (req, res) => {
+// 5 signups per 15 min per IP — prevents account farming
+const signupLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many signup attempts. Please try again after 15 minutes.', code: 'RATE_LIMITED' }
+});
+
+// 20 refresh-token calls per 15 min per IP
+const refreshLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many token refresh attempts. Please try again after 15 minutes.', code: 'RATE_LIMITED' }
+});
+// ────────────────────────────────────────────────────────────────────────────
+
+router.post("/login", loginLimiter, async (req, res) => {
   try {
     const { idToken } = req.body;
 
@@ -26,16 +55,35 @@ router.post("/login", async (req, res) => {
     } catch (verifyError) {
       // If it's a custom token, decode it manually
       if (verifyError.code === 'auth/argument-error') {
-        const base64Payload = idToken.split('.')[1];
-        const payload = Buffer.from(base64Payload, 'base64').toString();
-        decodedToken = JSON.parse(payload);
-        console.log('Custom token decoded:', decodedToken);
+        try {
+          const parts = idToken.split('.');
+          if (parts.length < 2) throw new Error('Malformed token — not a valid JWT');
+          const base64Payload = parts[1];
+          const payload = Buffer.from(base64Payload, 'base64').toString('utf8');
+          decodedToken = JSON.parse(payload);
+          console.log('Custom token decoded:', decodedToken);
+        } catch (decodeError) {
+          console.error('Custom token decode failed:', decodeError.message);
+          return res.status(401).json({
+            success: false,
+            message: 'Invalid token format',
+            code: 'INVALID_TOKEN_FORMAT'
+          });
+        }
       } else {
         throw verifyError;
       }
     }
-    
+
     const uid = decodedToken.uid || decodedToken.sub;
+    if (!uid) {
+      console.error('Login: uid missing from decoded token', decodedToken);
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid token — user ID not found',
+        code: 'INVALID_TOKEN_PAYLOAD'
+      });
+    }
     console.log('Token verified. UID:', uid);
 
     let user = await User.findOne({ firebaseUid: uid });
@@ -164,7 +212,7 @@ router.post("/login", async (req, res) => {
     }
 
     console.log('Generating JWT tokens...');
-    const tokens = generateTokens(user._id.toString(), user.role);
+    const tokens = generateTokens(user._id.toString(), user.role, user.tokenVersion ?? 0);
 
     // Build response data
     const responseData = {
@@ -218,9 +266,9 @@ router.post("/login", async (req, res) => {
     });
   }
 });
-router.post("/refresh-token", verifyRefreshToken, async (req, res) => {
+router.post("/refresh-token", refreshLimiter, verifyRefreshToken, async (req, res) => {
   try {
-    const tokens = generateTokens(req.user._id.toString(), req.user.role);
+    const tokens = generateTokens(req.user._id.toString(), req.user.role, req.user.tokenVersion ?? 0);
 
     return res.status(200).json({
       success: true,
@@ -231,10 +279,11 @@ router.post("/refresh-token", verifyRefreshToken, async (req, res) => {
       }
     });
   } catch (error) {
-    return res.status(500).json({ 
+    console.error('POST /refresh-token error:', error);
+    return res.status(500).json({
       success: false,
       message: "Token refresh failed",
-      error: error.message 
+      error: error.message
     });
   }
 });
@@ -254,7 +303,7 @@ router.post("/logout", verifyToken, async (req, res) => {
   }
 });
 
-router.post("/signup", async (req, res) => {
+router.post("/signup", signupLimiter, async (req, res) => {
   try {
     const {
       name,
@@ -304,7 +353,7 @@ router.post("/signup", async (req, res) => {
     let existingUser = await User.findOne({ $or: searchConditions });
     
     if (existingUser) {
-      const tokens = generateTokens(existingUser._id.toString(), existingUser.role);
+      const tokens = generateTokens(existingUser._id.toString(), existingUser.role, existingUser.tokenVersion ?? 0);
       
       return res.status(200).json({
         success: true,
@@ -357,7 +406,7 @@ router.post("/signup", async (req, res) => {
         if (currentReferralCount >= referralLimit) {
           await user.save();
 
-          const tokens = generateTokens(user._id.toString(), user.role);
+          const tokens = generateTokens(user._id.toString(), user.role, user.tokenVersion ?? 0);
 
           return res.status(400).json({
             success: false,
@@ -384,9 +433,9 @@ router.post("/signup", async (req, res) => {
         });
       } else {
         await user.save();
-        
-        const tokens = generateTokens(user._id.toString(), user.role);
-        
+
+        const tokens = generateTokens(user._id.toString(), user.role, user.tokenVersion ?? 0);
+
         return res.status(201).json({
           success: true,
           message: "User created successfully, but referral code was invalid",
@@ -406,7 +455,7 @@ router.post("/signup", async (req, res) => {
       await user.save();
     }
 
-    const tokens = generateTokens(user._id.toString(), user.role);
+    const tokens = generateTokens(user._id.toString(), user.role, user.tokenVersion ?? 0);
 
     return res.status(201).json({
       success: true,
@@ -424,10 +473,11 @@ router.post("/signup", async (req, res) => {
       }
     });
   } catch (error) {
-    return res.status(500).json({ 
+    console.error('POST /signup error:', error);
+    return res.status(500).json({
       success: false,
       message: "Server error",
-      error: error.message 
+      error: error.message
     });
   }
 });
@@ -436,17 +486,6 @@ router.post("/signup", async (req, res) => {
 router.put("/profiles/:userId", verifyToken, async (req, res) => {
   try {
     const { userId } = req.params;
-    
-    // Destructure and exclude email and phoneNumber
-    const {
-      email,
-      phoneNumber,
-      firebaseUid, // Also exclude firebaseUid for security
-      __v,
-      _id,
-      createdAt,
-      ...allowedFields
-    } = req.body;
 
     // Check if user is updating their own profile or is an admin
     if (req.user._id.toString() !== userId && req.user.role !== 'admin') {
@@ -467,20 +506,25 @@ router.put("/profiles/:userId", verifyToken, async (req, res) => {
       });
     }
 
-    // Warn if email or phoneNumber were attempted to be updated
-    if (email !== undefined || phoneNumber !== undefined) {
-      console.log('Attempted to update email/phone for user:', userId);
+    // WHITELIST — only these fields are allowed to be updated
+    // Never use blacklist (it allows role/password/isActive changes)
+    const ALLOWED_FIELDS = ['name', 'profilePicture', 'isAgree', 'deviceToken', 'addresses'];
+    const allowedFields = {};
+    for (const field of ALLOWED_FIELDS) {
+      if (req.body[field] !== undefined) {
+        allowedFields[field] = req.body[field];
+      }
     }
 
     if (Object.keys(allowedFields).length === 0) {
       return res.status(400).json({
         success: false,
-        message: "No valid fields to update. Email and phone number cannot be modified.",
+        message: "No valid fields to update. Only name, profilePicture, isAgree, deviceToken, addresses can be modified.",
         code: "NO_UPDATE_FIELDS"
       });
     }
 
-    // Update the user with all allowed fields
+    // Update the user with whitelisted fields only
     const updatedUser = await User.findByIdAndUpdate(
       userId,
       { $set: allowedFields },
@@ -617,12 +661,21 @@ router.put("/profile", verifyToken, async (req, res) => {
       { new: true }
     ).select("-__v");
 
+    if (!updatedUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+        code: 'USER_NOT_FOUND'
+      });
+    }
+
     return res.status(200).json({
       success: true,
       message: "Profile updated successfully",
       data: updatedUser
     });
   } catch (error) {
+    console.error('PUT /profile error:', error);
     return res.status(500).json({
       success: false,
       message: "Server error",
@@ -696,6 +749,14 @@ router.put("/update-user-details", async (req, res) => {
       { new: true }
     ).select("-__v");
 
+    if (!updatedUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+        code: 'USER_NOT_FOUND'
+      });
+    }
+
     console.log('User details updated successfully');
 
     return res.status(200).json({
@@ -748,7 +809,7 @@ router.put("/update-user-details", async (req, res) => {
   }
 });
 
-router.post("/admin-login", async (req, res) => {
+router.post("/admin-login", loginLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -768,6 +829,15 @@ router.post("/admin-login", async (req, res) => {
     // Get admin credentials from environment variables
     const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
     const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+
+    if (!ADMIN_EMAIL || !ADMIN_PASSWORD) {
+      console.error('Admin login failed: ADMIN_EMAIL or ADMIN_PASSWORD env vars are not set');
+      return res.status(500).json({
+        success: false,
+        message: 'Admin credentials not configured on server',
+        code: 'ADMIN_NOT_CONFIGURED'
+      });
+    }
 
     // Verify credentials
     if (email !== ADMIN_EMAIL || password !== ADMIN_PASSWORD) {
@@ -837,7 +907,7 @@ router.post("/admin-login", async (req, res) => {
 
     // Generate JWT tokens
     console.log('Generating JWT tokens for admin...');
-    const tokens = generateTokens(adminUser._id.toString(), adminUser.role);
+    const tokens = generateTokens(adminUser._id.toString(), adminUser.role, adminUser.tokenVersion ?? 0);
     console.log('Tokens generated successfully');
 
     return res.status(200).json({
@@ -872,7 +942,7 @@ router.post("/admin-login", async (req, res) => {
         const adminUser = await User.findOne({ email: ADMIN_EMAIL, role: 'super_admin' });
 
         if (adminUser) {
-          const tokens = generateTokens(adminUser._id.toString(), adminUser.role);
+          const tokens = generateTokens(adminUser._id.toString(), adminUser.role, adminUser.tokenVersion ?? 0);
 
           return res.status(200).json({
             success: true,
@@ -1282,5 +1352,38 @@ router.get("/referral-stats/:userId", async (req, res) => {
   }
 });
 
+
+// Logout ALL users (admin only) — increments tokenVersion for every user
+router.post("/admin/logout-all-users", verifyToken, isAdmin, async (req, res) => {
+  try {
+    await User.updateMany({}, { $inc: { tokenVersion: 1 } });
+    return res.status(200).json({
+      success: true,
+      message: "All users have been logged out successfully"
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Server error", error: error.message });
+  }
+});
+
+// Logout a SPECIFIC user (admin only)
+router.post("/admin/logout-user/:userId", verifyToken, isAdmin, async (req, res) => {
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.params.userId,
+      { $inc: { tokenVersion: 1 } },
+      { new: true }
+    );
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    return res.status(200).json({
+      success: true,
+      message: `User ${user.name} has been logged out`
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Server error", error: error.message });
+  }
+});
 
 module.exports = router;

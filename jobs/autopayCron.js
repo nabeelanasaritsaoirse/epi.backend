@@ -44,7 +44,7 @@ let isProcessing = false;
 
 // Fields required for instance methods (canProcessAutopay, canPayToday, isSkipDate, isFullyPaid, isAutopayActive)
 const ORDER_SELECT_FIELDS =
-  "user product orderId productName dailyPaymentAmount autopay paymentSchedule firstPaymentMethod totalPaidAmount productPrice status lastPaymentDate paidInstallments";
+  "user product orderId productName dailyPaymentAmount autopay paymentSchedule firstPaymentMethod totalPaidAmount productPrice totalProductPrice status lastPaymentDate paidInstallments";
 
 // ============================================
 // HELPERS
