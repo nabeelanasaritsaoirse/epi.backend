@@ -1,8 +1,14 @@
 // controllers/adminReferralController.js
 const User = require("../models/User");
+const { escapeRegex } = require('../utils/helpers');
+
+
 const Referral = require("../models/Referral");
 const DailyCommission = require("../models/DailyCommission");
 const CommissionWithdrawal = require("../models/CommissionWithdrawal");
+const ReferralRewardConfig = require("../models/ReferralRewardConfig");
+const ReferralRewardHistory = require("../models/ReferralRewardHistory");
+const referralRewardService = require("../services/referralRewardService");
 
 /**
  * @desc    Get user by phone number or email
@@ -174,22 +180,112 @@ exports.getUserReferralDetails = async (req, res) => {
 };
 
 /**
- * @desc    Get all users with referral codes
+ * @desc    Get all users with referral codes (supports leaderboardOnly mode)
  * @route   GET /api/admin/referrals/all-users
  * @access  Admin
+ * @query   page - Page number (default: 1)
+ * @query   limit - Items per page (default: 20)
+ * @query   search - Search by name, email, phone, or referral code
+ * @query   leaderboardOnly - If 'true', only returns users who have at least 1 referral
+ * @query   sortBy - 'totalReferrals' or 'totalEarnings' (used with leaderboardOnly)
+ * @example /api/admin/referrals/all-users?leaderboardOnly=true&sortBy=totalReferrals
+ * @example /api/admin/referrals/all-users?leaderboardOnly=true&sortBy=totalEarnings&search=john
  */
 exports.getAllUsersWithReferrals = async (req, res) => {
   try {
-    const { page = 1, limit = 20, search } = req.query;
+    const { page = 1, limit = 20, search, leaderboardOnly, sortBy = 'totalReferrals' } = req.query;
 
-    // Build query
+    // ---- LEADERBOARD MODE: Only users who have referred at least 1 person ----
+    if (leaderboardOnly === 'true') {
+      const pageNum = parseInt(page);
+      const limitNum = parseInt(limit);
+
+      // Step 1: Find all user IDs who have at least 1 referred user
+      const referrerAgg = await User.aggregate([
+        { $match: { referredBy: { $ne: null } } },
+        { $group: { _id: "$referredBy", referredCount: { $sum: 1 } } },
+        { $sort: { referredCount: -1 } }
+      ]);
+
+      const referrerIds = referrerAgg.map(r => r._id);
+      const referredCountMap = {};
+      referrerAgg.forEach(r => { referredCountMap[r._id.toString()] = r.referredCount; });
+
+      // Step 2: Apply search filter if provided
+      const searchQuery = { _id: { $in: referrerIds } };
+      if (search) {
+        const safeSearch = escapeRegex(search);
+        searchQuery.$or = [
+          { name: { $regex: safeSearch, $options: "i" } },
+          { email: { $regex: safeSearch, $options: "i" } },
+          { phoneNumber: { $regex: safeSearch, $options: "i" } },
+          { referralCode: { $regex: safeSearch, $options: "i" } },
+        ];
+      }
+
+      const totalUsers = await User.countDocuments(searchQuery);
+      const users = await User.find(searchQuery)
+        .select("name email phoneNumber referralCode profilePicture createdAt title")
+        .limit(limitNum)
+        .skip((pageNum - 1) * limitNum);
+
+      // Step 3: Get stats for each referrer
+      const usersWithStats = await Promise.all(
+        users.map(async (user) => {
+          const referredCount = referredCountMap[user._id.toString()] || 0;
+          const referrals = await Referral.find({ referrer: user._id });
+          const totalEarnings = await DailyCommission.aggregate([
+            { $match: { referrer: user._id } },
+            { $group: { _id: null, total: { $sum: "$amount" } } },
+          ]);
+
+          return {
+            userId: user._id,
+            name: user.name,
+            email: user.email,
+            phoneNumber: user.phoneNumber,
+            referralCode: user.referralCode,
+            profilePicture: user.profilePicture || "",
+            title: user.title || "",
+            joinedAt: user.createdAt,
+            totalReferrals: referredCount,
+            activeReferrals: referrals.filter((r) => r.status === "ACTIVE").length,
+            completedReferrals: referrals.filter((r) => r.status === "COMPLETED").length,
+            totalEarnings: totalEarnings.length > 0 ? Math.round(totalEarnings[0].total * 100) / 100 : 0,
+          };
+        })
+      );
+
+      // Step 4: Sort by chosen field
+      if (sortBy === 'totalEarnings') {
+        usersWithStats.sort((a, b) => b.totalEarnings - a.totalEarnings);
+      } else {
+        usersWithStats.sort((a, b) => b.totalReferrals - a.totalReferrals);
+      }
+
+      return res.json({
+        success: true,
+        data: {
+          users: usersWithStats,
+          pagination: {
+            currentPage: pageNum,
+            totalPages: Math.ceil(totalUsers / limitNum),
+            totalUsers,
+            limit: limitNum,
+          },
+        },
+      });
+    }
+
+    // ---- DEFAULT MODE: Return ALL users ----
     const query = {};
     if (search) {
+      const safeSearch = escapeRegex(search);
       query.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { email: { $regex: search, $options: "i" } },
-        { phoneNumber: { $regex: search, $options: "i" } },
-        { referralCode: { $regex: search, $options: "i" } },
+        { name: { $regex: safeSearch, $options: "i" } },
+        { email: { $regex: safeSearch, $options: "i" } },
+        { phoneNumber: { $regex: safeSearch, $options: "i" } },
+        { referralCode: { $regex: safeSearch, $options: "i" } },
       ];
     }
 
@@ -529,6 +625,116 @@ exports.updateUserReferrer = async (req, res) => {
       success: false,
       error: error.message || "Failed to update referral relationship",
     });
+  }
+};
+
+
+/**
+ * @desc    Get reward configuration
+ * @route   GET /api/admin/referrals/reward-config
+ * @access  Admin
+ */
+exports.getRewardConfig = async (req, res) => {
+  try {
+    let config = await ReferralRewardConfig.findOne({});
+    if (!config) {
+      config = new ReferralRewardConfig({ milestones: [] });
+      await config.save();
+    }
+    res.json({ success: true, data: config });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * @desc    Update reward configuration
+ * @route   PUT /api/admin/referrals/reward-config
+ * @access  Admin
+ */
+exports.updateRewardConfig = async (req, res) => {
+  try {
+    let config = await ReferralRewardConfig.findOne({});
+    if (!config) {
+      config = new ReferralRewardConfig({});
+    }
+
+    const { milestones, chainRewardEnabled, chainRewardType, chainRewardValue } = req.body;
+    
+    if (milestones) config.milestones = milestones;
+    if (chainRewardEnabled !== undefined) config.chainRewardEnabled = chainRewardEnabled;
+    if (chainRewardType) config.chainRewardType = chainRewardType;
+    if (chainRewardValue !== undefined) config.chainRewardValue = chainRewardValue;
+    
+    config.updatedAt = Date.now();
+    config.updatedBy = req.user && req.user._id ? req.user._id : null;
+
+    await config.save();
+    res.json({ success: true, data: config });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * @desc    Get reward history
+ * @route   GET /api/admin/referrals/reward-history
+ * @access  Admin
+ */
+exports.getRewardHistory = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+
+    const history = await ReferralRewardHistory.find({})
+      .populate('user', 'name email phoneNumber')
+      .populate('triggerUser', 'name email')
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit);
+      
+    const total = await ReferralRewardHistory.countDocuments({});
+      
+    res.json({
+       success: true,
+       data: history,
+       pagination: { total, page, pages: Math.ceil(total / limit) }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * @desc    Manually give reward
+ * @route   POST /api/admin/referrals/manual-reward
+ * @access  Admin
+ */
+exports.manualReward = async (req, res) => {
+  try {
+    const { userId, amount, title, notes } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, error: "Missing required field: userId" });
+    }
+    
+    const adminId = (req.user && req.user._id) ? req.user._id : null;
+
+    const history = await referralRewardService.giveReward({
+       userId,
+       triggerUserId: null,
+       rewardType: 'MANUAL',
+       milestoneAchieved: null,
+       amount: amount || 0,
+       rewardTypeConfig: title ? ((amount > 0) ? 'BOTH' : 'BADGE') : 'CASH',
+       badgeName: title || '',
+       notes: notes || 'Manual reward from admin',
+       createdBy: adminId
+    });
+    
+    res.json({ success: true, message: "Reward given successfully", data: history });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 
