@@ -67,13 +67,16 @@ jobs:
           sudo chown ubuntu:ubuntu /var/www/epi-backend-dev
           cd /var/www/epi-backend-dev
 
-          # Pull latest developer branch
+       
+                # Pull latest developer branch
           if [ -d .git ]; then
+            git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/nabeelanasaritsaoirse/epi.backend.git
             git fetch origin dev
             git reset --hard origin/dev
           else
-            git clone --branch dev https://github.com/nabeelanasaritsaoirse/epi.backend.git .
+            git clone --branch dev https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/nabeelanasaritsaoirse/epi.backend.git .
           fi
+
 
           echo "📦 Installing dependencies..."
           npm install
