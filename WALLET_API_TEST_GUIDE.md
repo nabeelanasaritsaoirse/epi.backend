@@ -10,7 +10,7 @@ Login to the app and copy your JWT token from the response.
 
 ```bash
 # Set your token as environment variable
-export JWT_TOKEN="your_jwt_token_here"
+export JWT_TOKEN="your_jwt_token_here"see that 
 ```
 
 Or for Windows PowerShell:
