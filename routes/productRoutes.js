@@ -3,9 +3,20 @@ const router = express.Router();
 const productController = require("../controllers/productController");
 const productFeaturedController = require("../controllers/productFeaturedController");
 const reviewController = require("../controllers/reviewController");
-const { uploadMultiple } = require("../middlewares/uploadMiddleware");
+const { uploadMultiple, uploadExcel } = require("../middlewares/uploadMiddleware");
 const { verifyToken, isAdmin, optionalAuth } = require("../middlewares/auth");
 const { detectCountryWithCache } = require("../middlewares/countryMiddleware");
+
+// Wraps multer so its file-type/size errors are returned as proper JSON
+// instead of falling through to the default Express error handler
+const handleUploadExcel = (req, res, next) => {
+  uploadExcel(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+    next();
+  });
+};
 
 // ============================================
 // ADMIN ROUTES (With authentication)
@@ -29,6 +40,26 @@ router.get(
 // EXPORT ROUTE (Must be BEFORE generic routes)
 // ============================================
 router.get("/export", verifyToken, isAdmin, productController.exportProducts);
+
+// ============================================
+// VENDOR EXCEL TEMPLATE & IMPORT
+// ============================================
+// GET  /api/products/vendor-template  → download blank Excel for vendors to fill
+router.get(
+  "/vendor-template",
+  verifyToken,
+  isAdmin,
+  productController.downloadVendorTemplate
+);
+// POST /api/products/import-excel     → upload filled vendor Excel to import products
+// Add ?dryRun=true to validate without saving
+router.post(
+  "/import-excel",
+  verifyToken,
+  isAdmin,
+  handleUploadExcel, // multer wrapper — returns JSON error on wrong file type/size
+  productController.importFromExcel
+);
 
 // ============================================
 // BULK OPERATIONS — MUST BE BEFORE /:productId

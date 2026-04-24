@@ -1,10 +1,20 @@
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const { generateTokens, verifyToken, hasRole, hasAnyRole } = require('../middlewares/auth');
 const { submitRegistrationRequest } = require('../controllers/adminRegistrationController');
 const { canAccessPanel, getAllRoles } = require('../utils/roleHelpers');
+
+// 5 admin login attempts per 15 min per IP
+const adminLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many login attempts. Please try again after 15 minutes.', code: 'RATE_LIMITED' }
+});
 
 /**
  * @route   POST /api/admin-auth/register-request
@@ -18,7 +28,7 @@ router.post('/register-request', submitRegistrationRequest);
  * @desc    Admin login with email and password (not Firebase)
  * @access  Public
  */
-router.post('/login', async (req, res) => {
+router.post('/login', adminLoginLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 

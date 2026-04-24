@@ -2,6 +2,7 @@
 const mongoose = require("mongoose");
 const User = require("../models/User");
 const Referral = require("../models/Referral");
+const ReferralRewardHistory = require("../models/ReferralRewardHistory");
 const DailyCommission = require("../models/DailyCommission");
 const CommissionWithdrawal = require("../models/CommissionWithdrawal");
 const Order = require("../models/Order");
@@ -132,6 +133,10 @@ exports.processReferral = async (referrerId, referredUserId, installmentDetails)
       }
     }
 
+    // Check and issue milestone / chain rewards
+    const referralRewardService = require('../services/referralRewardService');
+    await referralRewardService.checkAndIssueRewards(referrerId, referredUserId);
+
     // Link referredUser -> referredBy (if not already linked)
     await User.findByIdAndUpdate(referredUserId, { $set: { referredBy: referrerId } }, { new: false });
 
@@ -204,20 +209,12 @@ exports.processDailyCommission = async () => {
         r.daysPaid = (r.daysPaid || 0) + 1;
         r.lastPaidDate = new Date();
 
-        // Update user wallet & transactions
+        // Update user wallet balance
         await User.findByIdAndUpdate(r.referrer, {
           $inc: {
             totalEarnings: commissionAmount,
             availableBalance: commissionAmount,
             "wallet.balance": commissionAmount,
-          },
-          $push: {
-            "wallet.transactions": {
-              type: "referral_commission",
-              amount: commissionAmount,
-              description: `Daily commission for referral ${r._id} (purchase ${purchase._id})`,
-              createdAt: new Date(),
-            },
           },
         });
 
@@ -270,14 +267,6 @@ exports.requestWithdrawal = async (userId, amount, paymentMethod, paymentDetails
 
     await User.findByIdAndUpdate(userId, {
       $inc: { availableBalance: -amount, "wallet.balance": -amount },
-      $push: {
-        "wallet.transactions": {
-          type: "withdrawal",
-          amount: -amount,
-          description: `Withdrawal request #${withdrawal._id}`,
-          createdAt: new Date(),
-        },
-      },
     });
 
     return {
@@ -976,3 +965,123 @@ exports.getComprehensiveReferralStats = async (req, res) => {
   }
 };
 
+
+/* ---------- getLeaderboard ---------- */
+exports.getLeaderboard = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+
+    // Aggregate to get top referrers based on successful (active/completed) referrals
+    const leaderboard = await Referral.aggregate([
+      { $match: { status: { $in: ['ACTIVE', 'COMPLETED'] } } },
+      { 
+        $group: { 
+          _id: "$referrer", 
+          referralsCount: { $sum: 1 },
+          totalCommissionEarned: { $sum: "$commissionEarned" } 
+        } 
+      },
+      { $sort: { referralsCount: -1, totalCommissionEarned: -1 } },
+      { $skip: (page - 1) * limit },
+      { $limit: limit },
+      {
+        $lookup: {
+          from: "users",
+          localField: "_id",
+          foreignField: "_id",
+          as: "user"
+        }
+      },
+      { $unwind: "$user" },
+      {
+        $project: {
+          _id: 1,
+          referralsCount: 1,
+          totalCommissionEarned: 1,
+          "user.name": 1,
+          "user.profilePicture": 1,
+          "user.title": 1
+        }
+      }
+    ]);
+
+    // To add the current user's rank
+    let currentUserRank = null;
+    let currentUserData = null;
+    if (req.user) {
+      const userIdStr = req.user._id.toString();
+      const allAggregated = await Referral.aggregate([
+        { $match: { status: { $in: ['ACTIVE', 'COMPLETED'] } } },
+        { 
+          $group: { 
+            _id: "$referrer", 
+            referralsCount: { $sum: 1 },
+            totalCommissionEarned: { $sum: "$commissionEarned" } 
+          } 
+        },
+        { $sort: { referralsCount: -1, totalCommissionEarned: -1 } }
+      ]);
+      
+      const rankIndex = allAggregated.findIndex(a => a._id.toString() === userIdStr);
+      if (rankIndex !== -1) {
+         currentUserRank = rankIndex + 1;
+         currentUserData = allAggregated[rankIndex];
+      }
+    }
+
+    // Determine total pages for leaderboard
+    const totalAggregated = await Referral.aggregate([
+      { $match: { status: { $in: ['ACTIVE', 'COMPLETED'] } } },
+      { $group: { _id: "$referrer" } },
+      { $count: "total" }
+    ]);
+    const totalUsersInLeaderboard = totalAggregated.length > 0 ? totalAggregated[0].total : 0;
+
+    res.json({
+      success: true,
+      data: {
+        leaderboard,
+        currentUser: currentUserRank ? { rank: currentUserRank, ...currentUserData } : null,
+        pagination: {
+           total: totalUsersInLeaderboard,
+           page,
+           pages: Math.ceil(totalUsersInLeaderboard / limit)
+        }
+      }
+    });
+  } catch (error) {
+    console.error("Error in getLeaderboard:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/* ---------- getMyRewardHistory ---------- */
+exports.getMyRewardHistory = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+
+    const history = await ReferralRewardHistory.find({ user: userId })
+      .populate('triggerUser', 'name')
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit);
+
+    const total = await ReferralRewardHistory.countDocuments({ user: userId });
+
+    res.json({
+      success: true,
+      data: history,
+      pagination: {
+        total,
+        page,
+        pages: Math.ceil(total / limit)
+      }
+    });
+  } catch (error) {
+    console.error("Error in getMyRewardHistory:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
