@@ -3,7 +3,10 @@
  * Handles admin notification management endpoints
  */
 
+
+
 const { validationResult } = require("express-validator");
+const { escapeRegex } = require('../utils/helpers');
 const multer = require("multer");
 const Notification = require("../models/Notification");
 const NotificationComment = require("../models/NotificationComment");
@@ -465,7 +468,7 @@ async function getAllNotifications(req, res) {
       });
     }
 
-    const { page = 1, limit = 20, status, type, search } = req.query;
+    const { page = 1, limit = 20, status, search } = req.query;
 
     const skip = (page - 1) * limit;
 
@@ -476,9 +479,10 @@ async function getAllNotifications(req, res) {
 
     if (status) query.status = status;
     if (search) {
+      const safeSearch = escapeRegex(search);
       query.$or = [
-        { title: { $regex: search, $options: "i" } },
-        { body: { $regex: search, $options: "i" } },
+        { title: { $regex: safeSearch, $options: "i" } },
+        { body: { $regex: safeSearch, $options: "i" } },
       ];
     }
 

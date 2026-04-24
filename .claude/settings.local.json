@@ -15,7 +15,18 @@
       "Bash(git push:*)",
       "Bash(node scripts/testLiveNotification.js:*)",
       "Bash(node scripts/sendToNishant.js:*)",
-      "Bash(node scripts/sendPushToNishantFixed.js:*)"
+      "Bash(node scripts/sendPushToNishantFixed.js:*)",
+      "Bash(node scripts/getUsersBeforeDec2025API.js:*)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2OTE1ZTc1NmE3YjAzNmFhMjJhZjNkNDYiLCJyb2xlIjoic3VwZXJfYWRtaW4iLCJpYXQiOjE3NzE0MDcyODksImV4cCI6MTc3MjAxMjA4OX0.KCzgaFupv5J6bOhcsaLcDljaRcQ_U_E_G930mWxhFRs\")",
+      "Bash(USER_ID=\"6994ad88080cacb34df8d555\")",
+      "Bash(__NEW_LINE_49f3ed4d5bfd5a36__ echo \"=== User Wallet & Profile ===\")",
+      "Bash(__NEW_LINE_7f692a064e1b7134__ echo \"\")",
+      "Bash(__NEW_LINE_6c63b8354e82ce87__ echo \"=== User Transactions ===\")",
+      "WebFetch(domain:razorpay.com)",
+      "Bash(node scripts/testPaymentIntelligenceAPIs.js)",
+      "Bash(node scripts/scrapeAndListVendorProducts.js --limit 10)",
+      "Bash(node -e \":*)",
+      "Bash(xargs grep:*)"
     ],
     "deny": [],
     "ask": []

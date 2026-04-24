@@ -7,7 +7,6 @@ const Product = require("../models/Product");
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
 const razorpay = require("../config/razorpay");
-const recalcWallet = require("../services/walletCalculator");
 
 // -----------------------------------------------------------
 // CREATE ORDER
@@ -345,57 +344,7 @@ router.post("/:id/verify-payment", verifyToken, async (req, res) => {
     const buyer = await User.findById(order.user);
 
     // ---------------------------------------------
-    // 1. PAY REFERRER (20%)
-    // ---------------------------------------------
-    if (buyer.referredBy) {
-      const referrer = await User.findById(buyer.referredBy);
-
-      const refCommission = Number(tx.amount * 0.20).toFixed(2);
-
-      await Transaction.create({
-        user: referrer._id,
-        type: "referral_commission",
-        amount: Number(refCommission),
-        status: "completed",
-        paymentMethod: "referral_bonus",
-        order: order._id,
-        product: order.product,
-        paymentDetails: {
-          emiNumber: tx.paymentDetails.emiNumber,
-          referralFrom: buyer._id,
-        },
-        description: `20% referral commission for EMI #${tx.paymentDetails.emiNumber}`,
-      });
-
-      await recalcWallet(referrer._id);
-    }
-
-    // ---------------------------------------------
-    // 2. PAY ADMIN (YOUR 10% COMMISSION)
-    // ---------------------------------------------
-    const adminUser = await User.findOne({ role: "admin" });
-    if (adminUser) {
-      const adminCommission = Number(tx.amount * 0.10).toFixed(2);
-
-      await Transaction.create({
-        user: adminUser._id,
-        type: "commission",
-        amount: Number(adminCommission),
-        status: "completed",
-        paymentMethod: "system",
-        order: order._id,
-        product: order.product,
-        paymentDetails: {
-          emiNumber: tx.paymentDetails.emiNumber,
-        },
-        description: `10% admin commission for EMI #${tx.paymentDetails.emiNumber}`,
-      });
-
-      await recalcWallet(adminUser._id);
-    }
-
-    // ---------------------------------------------
-    // 3. UPDATE ORDER PROGRESS
+    // UPDATE ORDER PROGRESS
     // ---------------------------------------------
     order.currentEmiNumber += 1; // Increment EMI count
     order.emiPaidAmount += tx.amount; // Add to EMI paid amount

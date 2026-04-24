@@ -256,18 +256,10 @@ exports.verifyDailyInstallmentPayment = async (req, res) => {
             
             await commission.save();
             
-            // Update referrer's wallet
+            // Update referrer's wallet balance
             await User.findByIdAndUpdate(
-              currentUser.referredBy, 
-              { 
-                $inc: { 'wallet.balance': commissionAmount },
-                $push: { 'wallet.transactions': {
-                  type: 'referral_commission',
-                  amount: commissionAmount,
-                  description: `Commission from ${currentUser.name || 'user'}'s daily payment`,
-                  createdAt: new Date()
-                }}
-              }
+              currentUser.referredBy,
+              { $inc: { 'wallet.balance': commissionAmount } }
             );
             
             // Update commission status to PAID

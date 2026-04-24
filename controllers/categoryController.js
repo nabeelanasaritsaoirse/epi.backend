@@ -7,6 +7,7 @@ const {
   exportCategoriesToExcel,
   exportCategoriesToCSV,
 } = require("../services/exportService");
+const { escapeRegex } = require("../utils/helpers");
 
 /**
  * Helper: Apply parent image fallback to subcategories
@@ -88,8 +89,8 @@ exports.createCategory = async (req, res) => {
     }
 
     const existingCategory = await Category.findOne({
-      name: { $regex: `^${name}$`, $options: "i" },
-      isDeleted: false, // ← CRITICAL FIX
+      name: { $regex: `^${escapeRegex(name)}$`, $options: "i" },
+      isDeleted: false,
     });
 
     if (existingCategory) {
@@ -273,12 +274,13 @@ exports.getAllCategoriesForAdmin = async (req, res) => {
       showDeleted,
       region,
       level,
+      search,
       page = 1,
       limit = 10,
     } = req.query;
 
-    const pageNumber = Number(page);
-    const pageLimit = Number(limit);
+    const pageNumber = Math.max(1, parseInt(page, 10) || 1);
+    const pageLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
     const skip = (pageNumber - 1) * pageLimit;
 
     let filter = {};
@@ -310,15 +312,29 @@ exports.getAllCategoriesForAdmin = async (req, res) => {
 if (level !== undefined && level !== "all") {
   filter.level = Number(level);
 }
+
+    /* =============================
+       SEARCH FILTER
+    ============================= */
+    if (search && search !== "undefined") {
+      const searchOr = [
+        { name: { $regex: search, $options: "i" } },
+        { slug: { $regex: search, $options: "i" } },
+        { categoryId: { $regex: search, $options: "i" } },
+      ];
+      filter.$and = filter.$and ? [...filter.$and, { $or: searchOr }] : [{ $or: searchOr }];
+    }
+
     /* =============================
        REGION FILTER
     ============================= */
     if (region && region !== "all" && region !== "global") {
-      filter.$or = [
+      const regionOr = [
         { availableInRegions: region },
         { availableInRegions: { $size: 0 } },
         { availableInRegions: { $exists: false } },
       ];
+      filter.$and = filter.$and ? [...filter.$and, { $or: regionOr }] : [{ $or: regionOr }];
     }
 
     /* =============================
@@ -411,6 +427,11 @@ if (level !== undefined && level !== "all") {
  */
 exports.getCategoryById = async (req, res) => {
   try {
+    const mongoose = require("mongoose");
+    if (!mongoose.Types.ObjectId.isValid(req.params.categoryId)) {
+      return res.status(400).json({ success: false, message: "Invalid category ID format" });
+    }
+
     const category = await Category.findById(req.params.categoryId)
       .populate("parentCategoryId", "categoryId name slug")
       .populate(
@@ -457,6 +478,11 @@ exports.getCategoryById = async (req, res) => {
  */
 exports.getCategoryWithSubcategories = async (req, res) => {
   try {
+    const mongoose = require("mongoose");
+    if (!mongoose.Types.ObjectId.isValid(req.params.categoryId)) {
+      return res.status(400).json({ success: false, message: "Invalid category ID format" });
+    }
+
     const category = await Category.findById(req.params.categoryId)
       .populate("subCategories")
       .exec();
@@ -549,8 +575,9 @@ exports.updateCategory = async (req, res) => {
     // Name update + slug regen
     if (name && name !== category.name) {
       const exists = await Category.findOne({
-        name: { $regex: `^${name}$`, $options: "i" },
+        name: { $regex: `^${escapeRegex(name)}$`, $options: "i" },
         _id: { $ne: categoryId },
+        isDeleted: false,
       });
 
       if (exists)
@@ -648,6 +675,16 @@ if (req.body.isActive !== undefined) {
           success: false,
           message: "Category cannot be its own parent",
         });
+      }
+
+      if (parentCategoryId && parentCategoryId !== "null") {
+        const parentExists = await Category.findById(parentCategoryId);
+        if (!parentExists) {
+          return res.status(404).json({
+            success: false,
+            message: "Parent category not found",
+          });
+        }
       }
 
       const oldParent = category.parentCategoryId;
@@ -802,13 +839,15 @@ exports.searchCategories = async (req, res) => {
   try {
     const { query } = req.params;
 
+    const safeQuery = escapeRegex(query);
     const categories = await Category.find({
       $or: [
-        { name: { $regex: query, $options: "i" } },
-        { description: { $regex: query, $options: "i" } },
-        { slug: { $regex: query, $options: "i" } },
+        { name: { $regex: safeQuery, $options: "i" } },
+        { description: { $regex: safeQuery, $options: "i" } },
+        { slug: { $regex: safeQuery, $options: "i" } },
       ],
       isActive: true,
+      isDeleted: false,
     })
       .populate(
         "subCategories",
@@ -875,23 +914,28 @@ exports.reorderCategories = async (req, res) => {
  */
 exports.getCategoryStats = async (req, res) => {
   try {
-    const totalCategories = await Category.countDocuments({});
-    const activeCategories = await Category.countDocuments({ isActive: true });
+    const totalCategories = await Category.countDocuments({ isDeleted: false });
+    const activeCategories = await Category.countDocuments({ isActive: true, isDeleted: false });
     const inactiveCategories = await Category.countDocuments({
       isActive: false,
+      isDeleted: false,
     });
     const featuredCategories = await Category.countDocuments({
       isFeatured: true,
+      isDeleted: false,
     });
     const mainCategories = await Category.countDocuments({
       parentCategoryId: null,
+      isDeleted: false,
     });
     const subCategories = await Category.countDocuments({
       parentCategoryId: { $ne: null },
+      isDeleted: false,
     });
 
     // Get categories by level
     const categoriesByLevel = await Category.aggregate([
+      { $match: { isDeleted: false } },
       { $group: { _id: "$level", count: { $sum: 1 } } },
       { $sort: { _id: 1 } },
     ]);
@@ -1532,6 +1576,11 @@ exports.getCategoryChildren = async (req, res) => {
   try {
     const { categoryId } = req.params;
 
+    const mongoose = require("mongoose");
+    if (!mongoose.Types.ObjectId.isValid(categoryId)) {
+      return res.status(400).json({ success: false, message: "Invalid category ID format" });
+    }
+
     const parent = await Category.findById(categoryId);
     if (!parent) {
       return res.status(404).json({ success: false, message: "Category not found" });
@@ -1581,6 +1630,11 @@ exports.getCategoryChildren = async (req, res) => {
 exports.getCategoryBreadcrumb = async (req, res) => {
   try {
     const { categoryId } = req.params;
+
+    const mongoose = require("mongoose");
+    if (!mongoose.Types.ObjectId.isValid(categoryId)) {
+      return res.status(400).json({ success: false, message: "Invalid category ID format" });
+    }
 
     const category = await Category.findById(categoryId).populate("path", "categoryId name slug").exec();
     if (!category) {
@@ -1650,7 +1704,12 @@ exports.deleteCategoryBannerImage = async (req, res) => {
 
     // delete from S3
 if (banner.url) {
-  await deleteImageFromS3(banner.url);
+  try {
+    await deleteImageFromS3(banner.url);
+  } catch (s3Err) {
+    console.error("S3 banner delete failed:", s3Err.message);
+    // Non-fatal: still remove from DB
+  }
 }
 
 // remove banner from array
