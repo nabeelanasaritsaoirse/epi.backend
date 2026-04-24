@@ -1,0 +1,367 @@
+{
+  "timestamp": "2026-02-15T15:05:01.680Z",
+  "totalAffected": 34,
+  "users": [
+    {
+      "name": "Ranjana",
+      "email": "ranjanam6757@gmail.com",
+      "phoneNumber": "",
+      "userId": "698f6e076a15af2da3ecc988",
+      "createdAt": "2026-02-13T18:31:35.940Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 5,
+      "difference": 5
+    },
+    {
+      "name": "Test User 1234567899",
+      "email": "test.1234567899@example.com",
+      "phoneNumber": "1234567899",
+      "userId": "698acd766a15af2da3ec4946",
+      "createdAt": "2026-02-10T06:17:26.694Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 10000,
+      "walletBalance": 9796,
+      "difference": 204
+    },
+    {
+      "name": "Test User 7994374844",
+      "email": "test.7994374844@example.com",
+      "phoneNumber": "7994374844",
+      "userId": "6989af326a15af2da3ec34b8",
+      "createdAt": "2026-02-09T09:56:02.112Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 20000,
+      "walletBalance": 19485,
+      "difference": 515
+    },
+    {
+      "name": "Shri P",
+      "email": "shripavi1328@gmail.com",
+      "phoneNumber": "",
+      "userId": "6983600e92e3cee58661504d",
+      "createdAt": "2026-02-04T15:04:46.124Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 9650,
+      "walletBalance": 9410,
+      "difference": 240
+    },
+    {
+      "name": "Shubhashri.it.saoirse",
+      "email": "shubhashri.it.saoirse@gmail.com",
+      "phoneNumber": "",
+      "userId": "6982e2133116a7630ef1ad4f",
+      "createdAt": "2026-02-04T06:07:15.303Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 58,
+      "walletBalance": 48,
+      "difference": 10
+    },
+    {
+      "name": "Shubha P",
+      "email": "shubhap130487@gmail.com",
+      "phoneNumber": "",
+      "userId": "696df916522629e8e130981b",
+      "createdAt": "2026-01-19T09:27:50.633Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 9152,
+      "walletBalance": 9132,
+      "difference": 20
+    },
+    {
+      "name": "Shubhashri Patil",
+      "email": "shubhashri410@gmail.com",
+      "phoneNumber": "",
+      "userId": "696ddf33522629e8e13084ad",
+      "createdAt": "2026-01-19T07:37:23.167Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 9520,
+      "walletBalance": 9400,
+      "difference": 120
+    },
+    {
+      "name": "Saumy Mishra",
+      "email": "saumymishra08@gmail.com",
+      "phoneNumber": "",
+      "userId": "696a28e3522629e8e12fabd6",
+      "createdAt": "2026-01-16T12:02:43.584Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 10,
+      "difference": 10
+    },
+    {
+      "name": "Rashi",
+      "email": "7xNCuHRNhkdUAoR3RtowJ5qufTg2@temp.user",
+      "phoneNumber": "+918147264193",
+      "userId": "695f9cd6772c5182d8d045cb",
+      "createdAt": "2026-01-08T12:02:30.049Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 70.4,
+      "walletBalance": 233.5700000000001,
+      "difference": 163.1700000000001
+    },
+    {
+      "name": "niranjan",
+      "email": "5CBvUiBFkLZ0DkvIq6m6GUc4IGV2@temp.user",
+      "phoneNumber": "+919515744388",
+      "userId": "695346d9c89befca72881acc",
+      "createdAt": "2025-12-30T03:28:25.700Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 79,
+      "difference": 79
+    },
+    {
+      "name": "Deep",
+      "email": "deep.it.saoirse@gmail.com",
+      "phoneNumber": "",
+      "userId": "695216b231a8e9e2d2961382",
+      "createdAt": "2025-12-29T05:50:42.899Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 10072.96,
+      "walletBalance": 9898.96,
+      "difference": 174
+    },
+    {
+      "name": "Meghanathan A",
+      "email": "meghanathan.it.saoirse@gmail.com",
+      "phoneNumber": "",
+      "userId": "6952131331a8e9e2d2960b3c",
+      "createdAt": "2025-12-29T05:35:15.474Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 9793.64,
+      "walletBalance": 9832.520000000004,
+      "difference": 38.88000000000466
+    },
+    {
+      "name": "Ankamma",
+      "email": "M6oRiejAKyVzLhtmSI7YHzBvnsy2@temp.user",
+      "phoneNumber": "+916302516982",
+      "userId": "694a2688969be99868cc4e0e",
+      "createdAt": "2025-12-23T05:20:08.841Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 728,
+      "difference": 728
+    },
+    {
+      "name": "naveen",
+      "email": "6XcB8vLUsVdqrRNJS9gDG6vpRiA2@temp.user",
+      "phoneNumber": "+919515966752",
+      "userId": "694a10cc969be99868cc009f",
+      "createdAt": "2025-12-23T03:47:24.170Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 12,
+      "difference": 12
+    },
+    {
+      "name": "Mallikarjun",
+      "email": "kKPDxpBXmQWcubUgodGgTWu8yOJ2@temp.user",
+      "phoneNumber": "+917989970150",
+      "userId": "69492bde969be99868cb1428",
+      "createdAt": "2025-12-22T11:30:38.576Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 0,
+      "walletBalance": 68,
+      "difference": 68
+    },
+    {
+      "name": "Andra Mounika",
+      "email": "fg8O79VgvCWfAuVa7AHlzKsibf83@temp.user",
+      "phoneNumber": "+919390318680",
+      "userId": "6948f8cb86dca8cc0b194ee7",
+      "createdAt": "2025-12-22T07:52:43.997Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 100,
+      "difference": 100
+    },
+    {
+      "name": "s babi",
+      "email": "13laXSL167eE2nHhrmBzJ1IKL532@temp.user",
+      "phoneNumber": "+919553907316",
+      "userId": "6944f62dc50228f093602d7d",
+      "createdAt": "2025-12-19T06:52:29.536Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 98,
+      "difference": 98
+    },
+    {
+      "name": "Rachappaji N ",
+      "email": "rachunrachu650@gamil.com",
+      "phoneNumber": "+919538619278",
+      "userId": "6944f56dc50228f0936028a9",
+      "createdAt": "2025-12-19T06:49:17.896Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 2,
+      "difference": 2
+    },
+    {
+      "name": "tamizhvalavan ",
+      "email": "tamilvalavan960@gmail.com",
+      "phoneNumber": "6369774514",
+      "userId": "694402eac50228f0935f8ec1",
+      "createdAt": "2025-12-18T13:34:34.190Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 12,
+      "walletBalance": 10,
+      "difference": 2
+    },
+    {
+      "name": "Malicherla Ganesh ",
+      "email": "WE36cQOvAwdRi5g58NNgDKiXgkZ2@temp.user",
+      "phoneNumber": "+919133022362",
+      "userId": "693d2d47ce6a542332a61901",
+      "createdAt": "2025-12-13T09:09:27.306Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 10,
+      "difference": 10
+    },
+    {
+      "name": "imran ",
+      "email": "tyT3R6KoWaYoL532rdE4G3v5Dln2@temp.user",
+      "phoneNumber": "+919686974103",
+      "userId": "693aad036b96469dc79ae22e",
+      "createdAt": "2025-12-11T11:37:39.469Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 100,
+      "difference": 100
+    },
+    {
+      "name": "Meghanathan ",
+      "email": "GtIIrzkp87h04WzhoJxYUNfXSif1@temp.user",
+      "phoneNumber": "+918089458905",
+      "userId": "692e72a06f1d6324f530b044",
+      "createdAt": "2025-12-02T05:01:20.499Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 9838,
+      "walletBalance": 9460,
+      "difference": 378
+    },
+    {
+      "name": "Maestro",
+      "email": "dP9tehYFpHgVM6bBbNCValqGgQH2@temp.user",
+      "phoneNumber": "+919150118309",
+      "userId": "692d62376f1d6324f53066f5",
+      "createdAt": "2025-12-01T09:39:03.325Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 150,
+      "difference": 150
+    },
+    {
+      "name": "Pranesh Raj",
+      "email": "praneshraj498@gmail.com",
+      "phoneNumber": "7845122594",
+      "userId": "692d61496f1d6324f530664c",
+      "createdAt": "2025-12-01T09:35:05.305Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 1500,
+      "walletBalance": 500,
+      "difference": 1000
+    },
+    {
+      "name": "Mallikarjuna",
+      "email": "aNTl4yZV4LQdO5yN6bEk5tao1Z12@temp.user",
+      "phoneNumber": "",
+      "userId": "692d29f16f1d6324f53052df",
+      "createdAt": "2025-12-01T05:38:57.845Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 0,
+      "walletBalance": 22.5,
+      "difference": 22.5
+    },
+    {
+      "name": "nishad nishus",
+      "email": "nishad.nishus@gmail.com",
+      "phoneNumber": "",
+      "userId": "692c2f1a6f1d6324f5302cbf",
+      "createdAt": "2025-11-30T11:48:42.100Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 0,
+      "walletBalance": 9.36,
+      "difference": 9.36
+    },
+    {
+      "name": "Jack",
+      "email": "jack@gmail.com",
+      "phoneNumber": "8976689797",
+      "userId": "6923e8686b65b26289a04b01",
+      "createdAt": "2025-11-24T05:08:56.835Z",
+      "issue": "EXTREME VALUE",
+      "walletBalance": 1.2344555555555556e+80
+    },
+    {
+      "name": "Shahir",
+      "email": "vYXUTkEsu0bhcQ7rXkN1QaHerVF2@temp.user",
+      "phoneNumber": "",
+      "userId": "691d6d83962542bf4120f357",
+      "createdAt": "2025-11-19T07:10:59.554Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 0,
+      "walletBalance": 2,
+      "difference": 2
+    },
+    {
+      "name": "Player 2001",
+      "email": "playboyrd2001@gmail.com",
+      "phoneNumber": "",
+      "userId": "691d3dfd962542bf4120f2c2",
+      "createdAt": "2025-11-19T03:48:13.410Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 0,
+      "walletBalance": 17.55,
+      "difference": 17.55
+    },
+    {
+      "name": "Zahrazahr Zahrazahra",
+      "email": "zahralallu90@gmail.com",
+      "phoneNumber": "9116144611",
+      "userId": "691c00e580592c7dc5f00625",
+      "createdAt": "2025-11-18T05:15:17.762Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 0,
+      "walletBalance": 2,
+      "difference": 2
+    },
+    {
+      "name": "Mallikarjuna Andra",
+      "email": "mallikarjunaandra7@gmail.com",
+      "phoneNumber": "9550979562",
+      "userId": "69116e8680592c7dc5efd8a9",
+      "createdAt": "2025-11-10T04:48:06.196Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 52,
+      "walletBalance": 2,
+      "difference": 50
+    },
+    {
+      "name": "MUHAMMED BILAL",
+      "email": "mbilal3947@gmail.com",
+      "phoneNumber": "7012906994",
+      "userId": "6905b49780592c7dc5ef884c",
+      "createdAt": "2025-11-01T07:19:51.291Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 10201,
+      "walletBalance": 1,
+      "difference": 10200
+    },
+    {
+      "name": "Nishant Mishra",
+      "email": "nishantmish504@gmail.com",
+      "phoneNumber": "7999416330",
+      "userId": "690371c380592c7dc5ef6c4a",
+      "createdAt": "2025-10-30T14:10:11.018Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 9971,
+      "walletBalance": 9896,
+      "difference": 75
+    },
+    {
+      "name": "sr sararthchandu Kondaveeti",
+      "email": "srschandu.kondaveeti@gmail.com",
+      "phoneNumber": "7396398256",
+      "userId": "6901f7ac80592c7dc5ef563a",
+      "createdAt": "2025-10-29T11:17:00.564Z",
+      "issue": "BALANCE MISMATCH",
+      "totalBalance": 0,
+      "walletBalance": 110,
+      "difference": 110
+    }
+  ]
+}

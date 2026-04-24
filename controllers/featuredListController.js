@@ -1,6 +1,9 @@
 const FeaturedList = require("../models/FeaturedList");
+const { escapeRegex } = require('../utils/helpers');
 const Product = require("../models/Product");
 const { v4: uuidv4 } = require("uuid");
+
+
 
 // ============================================
 // ADMIN CONTROLLERS
@@ -80,16 +83,19 @@ exports.getAllListsAdmin = async (req, res) => {
     }
 
     if (search) {
+      const safeSearch = escapeRegex(search);
       query.$or = [
-        { listName: { $regex: search, $options: "i" } },
-        { slug: { $regex: search, $options: "i" } },
+        { listName: { $regex: safeSearch, $options: "i" } },
+        { slug: { $regex: safeSearch, $options: "i" } },
       ];
     }
 
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20));
     const lists = await FeaturedList.find(query)
       .sort({ displayOrder: 1, createdAt: -1 })
-      .limit(parseInt(limit))
-      .skip((parseInt(page) - 1) * parseInt(limit));
+      .limit(limitNum)
+      .skip((pageNum - 1) * limitNum);
 
     const total = await FeaturedList.countDocuments(query);
 

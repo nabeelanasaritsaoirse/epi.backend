@@ -1,0 +1,19 @@
+# Check Production Logs After Deploying Fix
+
+Run these commands on production server:
+
+# 1. Check if the file was actually updated (should show deviceToken, not fcmToken)
+grep "deviceToken" /var/www/epi-backend/services/fcmService.js | head -5
+
+# 2. Check if PM2 restarted successfully
+pm2 list
+
+# 3. Check recent logs for FCM messages
+pm2 logs epi-backend --lines 100 | grep -E "(FCM|deviceToken)"
+
+# 4. Check if notification preferences query is failing
+pm2 logs epi-backend --lines 100 | grep "No users with valid FCM tokens"
+
+# 5. Watch logs in real-time while testing
+pm2 logs epi-backend --lines 0
+# Then in another terminal, send test notification via API

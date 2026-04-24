@@ -1,0 +1,13 @@
+# Additional diagnostic commands for production server
+
+# Check for FCM errors in logs
+pm2 logs epi-backend --lines 500 | grep -E "(FCM|sendMulticast|push notification)"
+
+# Check if there are any Firebase errors
+pm2 logs epi-backend --lines 500 | grep -i "error"
+
+# Check recent notification triggers
+pm2 logs epi-backend --lines 100 | grep -i "notification"
+
+# Restart server and watch startup logs
+pm2 restart epi-backend && pm2 logs epi-backend --lines 30

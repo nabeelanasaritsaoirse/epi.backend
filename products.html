@@ -1,0 +1,673 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Product Management - Admin Dashboard</title>
+
+    <!-- Bootstrap CSS -->
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <!-- Bootstrap Icons -->
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css"
+    />
+    <!-- Font Awesome -->
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css"
+    />
+    <link
+      href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css"
+      rel="stylesheet"
+    />
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="../assets/css/style.css" />
+    <link rel="stylesheet" href="../assets/css/responsive.css" />
+
+    <style>
+      #loadingOverlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 9999;
+        justify-content: center;
+        align-items: center;
+      }
+      #loadingOverlay.show {
+        display: flex;
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- RBAC GUARD -->
+    <script src="../assets/js/config.js"></script>
+    <script>
+      (function () {
+        const REQUIRED_PERMISSION = "products";
+
+        if (!AUTH.isAuthenticated()) {
+          window.location.href = "login.html";
+          return;
+        }
+
+        const user = AUTH.getCurrentUser();
+        if (user?.isSuperAdmin === true) return;
+
+        if (!AUTH.hasModule(REQUIRED_PERMISSION)) {
+          alert(
+            "Access Denied! You do not have permission to access Products.",
+          );
+          window.location.href = "dashboard.html";
+        }
+      })();
+    </script>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay">
+      <div class="spinner-border text-light" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+    </div>
+
+    <!-- NAVBAR -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+      <div class="container-fluid">
+        <button class="btn btn-dark" id="sidebarToggle">
+          <i class="bi bi-list"></i>
+        </button>
+
+        <a class="navbar-brand ms-3" href="../index.html">
+          <i class="bi bi-gear-fill"></i> Admin Panel
+        </a>
+
+        <ul class="navbar-nav ms-auto">
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" data-bs-toggle="dropdown">
+              <i class="bi bi-person-circle"></i> Admin
+            </a>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><a class="dropdown-item" href="profile.html">Profile</a></li>
+              <li><hr class="dropdown-divider" /></li>
+              <li><a class="dropdown-item logout-btn" href="#">Logout</a></li>
+            </ul>
+          </li>
+        </ul>
+      </div>
+    </nav>
+
+    <!-- SIDEBAR -->
+    <div id="sidebar" class="sidebar"></div>
+
+    <!-- MAIN CONTENT -->
+    <div class="main-content">
+      <div class="container-fluid">
+        <!-- HEADER -->
+        <div
+          class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom"
+        >
+          <h1 class="h2">Product Management</h1>
+          <button class="btn btn-sm btn-primary" id="addProductBtn">
+            <i class="bi bi-plus-circle"></i> Add New Product
+          </button>
+
+          <button
+            class="btn btn-sm btn-outline-secondary ms-2"
+            onclick="goToDeletedProducts()"
+          >
+            <i class="bi bi-trash"></i> Deleted Products
+          </button>
+        </div>
+
+        <!-- STATS -->
+        <div class="row mb-4">
+          <div class="col-md-3">
+            <div class="card border-start border-primary border-4 shadow-sm">
+              <div class="card-body">
+                <div class="text-xs fw-bold text-primary mb-1">
+                  Total Products
+                </div>
+                <div class="h5 fw-bold" id="totalProducts">0</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-md-3">
+            <div class="card border-start border-success border-4 shadow-sm">
+              <div class="card-body">
+                <div class="text-xs fw-bold text-success mb-1">Published</div>
+                <div class="h5 fw-bold" id="publishedProducts">0</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-md-3">
+            <div class="card border-start border-warning border-4 shadow-sm">
+              <div class="card-body">
+                <div class="text-xs fw-bold text-warning mb-1">
+                  With Variants
+                </div>
+                <div class="h5 fw-bold" id="variantsCount">0</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-md-3">
+            <div class="card border-start border-info border-4 shadow-sm">
+              <div class="card-body">
+                <div class="text-xs fw-bold text-info mb-1">Total Stock</div>
+                <div class="h5 fw-bold" id="totalStock">0</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- FILTERS -->
+        <div class="row mb-3 g-2">
+          <div class="col-md-5">
+            <div class="input-group">
+              <span class="input-group-text">
+                <i class="bi bi-search"></i>
+              </span>
+              <input
+                type="text"
+                id="searchProducts"
+                class="form-control"
+                placeholder="Search products..."
+              />
+            </div>
+          </div>
+
+          <div class="col-md-2">
+            <select class="form-select" id="filterStatus">
+              <option value="">All Status</option>
+              <option value="published">Published</option>
+              <option value="draft">Draft</option>
+            </select>
+          </div>
+
+          <div class="col-md-3">
+            <div class="dropdown w-100">
+              <button
+                class="btn btn-light border w-100 text-start dropdown-toggle"
+                type="button"
+                id="productCategoryDropdown"
+                data-bs-toggle="dropdown"
+                data-bs-auto-close="true"
+              >
+                All Categories
+              </button>
+
+              <ul class="dropdown-menu w-100" id="productCategoryMenu"></ul>
+            </div>
+          </div>
+
+          <div class="col-md-2">
+            <select class="form-select" id="filterVariants">
+              <option value="">All Products</option>
+              <option value="true">With Variants</option>
+              <option value="false">Simple Products</option>
+            </select>
+          </div>
+        </div>
+        <!-- PRODUCT VIEW MODAL -->
+        <div
+          class="modal fade"
+          id="productModal"
+          tabindex="-1"
+          aria-hidden="true"
+        >
+          <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title" id="productModalLabel">
+                  Product Details
+                </h5>
+                <button
+                  type="button"
+                  class="btn-close"
+                  data-bs-dismiss="modal"
+                ></button>
+              </div>
+
+              <div class="modal-body">
+                <!-- FULL PRODUCT FORM (UNCHANGED) -->
+                <form id="productForm">
+                  <!-- BASIC INFO -->
+                  <h5 class="mb-3">Basic Information</h5>
+
+                  <div class="row mb-3">
+                    <div class="col-md-6">
+                      <label class="form-label">Product Name *</label>
+                      <input
+                        type="text"
+                        id="productName"
+                        class="form-control"
+                      />
+                    </div>
+
+                    <div class="col-md-6">
+                      <label class="form-label">Brand *</label>
+                      <input
+                        type="text"
+                        id="productBrand"
+                        class="form-control"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="mb-3">
+                    <label class="form-label">Description *</label>
+                    <textarea
+                      id="productDescription"
+                      class="form-control"
+                      rows="4"
+                    ></textarea>
+                  </div>
+
+                  <div class="row mb-3">
+                    <div class="col-md-6">
+                      <label class="form-label">Category *</label>
+                      <select id="productCategory" class="form-control">
+                        <option value="">Select Category</option>
+                      </select>
+                    </div>
+
+                    <div class="col-md-6">
+                      <label class="form-label">SKU</label>
+                      <input type="text" id="productSku" class="form-control" />
+                    </div>
+                  </div>
+
+                  <!-- PRICING -->
+                  <h5 class="mt-4 mb-3">Pricing</h5>
+
+                  <div class="row mb-3">
+                    <div class="col-md-4">
+                      <label class="form-label">Regular Price (₹) *</label>
+                      <input
+                        type="number"
+                        id="productPrice"
+                        class="form-control"
+                        min="1"
+                      />
+                    </div>
+
+                    <div class="col-md-4">
+                      <label class="form-label">Sale Price (₹)</label>
+                      <input
+                        type="number"
+                        id="productSalePrice"
+                        class="form-control"
+                      />
+                    </div>
+
+                    <div class="col-md-4">
+                      <label class="form-label">Stock Quantity *</label>
+                      <input
+                        type="number"
+                        id="productStock"
+                        class="form-control"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="row mb-3">
+                    <div class="col-md-4">
+                      <label class="form-label">Availability *</label>
+                      <select id="productAvailability" class="form-select">
+                        <option value="in-stock">In Stock</option>
+                        <option value="out-of-stock">Out of Stock</option>
+                        <option value="pre-order">Pre Order</option>
+                      </select>
+                    </div>
+
+                    <div class="col-md-4">
+                      <label class="form-label">Status *</label>
+                      <div>
+                        <label class="me-3"
+                          ><input
+                            type="radio"
+                            name="status"
+                            value="draft"
+                            checked
+                          />
+                          Draft</label
+                        >
+                        <label
+                          ><input
+                            type="radio"
+                            name="status"
+                            value="published"
+                          />
+                          Published</label
+                        >
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- FLAGS -->
+                  <h5 class="mt-4 mb-3">Product Flags</h5>
+                  <div class="row mb-3">
+                    <div class="col-md-3">
+                      <input type="checkbox" id="isFeatured" /> Featured
+                    </div>
+                    <div class="col-md-3">
+                      <input type="checkbox" id="isPopular" /> Popular
+                    </div>
+                    <div class="col-md-3">
+                      <input type="checkbox" id="isBestSeller" /> Best Seller
+                    </div>
+                    <div class="col-md-3">
+                      <input type="checkbox" id="isTrending" /> Trending
+                    </div>
+                  </div>
+
+                  <!-- WARRANTY -->
+                  <h5 class="mt-4 mb-3">Warranty</h5>
+                  <div class="row mb-3">
+                    <div class="col-md-6">
+                      <label class="form-label">Warranty Period (months)</label>
+                      <input
+                        type="number"
+                        id="warrantyPeriod"
+                        class="form-control"
+                      />
+                    </div>
+
+                    <div class="col-md-6">
+                      <label class="form-label">Return Policy (days)</label>
+                      <input
+                        type="number"
+                        id="warrantyReturnPolicy"
+                        class="form-control"
+                      />
+                    </div>
+                  </div>
+
+                  <!-- ORIGIN / PROJECT -->
+                  <h5 class="mt-4 mb-3">Origin & Project</h5>
+                  <div class="row mb-3">
+                    <div class="col-md-4">
+                      <label class="form-label">Origin Country</label>
+                      <input
+                        type="text"
+                        id="productOrigin"
+                        class="form-control"
+                      />
+                    </div>
+
+                    <div class="col-md-4">
+                      <label class="form-label">Manufacturer</label>
+                      <input
+                        type="text"
+                        id="productOriginManufacturer"
+                        class="form-control"
+                      />
+                    </div>
+
+                    <div class="col-md-4">
+                      <label class="form-label">Project</label>
+                      <input type="hidden" id="productProjectId" />
+                      <input
+                        type="text"
+                        id="productProject"
+                        class="form-control"
+                      />
+                    </div>
+                  </div>
+
+                  <!-- DIMENSIONS -->
+                  <h5 class="mt-4 mb-3">Dimensions</h5>
+                  <div class="row mb-3">
+                    <div class="col-md-3">
+                      <input
+                        type="number"
+                        id="dimensionLength"
+                        class="form-control"
+                        placeholder="Length (cm)"
+                      />
+                    </div>
+                    <div class="col-md-3">
+                      <input
+                        type="number"
+                        id="dimensionWidth"
+                        class="form-control"
+                        placeholder="Width (cm)"
+                      />
+                    </div>
+                    <div class="col-md-3">
+                      <input
+                        type="number"
+                        id="dimensionHeight"
+                        class="form-control"
+                        placeholder="Height (cm)"
+                      />
+                    </div>
+                    <div class="col-md-3">
+                      <input
+                        type="number"
+                        id="productWeight"
+                        class="form-control"
+                        placeholder="Weight (kg)"
+                      />
+                    </div>
+                  </div>
+
+                  <!-- SEO -->
+                  <h5 class="mt-4 mb-3">SEO</h5>
+                  <div class="mb-3">
+                    <label class="form-label">Meta Title</label>
+                    <input
+                      type="text"
+                      id="productMetaTitle"
+                      class="form-control"
+                    />
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">Meta Description</label>
+                    <textarea
+                      id="productMetaDescription"
+                      class="form-control"
+                    ></textarea>
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label"
+                      >Meta Keywords (comma separated)</label
+                    >
+                    <input
+                      type="text"
+                      id="productMetaKeywords"
+                      class="form-control"
+                    />
+                  </div>
+                  <!-- REGIONAL AVAILABILITY & PRICING -->
+                  <h5 class="mt-4 mb-3">Regional Availability & Pricing</h5>
+
+                  <div class="form-check mb-3">
+                    <input
+                      class="form-check-input"
+                      type="checkbox"
+                      id="isGlobalProduct"
+                      checked
+                    />
+                    <label class="form-check-label"
+                      ><strong>Available Globally</strong></label
+                    >
+                  </div>
+
+                  <div
+                    id="regionalSettingsSection"
+                    class="d-none border rounded p-3 bg-light"
+                  >
+                    <table class="table table-bordered">
+                      <thead>
+                        <tr>
+                          <th>Region</th>
+                          <th>Available</th>
+                          <th>Stock</th>
+                          <th>Regular Price</th>
+                          <th>Sale Price</th>
+                          <th>SEO</th>
+                        </tr>
+                      </thead>
+                      <tbody id="regionalSettingsTableBody"></tbody>
+                    </table>
+                  </div>
+
+                  <!-- REFERRAL BONUS -->
+                  <h5 class="mt-4 mb-3">Referral Bonus</h5>
+                  <div class="row mb-3">
+                    <div class="col-md-3">
+                      <input type="checkbox" id="referralEnabled" /> Enable
+                      Referral
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label">Type</label>
+                      <select id="referralType" class="form-control">
+                        <option value="percentage">Percentage</option>
+                        <option value="fixed">Fixed</option>
+                      </select>
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label">Value</label>
+                      <input
+                        type="number"
+                        id="referralValue"
+                        class="form-control"
+                      />
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label">Minimum Purchase</label>
+                      <input
+                        type="number"
+                        id="referralMinPurchase"
+                        class="form-control"
+                      />
+                    </div>
+                  </div>
+
+                  <!-- PAYMENT PLAN -->
+                  <h5 class="mt-4 mb-3">Payment Plan</h5>
+                  <div class="row mb-3">
+                    <div class="col-md-3">
+                      <input type="checkbox" id="paymentPlanEnabled" /> Enable
+                      Plan
+                    </div>
+                    <div class="col-md-3">
+                      <input
+                        type="number"
+                        id="paymentPlanMinDown"
+                        class="form-control"
+                        placeholder="Min Down %"
+                      />
+                    </div>
+                    <div class="col-md-3">
+                      <input
+                        type="number"
+                        id="paymentPlanMaxDown"
+                        class="form-control"
+                        placeholder="Max Down %"
+                      />
+                    </div>
+                    <div class="col-md-3">
+                      <input
+                        type="number"
+                        id="paymentPlanInterest"
+                        class="form-control"
+                        placeholder="Interest %"
+                      />
+                    </div>
+                  </div>
+
+                  <!-- PAYMENT PLANS LIST -->
+                  <h5 class="mt-4 mb-3">Per-Day Plans</h5>
+                  <div id="plansList"></div>
+                  <button
+                    type="button"
+                    id="addPlanBtn"
+                    class="btn btn-sm btn-secondary mt-2"
+                  >
+                    + Add Plan
+                  </button>
+
+                  <!-- VARIANTS -->
+                  <h5 class="mt-4 mb-3">Variants</h5>
+                  <div class="mb-2">
+                    <input type="checkbox" id="hasVariants" /> This product has
+                    variants
+                  </div>
+                  <div id="variantsSection" class="d-none">
+                    <div id="variantsList"></div>
+                    <button
+                      type="button"
+                      id="addVariantBtn"
+                      class="btn btn-sm btn-primary mt-2"
+                    >
+                      + Add Variant
+                    </button>
+                  </div>
+
+                  <!-- IMAGES -->
+                  <h5 class="mt-4 mb-3">Product Images</h5>
+                  <input
+                    type="file"
+                    id="productImages"
+                    class="form-control"
+                    multiple
+                  />
+                  <div class="row mt-3" id="imagePreviewContainer"></div>
+                  <div class="text-end mt-4">
+                    <button
+                      type="button"
+                      id="saveProductBtn"
+                      class="btn btn-primary px-4"
+                    >
+                      Update Product
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <div class="modal-footer">
+                <button
+                  type="button"
+                  class="btn btn-secondary"
+                  data-bs-dismiss="modal"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PRODUCTS LIST -->
+        <div id="productsContainer"></div>
+      </div>
+    </div>
+
+    <!-- FOOTER -->
+    <footer class="footer mt-auto py-3 bg-light">
+      <div class="container-fluid text-center">
+        <span class="text-muted">© 2026 Admin Panel</span>
+      </div>
+    </footer>
+
+    <!-- SCRIPTS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="../assets/js/utils.js"></script>
+    <script src="../assets/js/main.js"></script>
+    <script src="../assets/js/navigation.js"></script>
+    <script src="../assets/js/product.shared.js"></script>
+    <script src="../assets/js/product.list.js?v=5"></script>
+    <script src="../assets/js/product.form.js"></script>
+    <script src="../assets/js/product.view.js"></script>
+  </body>
+</html>

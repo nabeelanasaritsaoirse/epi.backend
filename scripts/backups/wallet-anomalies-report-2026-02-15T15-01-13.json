@@ -1,0 +1,329 @@
+{
+  "timestamp": "2026-02-15T15:01:13.899Z",
+  "totalUsers": 1460,
+  "cleanUsers": 1426,
+  "usersWithAnomalies": 34,
+  "anomalies": {
+    "nullBalance": [],
+    "negativeBalance": [],
+    "nullCommissionFields": [],
+    "NaNValues": [],
+    "extremeValues": [
+      {
+        "userId": "6923e8686b65b26289a04b01",
+        "name": "Jack",
+        "email": "jack@gmail.com",
+        "field": "balance",
+        "value": 1.2344555555555556e+80
+      }
+    ],
+    "inconsistentData": [
+      {
+        "userId": "698f6e076a15af2da3ecc988",
+        "name": "Ranjana",
+        "email": "ranjanam6757@gmail.com",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 5,
+        "walletBalance": 0,
+        "difference": 5
+      },
+      {
+        "userId": "698acd766a15af2da3ec4946",
+        "name": "Test User 1234567899",
+        "email": "test.1234567899@example.com",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 10000,
+        "walletBalance": 9796,
+        "difference": 204
+      },
+      {
+        "userId": "6989af326a15af2da3ec34b8",
+        "name": "Test User 7994374844",
+        "email": "test.7994374844@example.com",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 20000,
+        "walletBalance": 19485,
+        "difference": 515
+      },
+      {
+        "userId": "6983600e92e3cee58661504d",
+        "name": "Shri P",
+        "email": "shripavi1328@gmail.com",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 9650,
+        "walletBalance": 9410,
+        "difference": 240
+      },
+      {
+        "userId": "6982e2133116a7630ef1ad4f",
+        "name": "Shubhashri.it.saoirse",
+        "email": "shubhashri.it.saoirse@gmail.com",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 58,
+        "walletBalance": 48,
+        "difference": 10
+      },
+      {
+        "userId": "696df916522629e8e130981b",
+        "name": "Shubha P",
+        "email": "shubhap130487@gmail.com",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 9152,
+        "walletBalance": 9132,
+        "difference": 20
+      },
+      {
+        "userId": "696ddf33522629e8e13084ad",
+        "name": "Shubhashri Patil",
+        "email": "shubhashri410@gmail.com",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 9520,
+        "walletBalance": 9400,
+        "difference": 120
+      },
+      {
+        "userId": "696a28e3522629e8e12fabd6",
+        "name": "Saumy Mishra",
+        "email": "saumymishra08@gmail.com",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 10,
+        "walletBalance": 0,
+        "difference": 10
+      },
+      {
+        "userId": "695f9cd6772c5182d8d045cb",
+        "name": "Rashi",
+        "email": "7xNCuHRNhkdUAoR3RtowJ5qufTg2@temp.user",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 70.4,
+        "walletBalance": 233.5700000000001,
+        "difference": 163.1700000000001
+      },
+      {
+        "userId": "695346d9c89befca72881acc",
+        "name": "niranjan",
+        "email": "5CBvUiBFkLZ0DkvIq6m6GUc4IGV2@temp.user",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 79,
+        "walletBalance": 0,
+        "difference": 79
+      },
+      {
+        "userId": "695216b231a8e9e2d2961382",
+        "name": "Deep",
+        "email": "deep.it.saoirse@gmail.com",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 10072.96,
+        "walletBalance": 9898.96,
+        "difference": 174
+      },
+      {
+        "userId": "6952131331a8e9e2d2960b3c",
+        "name": "Meghanathan A",
+        "email": "meghanathan.it.saoirse@gmail.com",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 9793.64,
+        "walletBalance": 9832.520000000004,
+        "difference": 38.88000000000466
+      },
+      {
+        "userId": "694a2688969be99868cc4e0e",
+        "name": "Ankamma",
+        "email": "M6oRiejAKyVzLhtmSI7YHzBvnsy2@temp.user",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 728,
+        "walletBalance": 0,
+        "difference": 728
+      },
+      {
+        "userId": "694a10cc969be99868cc009f",
+        "name": "naveen",
+        "email": "6XcB8vLUsVdqrRNJS9gDG6vpRiA2@temp.user",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 12,
+        "walletBalance": 0,
+        "difference": 12
+      },
+      {
+        "userId": "69492bde969be99868cb1428",
+        "name": "Mallikarjun",
+        "email": "kKPDxpBXmQWcubUgodGgTWu8yOJ2@temp.user",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 0,
+        "walletBalance": 68,
+        "difference": 68
+      },
+      {
+        "userId": "6948f8cb86dca8cc0b194ee7",
+        "name": "Andra Mounika",
+        "email": "fg8O79VgvCWfAuVa7AHlzKsibf83@temp.user",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 100,
+        "walletBalance": 0,
+        "difference": 100
+      },
+      {
+        "userId": "6944f62dc50228f093602d7d",
+        "name": "s babi",
+        "email": "13laXSL167eE2nHhrmBzJ1IKL532@temp.user",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 98,
+        "walletBalance": 0,
+        "difference": 98
+      },
+      {
+        "userId": "6944f56dc50228f0936028a9",
+        "name": "Rachappaji N ",
+        "email": "rachunrachu650@gamil.com",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 2,
+        "walletBalance": 0,
+        "difference": 2
+      },
+      {
+        "userId": "694402eac50228f0935f8ec1",
+        "name": "tamizhvalavan ",
+        "email": "tamilvalavan960@gmail.com",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 12,
+        "walletBalance": 10,
+        "difference": 2
+      },
+      {
+        "userId": "693d2d47ce6a542332a61901",
+        "name": "Malicherla Ganesh ",
+        "email": "WE36cQOvAwdRi5g58NNgDKiXgkZ2@temp.user",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 10,
+        "walletBalance": 0,
+        "difference": 10
+      },
+      {
+        "userId": "693aad036b96469dc79ae22e",
+        "name": "imran ",
+        "email": "tyT3R6KoWaYoL532rdE4G3v5Dln2@temp.user",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 100,
+        "walletBalance": 0,
+        "difference": 100
+      },
+      {
+        "userId": "692e72a06f1d6324f530b044",
+        "name": "Meghanathan ",
+        "email": "GtIIrzkp87h04WzhoJxYUNfXSif1@temp.user",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 9838,
+        "walletBalance": 9460,
+        "difference": 378
+      },
+      {
+        "userId": "692d62376f1d6324f53066f5",
+        "name": "Maestro",
+        "email": "dP9tehYFpHgVM6bBbNCValqGgQH2@temp.user",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 150,
+        "walletBalance": 0,
+        "difference": 150
+      },
+      {
+        "userId": "692d61496f1d6324f530664c",
+        "name": "Pranesh Raj",
+        "email": "praneshraj498@gmail.com",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 1500,
+        "walletBalance": 500,
+        "difference": 1000
+      },
+      {
+        "userId": "692d29f16f1d6324f53052df",
+        "name": "Mallikarjuna",
+        "email": "aNTl4yZV4LQdO5yN6bEk5tao1Z12@temp.user",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 0,
+        "walletBalance": 22.5,
+        "difference": 22.5
+      },
+      {
+        "userId": "692c2f1a6f1d6324f5302cbf",
+        "name": "nishad nishus",
+        "email": "nishad.nishus@gmail.com",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 0,
+        "walletBalance": 9.36,
+        "difference": 9.36
+      },
+      {
+        "userId": "6923e8686b65b26289a04b01",
+        "name": "Jack",
+        "email": "jack@gmail.com",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 0,
+        "walletBalance": 1.2344555555555556e+80,
+        "difference": 1.2344555555555556e+80
+      },
+      {
+        "userId": "691d6d83962542bf4120f357",
+        "name": "Shahir",
+        "email": "vYXUTkEsu0bhcQ7rXkN1QaHerVF2@temp.user",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 0,
+        "walletBalance": 2,
+        "difference": 2
+      },
+      {
+        "userId": "691d3dfd962542bf4120f2c2",
+        "name": "Player 2001",
+        "email": "playboyrd2001@gmail.com",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 0,
+        "walletBalance": 17.55,
+        "difference": 17.55
+      },
+      {
+        "userId": "691c00e580592c7dc5f00625",
+        "name": "Zahrazahr Zahrazahra",
+        "email": "zahralallu90@gmail.com",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 0,
+        "walletBalance": 2,
+        "difference": 2
+      },
+      {
+        "userId": "69116e8680592c7dc5efd8a9",
+        "name": "Mallikarjuna Andra",
+        "email": "mallikarjunaandra7@gmail.com",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 52,
+        "walletBalance": 2,
+        "difference": 50
+      },
+      {
+        "userId": "6905b49780592c7dc5ef884c",
+        "name": "MUHAMMED BILAL",
+        "email": "mbilal3947@gmail.com",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 10201,
+        "walletBalance": 1,
+        "difference": 10200
+      },
+      {
+        "userId": "690371c380592c7dc5ef6c4a",
+        "name": "Nishant Mishra",
+        "email": "nishantmish504@gmail.com",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 9971,
+        "walletBalance": 9896,
+        "difference": 75
+      },
+      {
+        "userId": "6901f7ac80592c7dc5ef563a",
+        "name": "sr sararthchandu Kondaveeti",
+        "email": "srschandu.kondaveeti@gmail.com",
+        "issue": "totalBalance mismatch",
+        "totalBalance": 0,
+        "walletBalance": 110,
+        "difference": 110
+      }
+    ]
+  }
+}

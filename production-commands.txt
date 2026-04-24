@@ -1,0 +1,13 @@
+# Run these commands on your production server
+
+# Command 1: Check recent logs for Firebase
+pm2 logs epi-backend --lines 100 | grep -i firebase
+
+# Command 2: Check environment variables
+printenv | grep FIREBASE
+
+# Command 3: Restart and watch logs
+pm2 restart epi-backend && pm2 logs epi-backend --lines 20
+
+# Command 4: Check if Firebase module is being loaded
+pm2 logs epi-backend --lines 500 | grep -E "(Firebase|firebase|✅|⚠️)"

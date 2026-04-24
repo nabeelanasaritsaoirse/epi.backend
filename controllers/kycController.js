@@ -1,5 +1,8 @@
 const Kyc = require("../models/Kyc");
+const { escapeRegex } = require('../utils/helpers');
 const User = require("../models/User");
+
+
 
 /* ============================================================
    📌 USER — SUBMIT KYC
@@ -338,18 +341,19 @@ exports.adminSearch = async (req, res) => {
     let searchConditions = [];
 
     if (aadhaarNumber) {
-      searchConditions.push({ aadhaarNumber: { $regex: aadhaarNumber, $options: 'i' } });
+      searchConditions.push({ aadhaarNumber: { $regex: escapeRegex(aadhaarNumber), $options: 'i' } });
     }
 
     if (panNumber) {
-      searchConditions.push({ panNumber: { $regex: panNumber.toUpperCase(), $options: 'i' } });
+      searchConditions.push({ panNumber: { $regex: escapeRegex(panNumber.toUpperCase()), $options: 'i' } });
     }
 
     // Generic query searches both Aadhaar and PAN
     if (query) {
+      const safeQuery = escapeRegex(query);
       searchConditions.push(
-        { aadhaarNumber: { $regex: query, $options: 'i' } },
-        { panNumber: { $regex: query.toUpperCase(), $options: 'i' } }
+        { aadhaarNumber: { $regex: safeQuery, $options: 'i' } },
+        { panNumber: { $regex: safeQuery.toUpperCase(), $options: 'i' } }
       );
     }
 

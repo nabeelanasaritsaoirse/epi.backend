@@ -6,7 +6,10 @@
  */
 
 const mongoose = require("mongoose");
+const { escapeRegex } = require('../utils/helpers');
 const Review = require("../models/Review");
+
+
 const Product = require("../models/Product");
 const InstallmentOrder = require("../models/InstallmentOrder");
 const {
@@ -491,9 +494,10 @@ const getProductReviews = asyncHandler(async (req, res) => {
 
   // Search in title and comment
   if (search) {
+    const safeSearch = escapeRegex(search);
     query.$or = [
-      { title: { $regex: search, $options: "i" } },
-      { comment: { $regex: search, $options: "i" } },
+      { title: { $regex: safeSearch, $options: "i" } },
+      { comment: { $regex: safeSearch, $options: "i" } },
     ];
   }
 

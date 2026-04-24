@@ -1,0 +1,997 @@
+// ignore_for_file: unnecessary_null_comparison
+
+class WalletModels {
+  final bool success;
+  final String message;
+
+  /// Monetary values (API sends decimals)
+  final double walletBalance;
+  final double totalBalance;
+  final double holdBalance;
+  final double referralBonus;
+  final double investedAmount;
+  final double requiredInvestment;
+  final double availableBalance;
+  final double totalEarnings;
+
+  final List<WalletTransaction> transactions;
+
+  WalletModels({
+    required this.success,
+    required this.message,
+    required this.walletBalance,
+    required this.totalBalance,
+    required this.holdBalance,
+    required this.referralBonus,
+    required this.investedAmount,
+    required this.requiredInvestment,
+    required this.availableBalance,
+    required this.totalEarnings,
+    required this.transactions,
+  });
+
+  factory WalletModels.fromJson(Map<String, dynamic> json) {
+    return WalletModels(
+      success: json["success"] ?? false,
+      message: json["message"] ?? "",
+
+      /// 🛡 Safe numeric parsing (int / double / null)
+      walletBalance: (json["walletBalance"] as num?)?.toDouble() ?? 0.0,
+      totalBalance: (json["totalBalance"] as num?)?.toDouble() ?? 0.0,
+      holdBalance: (json["holdBalance"] as num?)?.toDouble() ?? 0.0,
+      referralBonus: (json["referralBonus"] as num?)?.toDouble() ?? 0.0,
+      investedAmount: (json["investedAmount"] as num?)?.toDouble() ?? 0.0,
+      requiredInvestment:
+          (json["requiredInvestment"] as num?)?.toDouble() ?? 0.0,
+      availableBalance: (json["availableBalance"] as num?)?.toDouble() ?? 0.0,
+      totalEarnings: (json["totalEarnings"] as num?)?.toDouble() ?? 0.0,
+
+      transactions: (json["transactions"] as List? ?? [])
+          .map((e) => WalletTransaction.fromJson(e))
+          .toList(),
+    );
+  }
+}
+
+// -------------------------------------------------------------
+
+class WalletTransaction {
+  final String id;
+  final String type;
+
+  /// Always decimal-safe
+  final double amount;
+
+  final String status;
+  final String? paymentMethod;
+  final String description;
+  final DateTime createdAt;
+
+  /// Optional nested objects
+  final PaymentDetails? paymentDetails;
+
+  /// Can be object / string / null
+  final String? product;
+  final String? order;
+
+  WalletTransaction({
+    required this.id,
+    required this.type,
+    required this.amount,
+    required this.status,
+    this.paymentMethod,
+    required this.description,
+    required this.createdAt,
+    this.paymentDetails,
+    this.product,
+    this.order,
+  });
+
+  factory WalletTransaction.fromJson(Map<String, dynamic> json) {
+    return WalletTransaction(
+      id: json["_id"] ?? "",
+      type: json["type"] ?? "",
+      amount: (json["amount"] as num?)?.toDouble() ?? 0.0,
+      status: json["status"] ?? "",
+      paymentMethod: json["paymentMethod"],
+      description: json["description"] ?? "",
+
+      /// 🛡 Safe date parsing
+      createdAt: DateTime.tryParse(json["createdAt"] ?? "") ??
+          DateTime.fromMillisecondsSinceEpoch(0),
+
+      /// 🛡 Optional nested object
+      paymentDetails: json["paymentDetails"] != null
+          ? PaymentDetails.fromJson(json["paymentDetails"])
+          : null,
+
+      /// 🛡 Extract IDs safely
+      product:
+          json["product"] is Map ? json["product"]["_id"] : json["product"],
+      order: json["order"] is Map ? json["order"]["_id"] : json["order"],
+    );
+  }
+}
+
+// -------------------------------------------------------------
+
+class PaymentDetails {
+  final String orderId;
+  final int emiNumber;
+  final bool isCommissionProcessed;
+
+  /// Optional
+  final String? paymentId;
+  final String? signature;
+
+  PaymentDetails({
+    required this.orderId,
+    required this.emiNumber,
+    required this.isCommissionProcessed,
+    this.paymentId,
+    this.signature,
+  });
+
+  factory PaymentDetails.fromJson(Map<String, dynamic> json) {
+    return PaymentDetails(
+      orderId: json["orderId"] ?? "",
+      emiNumber: json["emiNumber"] ?? 0,
+      isCommissionProcessed: json["isCommissionProcessed"] ?? false,
+      paymentId: json["paymentId"],
+      signature: json["signature"],
+    );
+  }
+} 
+import 'package:flutter/material.dart';
+
+import '../models/wallet_transcation_model.dart';
+import '/constants/app_constant.dart';
+import '/constants/app_urls.dart';
+import '/main.dart';
+import '../models/wallet_response.dart';
+import '/services/api_service.dart';
+
+class WalletService {
+  Future<String?> _token() async {
+    return storage.read(AppConst.ACCESS_TOKEN);
+  }
+
+  Future<WalletModels?> fetchWallet() async {
+    try {
+      final url = AppURLs.Wallet;
+
+      final token = await _token();
+      if (token == null || token.isEmpty) return null;
+
+      return await APIService.getRequest<WalletModels>(
+        url: url,
+        headers: {
+          'Authorization': 'Bearer $token', // FIXED
+          'Content-Type': 'application/json',
+        },
+        onSuccess: (json) {
+          return WalletModels.fromJson(json);
+        },
+      );
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<WalletTransactionsResponse?> fetchTransactions() async {
+    try {
+      final token = await _token();
+      debugPrint("🔑 Token exists: ${token != null && token.isNotEmpty}");
+      if (token == null || token.isEmpty) {
+        debugPrint("❌ Token missing → API not called");
+        return null;
+      }
+
+      final response = await APIService.getRequest(
+        url: AppURLs.WALLET_TRANSACTIONS,
+        headers: {
+          "Authorization": "Bearer $token",
+        },
+        onSuccess: (data) => data,
+      );
+      debugPrint("🌐 Raw API response: $response");
+      if (response == null) return null;
+      return WalletTransactionsResponse.fromJson(response);
+    } catch (e) {
+      return null;
+    }
+  }
+}// ignore_for_file: prefer_const_constructors_in_immutables
+
+import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+
+import '../../constants/app_constant.dart';
+import '../../constants/app_strings.dart';
+import '../../main.dart';
+import '../../widgets/app_loader.dart';
+import '../../widgets/custom_appbar.dart';
+import '../add_money/add_money_screen.dart';
+import '../login/login_page.dart';
+import '../select_account/select_account.dart';
+import '/constants/app_colors.dart';
+import '/widgets/app_button.dart';
+import '/widgets/app_text.dart';
+import 'my_wallet_controller.dart';
+
+class WalletScreen extends StatefulWidget {
+  WalletScreen({super.key});
+
+  @override
+  State<WalletScreen> createState() => _WalletScreenState();
+}
+
+class _WalletScreenState extends State<WalletScreen> {
+  final MyWalletController controller = Get.find<MyWalletController>();
+  @override
+  void initState() {
+    super.initState();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      controller.refreshAll(); // ✅ SAFE
+    });
+  }
+
+  bool get isLoggedIn {
+    return storage.read(AppConst.USER_ID) != null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.scaffoldColor,
+      appBar: CustomAppBar(
+        title: AppStrings.wallet_title,
+        showBack: true,
+        actions: [
+          if (isLoggedIn)
+            GestureDetector(
+              child: Container(
+                margin: EdgeInsets.only(right: 16.w),
+                padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 6.h),
+                decoration: BoxDecoration(
+                  color: AppColors.white,
+                  borderRadius: BorderRadius.circular(25.r),
+                ),
+                child: appText(
+                  "Add Money",
+                  color: AppColors.primaryColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+              onTap: () {
+                Get.to(AddMoneyScreen());
+              },
+            ),
+        ],
+      ),
+      body: !isLoggedIn
+          ? _loginOnlyView()
+          : Column(
+              children: [
+                Expanded(
+                  child: RefreshIndicator(
+                    onRefresh: controller.refreshAll,
+                    color: AppColors.primaryColor, // spinner color
+                    backgroundColor: AppColors.white,
+
+                    child: Obx(() {
+                      if (controller.errorMessage.isNotEmpty) {
+                        return ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: [
+                            SizedBox(height: 200.h),
+                            Center(child: Text(controller.errorMessage.value)),
+                          ],
+                        );
+                      }
+
+                      if (controller.isLoading.value) {
+                        return ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: [
+                            SizedBox(height: 200.h),
+                            appLoader(),
+                          ],
+                        );
+                      }
+
+                      final walletData = controller.wallet.value;
+
+                      if (walletData == null) {
+                        return ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: [
+                            SizedBox(height: 200.h),
+                            Center(
+                              child: appText(
+                                "Failed to load wallet...!",
+                                color: AppColors.black,
+                                fontWeight: FontWeight.w400,
+                                fontSize: 16.sp,
+                              ),
+                            ),
+                          ],
+                        );
+                      }
+
+                      if (walletData.transactions.isEmpty) {
+                        return ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: [
+                            walletCard(
+                              mainBalance: walletData.walletBalance,
+                              totalBalance: walletData.totalBalance,
+                              referralBonus: walletData.referralBonus,
+                              holdBalance: walletData.holdBalance,
+                              investDaily: walletData.totalBalance,
+                            ),
+                            SizedBox(height: 40.h),
+                            Column(
+                              children: [
+                                SizedBox(
+                                  height: 50.h,
+                                ),
+                                Center(
+                                  child: appText(
+                                    "No wallet history found",
+                                    color: AppColors.grey,
+                                    fontSize: 15.sp,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        );
+                      }
+
+                      return ListView.builder(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: EdgeInsets.zero,
+                        itemCount: walletData.transactions.length + 4,
+                        itemBuilder: (context, index) {
+                          // ---------- WALLET CARD ----------
+                          if (index == 0) {
+                            return walletCard(
+                              mainBalance: walletData.walletBalance,
+                              totalBalance: walletData.totalBalance,
+                              referralBonus: walletData.referralBonus,
+                              holdBalance: walletData.holdBalance,
+                              investDaily: walletData.totalBalance,
+                            );
+                          }
+
+                          if (index == 1) {
+                            return SizedBox(height: 8.h);
+                          }
+
+                          // ---------- TITLE ----------
+                          if (index == 2) {
+                            return Center(
+                              child: appText(
+                                "Wallet History",
+                                color: AppColors.black,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 16.sp,
+                              ),
+                            );
+                          }
+
+                          if (index == 3) {
+                            return SizedBox(height: 8.h);
+                          }
+
+                          // ---------- TRANSACTIONS ----------
+                          final item = walletData.transactions[index - 4];
+
+                          return Container(
+                            margin: EdgeInsets.only(
+                              left: 12.w,
+                              right: 12.w,
+                              bottom: 16.h,
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: EdgeInsets.all(12.r),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.blueshade,
+                                    borderRadius: BorderRadius.circular(14.r),
+                                  ),
+                                  child: Text("💸",
+                                      style: TextStyle(fontSize: 30.sp)),
+                                ),
+                                SizedBox(width: 12.w),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      appText(
+                                        item.type.toUpperCase(),
+                                        fontSize: 15.sp,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                      SizedBox(height: 3.h),
+                                      appText(
+                                        item.status,
+                                        fontSize: 12.sp,
+                                        fontWeight: FontWeight.w400,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                appText(
+                                  "₹ ${item.amount}",
+                                  fontSize: 16.sp,
+                                  fontWeight: FontWeight.w600,
+                                  color: item.amount > 0
+                                      ? Colors.green
+                                      : Colors.red,
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      );
+                    }),
+                  ),
+                ),
+                Obx(() {
+                  final walletData = controller.wallet.value;
+
+                  if (walletData == null || walletData.walletBalance <= 0) {
+                    return const SizedBox.shrink(); // hide withdraw button
+                  }
+
+                  return Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: appButton(
+                      buttonColor: AppColors.primaryColor,
+                      onTap: () => Get.to(() => SelectAccountScreen()),
+                      child: Center(
+                        child: appText(
+                          "Withdraw",
+                          color: AppColors.white,
+                          fontSize: 20.sp,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ],
+            ),
+    );
+  }
+
+  // ---------------- WALLET CARD ----------------
+
+  Widget walletCard({
+    required double mainBalance,
+    required double totalBalance,
+    required double referralBonus,
+    required double holdBalance,
+    required double investDaily,
+  }) {
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: 10.w, vertical: 15.h),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20.r),
+        gradient: const LinearGradient(
+          colors: [AppColors.mediumBlue, AppColors.primaryColor],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          appText("Main Balance", color: AppColors.white, fontSize: 18.sp),
+          SizedBox(height: 2.h),
+          appText(
+            "₹ $mainBalance",
+            color: AppColors.white,
+            fontSize: 30.sp,
+            fontWeight: FontWeight.w500,
+          ),
+          SizedBox(height: 15.h),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              balanceColumn(totalBalance, "Total Balance"),
+              divider(),
+              balanceColumn(referralBonus, "Referral Bonus"),
+            ],
+          ),
+          SizedBox(height: 14.h),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              balanceColumn(holdBalance, "Hold Balance"),
+              divider(),
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 7.w),
+                child: balanceColumn(investDaily, "Invest Daily"),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget balanceColumn(double value, String label) {
+    return Column(
+      children: [
+        appText(
+          "₹ $value",
+          color: AppColors.white,
+          fontSize: 18.sp,
+          fontWeight: FontWeight.bold,
+        ),
+        SizedBox(height: 5.h),
+        appText(label, color: AppColors.white, fontSize: 13.sp),
+      ],
+    );
+  }
+
+  Widget divider() {
+    return Container(
+      width: 1.w,
+      height: 40.h,
+      color: AppColors.grey,
+    );
+  }
+}
+
+Widget _loginOnlyView() {
+  return Center(
+    child: Padding(
+      padding: EdgeInsets.all(20.w),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          appText(
+            "Please login to view your wallet",
+            fontSize: 16.sp,
+            fontWeight: FontWeight.w500,
+          ),
+          SizedBox(height: 20.h),
+          appButton(
+            buttonColor: AppColors.primaryColor,
+            onTap: () {
+              Get.to(() => LoginPage());
+            },
+            child: appText(
+              "Login",
+              color: AppColors.white,
+              fontSize: 18.sp,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:get/get.dart';
+import 'package:razorpay_flutter/razorpay_flutter.dart';
+
+import '../../models/razorpay_payment_response.dart';
+import '../../services/payment_service.dart';
+import '../../widgets/app_loader.dart';
+import '../../widgets/app_toast.dart';
+import '../add_money/add_money_controller.dart';
+import '../transaction_succsess/transaction_succsess.dart';
+
+class RazorpayWalletController extends GetxController {
+  late Razorpay razorpay;
+
+  // Wallet-specific order ID (internal order)
+  String transactionId = "";
+
+  @override
+  void onInit() {
+    super.onInit();
+
+    razorpay = Razorpay();
+
+    razorpay.on(Razorpay.EVENT_PAYMENT_SUCCESS, _handlePaymentSuccess);
+    razorpay.on(Razorpay.EVENT_PAYMENT_ERROR, _handlePaymentError);
+    razorpay.on(Razorpay.EVENT_EXTERNAL_WALLET, _handleExternalWallet);
+  }
+
+  // ---------------------------------------------------------
+  // 🔥 START WALLET PAYMENT
+  // ---------------------------------------------------------
+  void startWalletPayment({
+    required String internalOrderId,
+    required String rpOrderId,
+    required int amount,
+  }) {
+    transactionId = internalOrderId;
+
+    openCheckout(
+      razorpayOrderId: rpOrderId,
+      amount: amount,
+    );
+  }
+
+  // ---------------------------------------------------------
+  // 🔥 OPEN CHECKOUT (WALLET)
+  // ---------------------------------------------------------
+  void openCheckout({
+    required String razorpayOrderId,
+    required int amount,
+  }) {
+    try {
+      final options = {
+        'key': dotenv.env['RAZORPAY_KEY_ID'],
+        'amount': amount,
+        'order_id': razorpayOrderId,
+        'currency': 'INR',
+      };
+
+      razorpay.open(options);
+    } catch (e) {
+      appToast(error: true, content: "Could not open payment window");
+    }
+  }
+
+  // ---------------------------------------------------------
+  // 🔥 CALLBACKS (SUCCESS / FAILURE)
+  // ---------------------------------------------------------
+
+  void _handlePaymentSuccess(PaymentSuccessResponse response) async {
+    appToast(content: "Wallet Payment Success!");
+    final addMoneyController = Get.find<AddMoneyController>();
+    addMoneyController.isAddingMoney.value = false; // 🔓 UNLOCK
+    debugPrint("🔓 [ADD MONEY] UNLOCKED (SUCCESS)");
+
+    final paymentData = RazorpayPaymentResponse(
+      orderId: response.orderId ?? "",
+      paymentId: response.paymentId ?? "",
+      signature: response.signature ?? "",
+    );
+
+    _verifyWalletPayment(paymentData);
+  }
+
+  void _handlePaymentError(PaymentFailureResponse response) {
+    final addMoneyController = Get.find<AddMoneyController>();
+    addMoneyController.isAddingMoney.value = false; // 🔓 UNLOCK
+    debugPrint("🔓 [ADD MONEY] UNLOCKED (FAILED)");
+
+    appToast(error: true, content: "Wallet Payment Failed");
+  }
+
+  void _handleExternalWallet(ExternalWalletResponse response) {
+    final addMoneyController = Get.find<AddMoneyController>();
+    addMoneyController.isAddingMoney.value = false; // 🔓 UNLOCK
+    debugPrint("🔓 [ADD MONEY] UNLOCKED (EXTERNAL)");
+
+    appToast(content: "External Wallet: ${response.walletName}");
+  }
+  // ---------------------------------------------------------
+  // 🔥 VERIFY WALLET PAYMENT
+  // ---------------------------------------------------------
+
+  Future<void> _verifyWalletPayment(RazorpayPaymentResponse data) async {
+    try {
+      appLoader();
+
+      final body = {
+        "razorpay_order_id": data.orderId,
+        "razorpay_payment_id": data.paymentId,
+        "razorpay_signature": data.signature,
+        "transaction_id": transactionId,
+      };
+
+      final response = await PaymentService.verifyWalletPayment(body);
+
+      if (Get.isDialogOpen ?? false) Get.back();
+
+      if (response != null && response["success"] == true) {
+        appToast(content: "Money Added to Wallet Successfully!");
+
+        // Optionally: refresh wallet screen
+        Get.to(Transactionsuccsess());
+
+        // Close Add Money Screen
+      } else {
+        appToast(
+          error: true,
+          content:
+              response?["message"] ?? "Wallet Payment Verification Failed!",
+        );
+      }
+    } catch (e) {
+      if (Get.isDialogOpen ?? false) Get.back();
+
+      appToast(error: true, content: "Unexpected Wallet Payment Error!");
+    }
+  }
+
+  @override
+  void onClose() {
+    razorpay.clear();
+
+    super.onClose();
+  }
+}import 'package:flutter/widgets.dart';
+import 'package:get/get.dart';
+
+import '../../constants/app_constant.dart';
+import '../../main.dart';
+import '../../models/wallet_transcation_model.dart';
+import '/services/wallet_service.dart';
+
+import '../../models/wallet_response.dart' hide WalletTransaction;
+
+class MyWalletController extends GetxController {
+  final WalletService serviceData = WalletService();
+
+  var transactions = <WalletTransaction>[].obs;
+  var summary = Rxn<WalletSummary>();
+  var wallet = Rxn<WalletModels>();
+
+  /// Shared loader (kept because UI already uses it)
+  var isLoading = false.obs;
+  var errorMessage = ''.obs;
+
+  /// Internal counters to avoid loader flicker
+  int _apiCallCount = 0;
+
+  @override
+  void onInit() {
+    super.onInit();
+    _waitForTokenAndLoad();
+  }
+
+  Future<void> _waitForTokenAndLoad() async {
+    while (true) {
+      final token = storage.read(AppConst.ACCESS_TOKEN);
+
+      if (token != null && token.isNotEmpty) {
+        debugPrint("🟢 Token detected → loading wallet");
+        await fetchWallet();
+        await fetchWalletTransactions();
+        break;
+      }
+
+      debugPrint("⏳ Waiting for token...");
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+  }
+
+  Future<void> refreshAll() async {
+    errorMessage.value = '';
+    isLoading.value = true;
+
+    try {
+      await fetchWallet(forceRefresh: true);
+      await fetchWalletTransactions();
+    } catch (e) {
+      errorMessage.value = "Failed to refresh wallet";
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  /// -------------------- WALLET API --------------------
+  Future<void> fetchWallet({bool forceRefresh = false}) async {
+    try {
+      // Avoid unnecessary API calls
+      if (!forceRefresh && wallet.value != null) {
+        return;
+      }
+
+      _startLoading();
+      errorMessage.value = '';
+
+      final data = await serviceData.fetchWallet();
+
+      if (data == null) {
+        errorMessage.value = 'Unable to load wallet data';
+
+        return;
+      }
+
+      wallet.value = data;
+
+      // Debug logs
+    } catch (e) {
+      errorMessage.value = 'Something went wrong while fetching wallet';
+    } finally {
+      _stopLoading();
+    }
+  }
+
+  /// -------------------- WALLET TRANSACTIONS --------------------
+  Future<void> fetchWalletTransactions() async {
+    try {
+      debugPrint("📡 fetchWalletTransactions() called");
+      _startLoading();
+      errorMessage.value = '';
+
+      final response = await serviceData.fetchTransactions();
+      debugPrint("📥 API response received: ${response != null}");
+      if (response == null) {
+        debugPrint("❌ Response is NULL");
+        errorMessage.value = 'Failed to load transactions';
+        return;
+      }
+
+      debugPrint("✅ API success flag: ${response.success}");
+      debugPrint(
+          "📊 Transactions count from API: ${response.transactions.length}");
+
+      if (response.success != true) {
+        errorMessage.value = 'Failed to load transactions';
+        return;
+      }
+
+      transactions.assignAll(response.transactions);
+      summary.value = response.summary;
+      debugPrint(
+          "🎉 Transactions updated in controller: ${transactions.length}");
+    } catch (e) {
+      errorMessage.value = 'Something went wrong while fetching transactions';
+    } finally {
+      _stopLoading();
+    }
+  }
+
+  /// -------------------- LOADING HANDLER --------------------
+  void _startLoading() {
+    _apiCallCount++;
+    isLoading.value = true;
+  }
+
+  void _stopLoading() {
+    _apiCallCount--;
+    if (_apiCallCount <= 0) {
+      _apiCallCount = 0;
+      isLoading.value = false;
+    }
+  }
+}
+import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+
+import '../../services/withdrawal_service.dart';
+import '../../widgets/app_toast.dart';
+import '../../widgets/warning_dialog.dart';
+import '../my_wallet/my_wallet.dart';
+
+class WithdrawController extends GetxController {
+  TextEditingController nameController = TextEditingController();
+  TextEditingController accController = TextEditingController();
+  TextEditingController confirmAccController = TextEditingController();
+  TextEditingController ifscController = TextEditingController();
+  TextEditingController amountController = TextEditingController();
+  TextEditingController bankNameController = TextEditingController();
+
+  var isLoading = false.obs;
+  var showSuffix = false.obs;
+
+  var canWithdraw = true.obs;
+  var withdrawalMessage = ''.obs;
+  var isCheckingStatus = false.obs;
+
+  Future<void> submitWithdrawal() async {
+    try {
+      isLoading.value = true;
+
+      final body = {
+        "amount": int.tryParse(amountController.text) ?? 0,
+        "paymentMethod": "bank_transfer",
+        "bankName": bankNameController.text.trim(),
+        "accountNumber": accController.text.trim(),
+        "ifscCode": ifscController.text.trim(),
+        "accountHolderName": nameController.text.trim(),
+      };
+      debugPrint("📤 Withdrawal Request Body: $body");
+
+      /// 🔹 GETX LOG
+      final res = await WithdrawalService.submitWithdrawal(body);
+
+      isLoading.value = false;
+
+      if (res != null) {
+        appToaster(content: "Withdrawal request submitted successfully!");
+        Get.off(WalletScreen());
+      } else {
+        appToast(title: "Error", content: "Something went wrong");
+      }
+    } catch (e) {
+      isLoading.value = false;
+      appToast(title: "Error", content: e.toString());
+    }
+  }
+
+  void onAmountChanged(String value) {
+    showSuffix.value = value.isNotEmpty;
+  }
+
+  Future<bool> checkWithdrawalEligibility() async {
+    try {
+      debugPrint("🔵 [KYC] Checking withdrawal eligibility...");
+      isLoading.value = true;
+
+      final response = await WithdrawalService.getKycWithdrawalStatus();
+
+      debugPrint("🟡 [KYC] API response received: $response");
+
+      if (response == null) {
+        debugPrint("🔴 [KYC] Response is NULL");
+        return false;
+      }
+
+      debugPrint(
+        "🟢 [KYC] isEligibleForWithdrawal: ${response.isEligibleForWithdrawal}",
+      );
+
+      if (response.isEligibleForWithdrawal) {
+        debugPrint("✅ [KYC] User is eligible for withdrawal");
+        return true;
+      }
+
+      debugPrint("⚠️ [KYC] User NOT eligible → Showing KYC dialog");
+      KycRequiredDialog.show();
+
+      return false;
+    } catch (e, stack) {
+      debugPrint("❌ [KYC] Exception occurred: $e");
+      debugPrint("📌 StackTrace: $stack");
+
+      appToast(
+        title: "Error",
+        content: "Failed to verify KYC status",
+      );
+      return false;
+    } finally {
+      isLoading.value = false;
+      debugPrint("🔵 [KYC] Loading finished");
+    }
+  }
+
+  Future<void> fetchWithdrawalStatus() async {
+    try {
+      isCheckingStatus.value = true;
+
+      final response = await WithdrawalService.getWalletWithdrawalStatus();
+
+      if (response != null) {
+        canWithdraw.value = response.canWithdraw;
+        withdrawalMessage.value = response.message;
+      }
+    } catch (e) {
+      debugPrint("❌ Withdrawal status error: $e");
+    } finally {
+      isCheckingStatus.value = false;
+    }
+  }
+
+  @override
+  void onClose() {
+    nameController.dispose();
+    bankNameController.dispose();
+    accController.dispose();
+    confirmAccController.dispose();
+    ifscController.dispose();
+    amountController.dispose();
+    super.onClose();
+  }
+}

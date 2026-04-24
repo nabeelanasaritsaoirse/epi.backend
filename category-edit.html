@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Edit Category</title>
+
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css"
+      rel="stylesheet"
+    />
+
+    <!-- App CSS -->
+    <link rel="stylesheet" href="../assets/css/style.css" />
+    <link rel="stylesheet" href="../assets/css/responsive.css" />
+    <link rel="stylesheet" href="../assets/css/categories.css" />
+  </head>
+
+  <body>
+    <!-- AUTH -->
+    <script src="../assets/js/config.js"></script>
+    <script>
+      if (!AUTH.isAuthenticated()) location.href = "login.html";
+    </script>
+
+    <!-- LOADING -->
+    <div id="loadingOverlay" class="loading-overlay">
+      <div class="spinner-border text-primary"></div>
+    </div>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+      <div class="container-fluid">
+        <button class="btn btn-dark" id="sidebarToggle">
+          <i class="bi bi-list"></i>
+        </button>
+
+        <a class="navbar-brand ms-3" href="../index.html">
+          <i class="bi bi-gear-fill"></i> Admin Panel
+        </a>
+
+        <ul class="navbar-nav ms-auto">
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" data-bs-toggle="dropdown">
+              <i class="bi bi-person-circle"></i> Admin
+            </a>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><a class="dropdown-item" href="profile.html">Profile</a></li>
+              <li><hr class="dropdown-divider" /></li>
+              <li><a class="dropdown-item logout-btn" href="#">Logout</a></li>
+            </ul>
+          </li>
+        </ul>
+      </div>
+    </nav>
+
+    <div id="sidebar" class="sidebar"></div>
+
+    <div class="main-content">
+      <div class="container-fluid">
+        <!-- HEADER -->
+        <div class="d-flex justify-content-between align-items-center mb-4">
+          <h2>Edit Category</h2>
+          <a href="categories.html" class="btn btn-secondary">← Back</a>
+        </div>
+
+        <!-- FORM -->
+        <form id="categoryForm">
+          <!-- BASIC INFO -->
+          <div class="form-section mb-4">
+            <h6 class="text-primary mb-3">Basic Information</h6>
+
+            <div class="row mb-3">
+              <div class="col-md-8">
+                <label class="form-label">Category Name *</label>
+                <input
+                  type="text"
+                  id="categoryName"
+                  class="form-control"
+                  required
+                />
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label">Description</label>
+              <textarea
+                id="categoryDescription"
+                class="form-control"
+                rows="3"
+              ></textarea>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label">Parent Category</label>
+              <select id="parentCategory" class="form-select">
+                <option value="">None (Root Category)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- CATEGORY IMAGES -->
+          <div class="form-section mb-4">
+            <h6 class="text-primary mb-3">Category Images</h6>
+
+            <div
+              id="categoryImagesPreview"
+              class="category-images-grid mb-4"
+            ></div>
+
+            <div class="category-image-card" data-image-type="main">
+              <div class="image-card-header">
+                <span class="image-title">Main Image</span>
+              </div>
+
+              <div class="category-image-input-row">
+                <input
+                  type="file"
+                  id="mainImage"
+                  class="form-control form-control-sm image-file"
+                  accept="image/*"
+                />
+
+                <input
+                  type="text"
+                  id="mainImageAlt"
+                  class="form-control form-control-sm"
+                  placeholder="Alt text"
+                />
+              </div>
+            </div>
+
+            <div class="category-image-card" data-image-type="illustration">
+              <div class="image-card-header">
+                <span class="image-title">Illustration Image</span>
+              </div>
+
+              <div class="category-image-input-row">
+                <input
+                  type="file"
+                  id="illustrationImage"
+                  class="form-control form-control-sm image-file"
+                  accept="image/*"
+                />
+                <input
+                  type="text"
+                  id="illustrationImageAlt"
+                  class="form-control form-control-sm"
+                  placeholder="Alt text"
+                />
+              </div>
+            </div>
+
+            <div class="category-image-card" data-image-type="subcategory">
+              <div class="image-card-header">
+                <span class="image-title">Subcategory Image</span>
+              </div>
+
+              <div class="category-image-input-row">
+                <input
+                  type="file"
+                  id="subcategoryImage"
+                  class="form-control form-control-sm image-file"
+                  accept="image/*"
+                />
+                <input
+                  type="text"
+                  id="subcategoryImageAlt"
+                  class="form-control form-control-sm"
+                  placeholder="Alt text"
+                />
+              </div>
+            </div>
+
+            <div class="category-image-card" data-image-type="mobile">
+              <div class="image-card-header">
+                <span class="image-title">Mobile Image</span>
+              </div>
+
+              <div class="category-image-input-row">
+                <input
+                  type="file"
+                  id="mobileImage"
+                  class="form-control form-control-sm image-file"
+                  accept="image/*"
+                />
+                <input
+                  type="text"
+                  id="mobileImageAlt"
+                  class="form-control form-control-sm"
+                  placeholder="Alt text"
+                />
+              </div>
+            </div>
+
+            <div class="category-image-card" data-image-type="icon">
+              <div class="image-card-header">
+                <span class="image-title">Icon Image</span>
+              </div>
+
+              <div class="category-image-input-row">
+                <input
+                  type="file"
+                  id="iconImage"
+                  class="form-control form-control-sm image-file"
+                  accept="image/*"
+                />
+                <input
+                  type="text"
+                  id="iconImageAlt"
+                  class="form-control form-control-sm"
+                  placeholder="Alt text"
+                />
+              </div>
+            </div>
+          </div>
+          <!-- BANNER IMAGES -->
+          <div class="form-section mb-4">
+            <h6 class="text-primary mb-3">Banner Images</h6>
+
+            <!-- ✅ BANNER PREVIEW -->
+            <div
+              id="bannerImagesPreview"
+              class="category-images-grid mb-3"
+            ></div>
+
+            <input
+              type="file"
+              id="bannerImages"
+              class="form-control"
+              accept="image/*"
+              multiple
+            />
+
+            <small class="text-muted">
+              You can upload multiple banner images
+            </small>
+          </div>
+
+          <!-- DISPLAY -->
+          <div class="form-section mb-4">
+            <h6 class="text-primary mb-3">Display Settings</h6>
+
+            <div class="mb-2">
+              <label class="form-label">Display Order</label>
+              <input
+                type="number"
+                id="displayOrder"
+                class="form-control"
+                value="0"
+              />
+            </div>
+
+            <div class="form-check">
+              <input
+                class="form-check-input"
+                type="checkbox"
+                id="isActive"
+                checked
+              />
+              <label class="form-check-label">Active</label>
+            </div>
+
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="isFeatured" />
+              <label class="form-check-label">Featured</label>
+            </div>
+
+            <div class="form-check">
+              <input
+                class="form-check-input"
+                type="checkbox"
+                id="showInMenu"
+                checked
+              />
+              <label class="form-check-label">Show in Menu</label>
+            </div>
+          </div>
+          <!-- MARKETPLACE SETTINGS -->
+          <div class="form-section mb-4">
+            <h6 class="text-primary mb-3">Marketplace Settings</h6>
+
+            <div class="row mb-3">
+              <div class="col-md-4">
+                <label class="form-label">Commission Rate (%)</label>
+                <input
+                  type="number"
+                  id="commissionRate"
+                  class="form-control"
+                  min="0"
+                  max="100"
+                  placeholder="Default: Platform rate"
+                />
+                <small class="text-muted">
+                  Leave empty to use platform default
+                </small>
+              </div>
+            </div>
+
+            <div class="form-check mb-3">
+              <input
+                class="form-check-input"
+                type="checkbox"
+                id="isRestricted"
+              />
+              <label class="form-check-label">
+                Restricted Category (Only verified sellers allowed)
+              </label>
+            </div>
+          </div>
+          <!-- CATEGORY ATTRIBUTES -->
+          <div class="form-section mb-4">
+            <h6 class="text-primary mb-3">
+              Product Attributes (Variant System)
+            </h6>
+
+            <div id="attributeSchemaContainer"></div>
+
+            <button
+              type="button"
+              class="btn btn-sm btn-outline-primary mt-2"
+              onclick="addAttributeRow()"
+            >
+              <i class="bi bi-plus-lg"></i> Add Attribute
+            </button>
+
+            <small class="text-muted d-block mt-2">
+              These attributes define product variants and filters.
+            </small>
+          </div>
+          <!-- SEO -->
+          <div class="form-section mb-4">
+            <h6 class="text-primary mb-3">SEO</h6>
+
+            <input
+              id="metaTitle"
+              class="form-control mb-2"
+              placeholder="Meta Title"
+            />
+            <textarea
+              id="metaDescription"
+              class="form-control mb-2"
+              placeholder="Meta Description"
+            ></textarea>
+            <input
+              id="metaKeywords"
+              class="form-control"
+              placeholder="keyword1, keyword2"
+            />
+          </div>
+
+          <!-- REGIONAL -->
+          <div class="form-section mb-4">
+            <h6 class="text-primary mb-3">Regional Availability</h6>
+
+            <div class="form-check mb-2">
+              <input
+                class="form-check-input"
+                type="checkbox"
+                id="isGlobalCategory"
+                checked
+              />
+              <label class="form-check-label">Global Category</label>
+            </div>
+
+            <div id="regionalCheckboxesSection" class="d-none">
+              <div class="row" id="regionalCheckboxesList"></div>
+            </div>
+          </div>
+
+          <!-- ACTION -->
+          <button
+            type="button"
+            class="btn btn-primary"
+            onclick="saveCategory()"
+          >
+            Save Category
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="../assets/js/utils.js"></script>
+    <script src="../assets/js/regions-config.js"></script>
+    <script src="../assets/js/navigation.js"></script>
+    <script src="../assets/js/main.js"></script>
+
+    <script src="../assets/js/category.shared.js"></script>
+    <script src="../assets/js/category.form.js"></script>
+  </body>
+</html>
