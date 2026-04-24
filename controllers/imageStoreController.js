@@ -1,5 +1,8 @@
 const ImageStore = require('../models/ImageStore');
+const { escapeRegex } = require('../utils/helpers');
 const { deleteImageFromS3 } = require('../services/awsUploadService');
+
+
 
 exports.createImage = async (req, res) => {
   try {
@@ -120,17 +123,20 @@ exports.getAllImagesAdmin = async (req, res) => {
     }
 
     if (search) {
+      const safeSearch = escapeRegex(search);
       filter.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } },
-        { altText: { $regex: search, $options: 'i' } },
-        { type: { $regex: search, $options: 'i' } }
+        { title: { $regex: safeSearch, $options: 'i' } },
+        { description: { $regex: safeSearch, $options: 'i' } },
+        { altText: { $regex: safeSearch, $options: 'i' } },
+        { type: { $regex: safeSearch, $options: 'i' } }
       ];
     }
 
     const total = await ImageStore.countDocuments(filter);
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20));
+    const skip = (pageNum - 1) * limitNum;
 
     const sortObj = {};
     sortObj[sortBy] = sortOrder === 'asc' ? 1 : -1;
@@ -140,7 +146,7 @@ exports.getAllImagesAdmin = async (req, res) => {
       .populate('updatedBy', 'name email')
       .sort(sortObj)
       .skip(skip)
-      .limit(parseInt(limit));
+      .limit(limitNum);
 
     res.status(200).json({
       success: true,
@@ -198,17 +204,20 @@ exports.getAllActiveImagesAdmin = async (req, res) => {
     }
 
     if (search) {
+      const safeSearch = escapeRegex(search);
       filter.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } },
-        { altText: { $regex: search, $options: 'i' } },
-        { type: { $regex: search, $options: 'i' } }
+        { title: { $regex: safeSearch, $options: 'i' } },
+        { description: { $regex: safeSearch, $options: 'i' } },
+        { altText: { $regex: safeSearch, $options: 'i' } },
+        { type: { $regex: safeSearch, $options: 'i' } }
       ];
     }
 
     const total = await ImageStore.countDocuments(filter);
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20));
+    const skip = (pageNum - 1) * limitNum;
 
     const sortObj = {};
     sortObj[sortBy] = sortOrder === 'asc' ? 1 : -1;
@@ -218,7 +227,7 @@ exports.getAllActiveImagesAdmin = async (req, res) => {
       .populate('updatedBy', 'name email')
       .sort(sortObj)
       .skip(skip)
-      .limit(parseInt(limit));
+      .limit(limitNum);
 
     res.status(200).json({
       success: true,

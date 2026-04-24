@@ -127,14 +127,6 @@ const userSchema = new Schema({
       type: Number,
       default: 0
     },
-    investedAmount: {
-      type: Number,
-      default: 0
-    },
-    requiredInvestment: {
-      type: Number,
-      default: 0
-    },
     // Commission tracking for 10% in-app usage rule
     commissionEarned: {
       type: Number,

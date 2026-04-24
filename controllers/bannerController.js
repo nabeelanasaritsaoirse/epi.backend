@@ -1,5 +1,8 @@
 const Banner = require("../models/Banner");
+const { escapeRegex } = require('../utils/helpers');
 const { deleteImageFromS3 } = require("../services/awsUploadService");
+
+
 
 /**
  * Create a new banner with image upload
@@ -171,14 +174,15 @@ exports.getAllBanners = async (req, res) => {
     }
 
     if (search) {
+      const safeSearch = escapeRegex(search);
       query.$or = [
-        { title: { $regex: search, $options: "i" } },
-        { description: { $regex: search, $options: "i" } },
+        { title: { $regex: safeSearch, $options: "i" } },
+        { description: { $regex: safeSearch, $options: "i" } },
       ];
     }
 
-    const pageNum = parseInt(page) || 1;
-    const limitNum = parseInt(limit) || 20;
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20));
     const skip = (pageNum - 1) * limitNum;
 
     const sortObj = {};
@@ -476,7 +480,7 @@ exports.permanentlyDeleteBanner = async (req, res) => {
     }
 
     // Delete from database
-    await Banner.findByIdAndRemove(id);
+    await Banner.findByIdAndDelete(id);
 
     res.json({
       success: true,
@@ -619,7 +623,7 @@ exports.trackBannerClick = async (req, res) => {
 /**
  * Get banner statistics
  */
-exports.getBannerStats = async (req, res) => {
+exports.getBannerStats = async (_req, res) => {
   try {
     const stats = {
       total: await Banner.countDocuments({ isDeleted: false }),
