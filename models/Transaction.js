@@ -12,16 +12,12 @@ const transactionSchema = new Schema({
   type: {
     type: String,
     enum: [
-      "referral_commission",      // 20% per EMI
-      "installment_commission",   // your own 10% per EMI
-      "withdrawal",
-      "refund",
-      "bonus",                    // Free credits/promo only
-      "deposit",                  // User wallet load via Razorpay
-      "investment",
-      "commission",
-      "purchase",
-      "emi_payment"               // EMI paid by user
+      "deposit",      // User wallet load via Razorpay
+      "withdrawal",   // User cash withdrawal request
+      "bonus",        // Admin/promo credits
+      "refund",       // Refunds credited back
+      "commission",   // Admin commission (legacy orders only)
+      "emi_payment"   // EMI paid by user (legacy orders only)
     ],
     required: true
   },

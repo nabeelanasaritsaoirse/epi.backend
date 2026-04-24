@@ -135,8 +135,6 @@ router.get("/", verifyToken, isAdmin, async (req, res) => {
 
       holdBalance: refreshed.wallet.holdBalance ?? 0,
       referralBonus: refreshed.wallet.referralBonus ?? 0,
-      investedAmount: refreshed.wallet.investedAmount ?? 0,
-      requiredInvestment: refreshed.wallet.requiredInvestment ?? 0,
 
       transactions: allTransactions
     });

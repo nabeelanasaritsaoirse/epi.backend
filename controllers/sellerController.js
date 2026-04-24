@@ -1,5 +1,6 @@
 "use strict";
 
+
 /**
  * Seller Controller
  * Handles all seller-facing operations:
@@ -13,6 +14,7 @@
  */
 
 const mongoose = require("mongoose");
+const { escapeRegex } = require('../utils/helpers');
 const Product          = require("../models/Product");
 const InstallmentOrder = require("../models/InstallmentOrder");
 const User             = require("../models/User");
@@ -302,10 +304,11 @@ exports.getProducts = async (req, res) => {
     }
 
     if (req.query.search) {
+      const safeSearch = escapeRegex(req.query.search);
       filter.$or = [
-        { name:                { $regex: req.query.search, $options: "i" } },
-        { "description.short": { $regex: req.query.search, $options: "i" } },
-        { "description.long":  { $regex: req.query.search, $options: "i" } },
+        { name:                { $regex: safeSearch, $options: "i" } },
+        { "description.short": { $regex: safeSearch, $options: "i" } },
+        { "description.long":  { $regex: safeSearch, $options: "i" } },
       ];
     }
 

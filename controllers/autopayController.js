@@ -7,6 +7,18 @@
 
 const autopayService = require("../services/autopayService");
 
+/** Map service errors to correct HTTP status codes */
+function autopayError(res, error, fallbackMsg) {
+  const msg = error.message || fallbackMsg;
+  const lower = msg.toLowerCase();
+  if (lower.includes("not found")) return res.status(404).json({ success: false, message: msg });
+  if (lower.includes("unauthorized") || lower.includes("access denied")) return res.status(403).json({ success: false, message: msg });
+  if (error.statusCode) return res.status(error.statusCode).json({ success: false, message: msg });
+  // Known user-facing validation errors from the service keep 400; everything else is 500
+  const isClientError = lower.includes("already") || lower.includes("invalid") || lower.includes("required") || lower.includes("cannot") || lower.includes("must");
+  return res.status(isClientError ? 400 : 500).json({ success: false, message: msg });
+}
+
 // ============================================
 // ENABLE/DISABLE AUTOPAY
 // ============================================
@@ -32,10 +44,7 @@ exports.enableAutopay = async (req, res) => {
     });
   } catch (error) {
     console.error("[Autopay Controller] Enable error:", error);
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to enable autopay",
-    });
+    autopayError(res, error, "Failed to enable autopay");
   }
 };
 
@@ -57,10 +66,7 @@ exports.disableAutopay = async (req, res) => {
     });
   } catch (error) {
     console.error("[Autopay Controller] Disable error:", error);
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to disable autopay",
-    });
+    autopayError(res, error, "Failed to disable autopay");
   }
 };
 
@@ -83,10 +89,7 @@ exports.enableAutopayForAll = async (req, res) => {
     });
   } catch (error) {
     console.error("[Autopay Controller] Enable all error:", error);
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to enable autopay for all orders",
-    });
+    autopayError(res, error, "Failed to enable autopay for all orders");
   }
 };
 
@@ -109,10 +112,7 @@ exports.disableAutopayForAll = async (req, res) => {
     });
   } catch (error) {
     console.error("[Autopay Controller] Disable all error:", error);
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to disable autopay for all orders",
-    });
+    autopayError(res, error, "Failed to disable autopay for all orders");
   }
 };
 
@@ -146,10 +146,7 @@ exports.pauseAutopay = async (req, res) => {
     });
   } catch (error) {
     console.error("[Autopay Controller] Pause error:", error);
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to pause autopay",
-    });
+    autopayError(res, error, "Failed to pause autopay");
   }
 };
 
@@ -171,10 +168,7 @@ exports.resumeAutopay = async (req, res) => {
     });
   } catch (error) {
     console.error("[Autopay Controller] Resume error:", error);
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to resume autopay",
-    });
+    autopayError(res, error, "Failed to resume autopay");
   }
 };
 
@@ -206,10 +200,7 @@ exports.addSkipDates = async (req, res) => {
     });
   } catch (error) {
     console.error("[Autopay Controller] Add skip dates error:", error);
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to add skip dates",
-    });
+    autopayError(res, error, "Failed to add skip dates");
   }
 };
 
@@ -241,10 +232,7 @@ exports.removeSkipDate = async (req, res) => {
     });
   } catch (error) {
     console.error("[Autopay Controller] Remove skip date error:", error);
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to remove skip date",
-    });
+    autopayError(res, error, "Failed to remove skip date");
   }
 };
 
@@ -272,10 +260,7 @@ exports.updateSettings = async (req, res) => {
     });
   } catch (error) {
     console.error("[Autopay Controller] Update settings error:", error);
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to update settings",
-    });
+    autopayError(res, error, "Failed to update settings");
   }
 };
 
@@ -298,10 +283,7 @@ exports.getSettings = async (req, res) => {
     });
   } catch (error) {
     console.error("[Autopay Controller] Get settings error:", error);
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to get settings",
-    });
+    autopayError(res, error, "Failed to get settings");
   }
 };
 
@@ -326,10 +308,7 @@ exports.getStatus = async (req, res) => {
     });
   } catch (error) {
     console.error("[Autopay Controller] Get status error:", error);
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to get autopay status",
-    });
+    autopayError(res, error, "Failed to get autopay status");
   }
 };
 
@@ -359,10 +338,7 @@ exports.setPriority = async (req, res) => {
     });
   } catch (error) {
     console.error("[Autopay Controller] Set priority error:", error);
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to set priority",
-    });
+    autopayError(res, error, "Failed to set priority");
   }
 };
 
@@ -386,10 +362,7 @@ exports.getDashboard = async (req, res) => {
     });
   } catch (error) {
     console.error("[Autopay Controller] Get dashboard error:", error);
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to get dashboard",
-    });
+    autopayError(res, error, "Failed to get dashboard");
   }
 };
 
@@ -412,10 +385,7 @@ exports.getForecast = async (req, res) => {
     });
   } catch (error) {
     console.error("[Autopay Controller] Get forecast error:", error);
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to get forecast",
-    });
+    autopayError(res, error, "Failed to get forecast");
   }
 };
 
@@ -442,10 +412,7 @@ exports.getHistory = async (req, res) => {
     });
   } catch (error) {
     console.error("[Autopay Controller] Get history error:", error);
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to get history",
-    });
+    autopayError(res, error, "Failed to get history");
   }
 };
 
@@ -469,10 +436,7 @@ exports.getStreak = async (req, res) => {
     });
   } catch (error) {
     console.error("[Autopay Controller] Get streak error:", error);
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to get streak info",
-    });
+    autopayError(res, error, "Failed to get streak info");
   }
 };
 
@@ -517,10 +481,7 @@ exports.getSuggestedTopup = async (req, res) => {
     });
   } catch (error) {
     console.error("[Autopay Controller] Get suggested topup error:", error);
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to get suggested topup",
-    });
+    autopayError(res, error, "Failed to get suggested topup");
   }
 };
 
@@ -571,9 +532,6 @@ exports.updateNotificationPreferences = async (req, res) => {
     });
   } catch (error) {
     console.error("[Autopay Controller] Update notification preferences error:", error);
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to update notification preferences",
-    });
+    autopayError(res, error, "Failed to update notification preferences");
   }
 };
