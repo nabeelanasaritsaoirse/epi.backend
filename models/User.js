@@ -57,10 +57,6 @@ const userSchema = new Schema({
     type: String,
     default: ""
   },
-  tokenVersion: {
-    type: Number,
-    default: 0
-  },
   addresses: [{
     name: {
       type: String,

@@ -376,16 +376,4 @@ router.get("/referrer-info", auth.verifyToken, referralController.getReferrerInf
 // Optional query param: ?detailed=true to include referred users list
 router.get("/stats", auth.verifyAnyToken, referralController.getComprehensiveReferralStats);
 
-
-/**
- * @route   GET /api/referrals/leaderboard
- */
-router.get("/leaderboard", auth.verifyToken, referralController.getLeaderboard);
-
-/**
- * @route   GET /api/referrals/my-rewards
- */
-router.get("/my-rewards", auth.verifyToken, referralController.getMyRewardHistory);
-
 module.exports = router;
-
