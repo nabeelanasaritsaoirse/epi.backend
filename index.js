@@ -119,7 +119,7 @@ app.use((err, req, res, next) => {
   try {
     await connectDB();
     console.log("✅ MongoDB Connected");
-    initializeReferralSystem();
+    //initializeReferralSystem();
   } catch (err) {
     console.error("❌ MongoDB connection failed:", err.message);
     process.exit(1);
