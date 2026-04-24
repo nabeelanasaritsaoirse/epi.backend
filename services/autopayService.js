@@ -1051,8 +1051,7 @@ async function processAutopayPayment(order, user) {
     // Update order
     order.paidInstallments += 1;
     order.totalPaidAmount += paymentAmount;
-    const effectivePrice = order.productPrice || order.totalProductPrice || 0;
-    order.remainingAmount = Math.max(0, effectivePrice - order.totalPaidAmount);
+    order.remainingAmount = Math.max(0, order.productPrice - order.totalPaidAmount);
     order.lastPaymentDate = new Date();
 
     // Update payment schedule

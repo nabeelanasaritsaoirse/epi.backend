@@ -6,7 +6,6 @@ process.env.TZ = 'Asia/Kolkata';
 
 const express = require("express");
 const cors = require("cors");
-const helmet = require("helmet");
 require("./config/firebase"); // Initialize Firebase
 const initializeReferralSystem = require("./scripts/initializeReferralSystem");
 const connectDB = require("./config/database");
@@ -55,11 +54,6 @@ const webhookRoutes       = require("./routes/webhook");
 const adminPaymentsRoutes = require("./routes/adminPayments");
 
 const app = express();
-
-// ======================================================================
-// SECURITY HEADERS (helmet)
-// ======================================================================
-app.use(helmet());
 
 // ======================================================================
 // TRUST PROXY (Required for rate limiting behind nginx reverse proxy)
