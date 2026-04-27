@@ -141,6 +141,8 @@ exports.getUserReferralDetails = async (req, res) => {
           phoneNumber: user.phoneNumber,
           profilePicture: user.profilePicture,
           referralCode: user.referralCode,
+          title: user.title || "",
+          badges: user.badges || [],
           createdAt: user.createdAt,
         },
         referralStats: {
@@ -446,6 +448,8 @@ exports.getUserReferralDetailsById = async (req, res) => {
           phoneNumber: user.phoneNumber,
           profilePicture: user.profilePicture,
           referralCode: user.referralCode,
+          title: user.title || "",
+          badges: user.badges || [],
           createdAt: user.createdAt,
         },
         referralStats: {

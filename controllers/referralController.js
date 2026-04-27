@@ -1085,3 +1085,73 @@ exports.getMyRewardHistory = async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 };
+
+/* ---------- getMyReferralBadge ---------- */
+exports.getMyReferralBadge = async (req, res) => {
+  try {
+    const userId = req.user._id || req.user.id;
+    if (!userId) {
+      return res.status(400).json({ success: false, error: "User ID not found in token" });
+    }
+
+    const User = require("../models/User");
+    const Referral = require("../models/Referral");
+    const ReferralRewardConfig = require("../models/ReferralRewardConfig");
+
+    const user = await User.findById(userId).select('title badges name');
+    if (!user) {
+      return res.status(404).json({ success: false, error: "User not found" });
+    }
+    
+    // Count successful referrals (ACTIVE or COMPLETED)
+    const referralsCount = await Referral.countDocuments({ 
+      referrer: userId, 
+      status: { $in: ['ACTIVE', 'COMPLETED'] } 
+    });
+
+    const config = await ReferralRewardConfig.findOne({});
+    let nextMilestone = null;
+    let currentMilestone = null;
+    
+    if (config && config.milestones && config.milestones.length > 0) {
+      // Sort milestones by referralsNeeded
+      const sortedMilestones = config.milestones.slice().sort((a, b) => a.referralsNeeded - b.referralsNeeded);
+      
+      // Find current milestone (highest one reached)
+      const reachedMilestones = sortedMilestones.filter(ms => referralsCount >= ms.referralsNeeded);
+      if (reachedMilestones.length > 0) {
+        currentMilestone = reachedMilestones[reachedMilestones.length - 1];
+      }
+
+      // Find the first milestone that hasn't been reached yet
+      nextMilestone = sortedMilestones.find(ms => ms.referralsNeeded > referralsCount);
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        userName: user.name,
+        currentBadge: user.title || 'No Badge',
+        referralsCount: referralsCount,
+        currentMilestone: currentMilestone ? {
+          badgeName: currentMilestone.badgeName,
+          referralsNeeded: currentMilestone.referralsNeeded
+        } : null,
+        nextBadge: nextMilestone ? {
+          badgeName: nextMilestone.badgeName,
+          referralsNeeded: nextMilestone.referralsNeeded,
+          remaining: nextMilestone.referralsNeeded - referralsCount,
+          progressPercentage: Math.min(100, Math.round((referralsCount / nextMilestone.referralsNeeded) * 100))
+        } : null,
+        allAchievedBadges: user.badges || []
+      },
+      message: "User referral badge and progress retrieved successfully"
+    });
+  } catch (error) {
+    console.error("Error in getMyReferralBadge:", error);
+    return res.status(500).json({ 
+      success: false, 
+      error: "Internal server error while fetching referral badge progress: " + error.message 
+    });
+  }
+};

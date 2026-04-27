@@ -387,5 +387,12 @@ router.get("/leaderboard", auth.verifyToken, referralController.getLeaderboard);
  */
 router.get("/my-rewards", auth.verifyToken, referralController.getMyRewardHistory);
 
+/**
+ * @route   GET /api/referrals/my-badge
+ * @desc    Get user's current referral badge/title and progress to next milestone
+ * @access  Private
+ */
+router.get("/my-badge", auth.verifyToken, referralController.getMyReferralBadge);
+
 module.exports = router;
 
