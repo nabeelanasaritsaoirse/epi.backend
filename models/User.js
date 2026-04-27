@@ -529,6 +529,17 @@ const userSchema = new Schema({
     }
   },
 
+  // Referral Reward Fields
+  title: {
+    type: String,
+    default: ''
+  },
+  badges: [{
+    name: String,
+    achievedAt: { type: Date, default: Date.now },
+    milestone: Number
+  }],
+
   createdAt: {
     type: Date,
     default: Date.now

@@ -111,14 +111,19 @@ exports.giveReward = async ({ userId, triggerUserId, rewardType, milestoneAchiev
         });
      }
      
-     // actually give the badge (we can store badges in User model if there's a field for titles)
-     if (finalBadge) {
-        // If there's no badge field directly on user, we can create one or just use ReferralRewardHistory to display titles.
-        // Easiest is to add 'title' to User model if we want to display it.
-        await User.findByIdAndUpdate(userId, {
-           $set: { title: finalBadge }
-        }, { strict: false }); // strict false in case title doesn't exist
-     }
+      // actually give the badge
+      if (finalBadge) {
+         await User.findByIdAndUpdate(userId, {
+            $set: { title: finalBadge },
+            $push: { 
+              badges: { 
+                name: finalBadge, 
+                achievedAt: new Date(),
+                milestone: milestoneAchieved 
+              } 
+            }
+         });
+      }
 
      return history;
   } catch (err) {
