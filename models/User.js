@@ -537,7 +537,8 @@ const userSchema = new Schema({
   badges: [{
     name: String,
     achievedAt: { type: Date, default: Date.now },
-    milestone: Number
+    milestone: Number,
+    rewardType: { type: String, enum: ['MILESTONE', 'CHAIN', 'MANUAL'], default: 'MILESTONE' }
   }],
 
   createdAt: {

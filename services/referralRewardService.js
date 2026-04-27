@@ -3,6 +3,7 @@ const User = require('../models/User');
 const ReferralRewardConfig = require('../models/ReferralRewardConfig');
 const ReferralRewardHistory = require('../models/ReferralRewardHistory');
 const Referral = require('../models/Referral');
+const { triggerNotification } = require('./notificationSystemService');
 
 /**
  * Check and issue milestone and chain rewards for a referrer.
@@ -22,7 +23,7 @@ exports.checkAndIssueRewards = async (referrerId, triggerUserId) => {
     // Wait config could specify if it relies on Referral count.
     
     // Process milestones
-    const milestones = config.milestones.slice().sort((a, b) => b.referralsNeeded - a.referralsNeeded);
+    const milestones = config.milestones.slice().sort((a, b) => a.referralsNeeded - b.referralsNeeded);
 
     for (const ms of milestones) {
       if (referralsCount >= ms.referralsNeeded) {
@@ -35,7 +36,7 @@ exports.checkAndIssueRewards = async (referrerId, triggerUserId) => {
 
         if (!alreadyGot) {
            // Issue Milestone Reward
-           await this.giveReward({
+           const result = await this.giveReward({
              userId: referrerId,
              triggerUserId,
              rewardType: 'MILESTONE',
@@ -45,6 +46,21 @@ exports.checkAndIssueRewards = async (referrerId, triggerUserId) => {
              badgeName: ms.badgeName,
              notes: `Reached ${ms.referralsNeeded} referrals milestone!`
            });
+
+           // Send Notification for Milestone Reward
+           if (result) {
+              await triggerNotification({
+                type: 'REFERRAL_REWARD',
+                userId: referrerId,
+                title: 'Congratulations! 🎉',
+                body: ms.badgeName 
+                  ? `You've achieved the ${ms.badgeName} badge and earned ₹${ms.rewardAmount}!`
+                  : `You've earned ₹${ms.rewardAmount} for reaching ${ms.referralsNeeded} referrals!`,
+                sendPush: true,
+                sendInApp: true,
+                metadata: { milestone: ms.referralsNeeded, rewardId: result._id }
+              });
+           }
            
            // Chain Reward
            if (config.chainRewardEnabled) {
@@ -58,16 +74,38 @@ exports.checkAndIssueRewards = async (referrerId, triggerUserId) => {
                 }
 
                 if (chainAmount > 0) {
-                  await this.giveReward({
-                    userId: referrerUser.referredBy,
-                    triggerUserId: referrerId,
+                  // Double check User A hasn't already received a chain reward triggered by User B's same milestone
+                  const alreadyGotChain = await ReferralRewardHistory.findOne({
+                    user: referrerUser.referredBy,
+                    triggerUser: referrerId,
                     rewardType: 'CHAIN',
-                    milestoneAchieved: null,
-                    amount: chainAmount,
-                    rewardTypeConfig: 'CASH', // Chain rewards are always CASH here
-                    badgeName: '',
-                    notes: `Chain reward: ${referrerUser.name || 'User'} reached ${ms.referralsNeeded} referrals.`
+                    notes: new RegExp(`milestone ${ms.referralsNeeded}`, 'i')
                   });
+
+                  if (!alreadyGotChain) {
+                    const chainResult = await this.giveReward({
+                      userId: referrerUser.referredBy,
+                      triggerUserId: referrerId,
+                      rewardType: 'CHAIN',
+                      milestoneAchieved: null,
+                      amount: chainAmount,
+                      rewardTypeConfig: 'BOTH', // Now BOTH so they get the badge too
+                      badgeName: ms.badgeName,
+                      notes: `Chain reward: Your referral ${referrerUser.name || 'User'} reached milestone ${ms.referralsNeeded}.`
+                    });
+
+                    if (chainResult) {
+                       await triggerNotification({
+                         type: 'CHAIN_REWARD',
+                         userId: referrerUser.referredBy,
+                         title: 'Chain Reward Earned! 💰',
+                         body: `You earned ₹${chainAmount} because your referral ${referrerUser.name || 'User'} hit a milestone!`,
+                         sendPush: true,
+                         sendInApp: true,
+                         metadata: { triggerUserId: referrerId, amount: chainAmount }
+                       });
+                    }
+                  }
                 }
              }
            }
@@ -113,17 +151,24 @@ exports.giveReward = async ({ userId, triggerUserId, rewardType, milestoneAchiev
      
       // actually give the badge
       if (finalBadge) {
-         await User.findByIdAndUpdate(userId, {
-            $set: { title: finalBadge },
-            $push: { 
-              badges: { 
-                name: finalBadge, 
-                achievedAt: new Date(),
-                milestone: milestoneAchieved 
-              } 
-            }
-         });
-      }
+          const updateObj = {
+             $push: { 
+               badges: { 
+                 name: finalBadge, 
+                 achievedAt: new Date(),
+                 milestone: milestoneAchieved,
+                 rewardType: rewardType // Store whether it's MILESTONE or CHAIN
+               } 
+             }
+          };
+
+          // Only update the main "title" if it's a direct milestone reward
+          if (rewardType === 'MILESTONE') {
+             updateObj.$set = { title: finalBadge };
+          }
+
+          await User.findByIdAndUpdate(userId, updateObj);
+       }
 
      return history;
   } catch (err) {
