@@ -1089,69 +1089,292 @@ exports.getMyRewardHistory = async (req, res) => {
 /* ---------- getMyReferralBadge ---------- */
 exports.getMyReferralBadge = async (req, res) => {
   try {
-    const userId = req.user._id || req.user.id;
+    // ── 1. Resolve user ID ───────────────────────────────────────────────
+    const userId =
+      req.user?._id ||
+      req.user?.id ||
+      req.user?.userId ||
+      null;
+
     if (!userId) {
-      return res.status(400).json({ success: false, error: "User ID not found in token" });
+      return res.status(401).json({
+        success: false,
+        error: "Authentication failed: User ID not found in token.",
+      });
     }
 
-    const User = require("../models/User");
-    const Referral = require("../models/Referral");
-    const ReferralRewardConfig = require("../models/ReferralRewardConfig");
+    // Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid user ID format.",
+      });
+    }
 
-    const user = await User.findById(userId).select('title badges name');
+    // ── 2. Fetch user ────────────────────────────────────────────────────
+    const user = await User.findById(userId).select(
+      "name email role isActive referralCode referralLimit title badges"
+    );
+
     if (!user) {
-      return res.status(404).json({ success: false, error: "User not found" });
+      return res.status(404).json({
+        success: false,
+        error: "User not found.",
+      });
     }
-    
-    // Count successful referrals (ACTIVE or COMPLETED)
-    const referralsCount = await Referral.countDocuments({ 
-      referrer: userId, 
-      status: { $in: ['ACTIVE', 'COMPLETED'] } 
+
+    // ── 3. Role gate — only 'user' and 'seller' can use referral badge ───
+    const ALLOWED_ROLES = ["user", "seller"];
+    if (!ALLOWED_ROLES.includes(user.role)) {
+      return res.status(403).json({
+        success: false,
+        error: `Access denied. Referral badges are only available for regular users and sellers. Your role (${user.role}) does not have access to this feature.`,
+      });
+    }
+
+    // ── 4. Active account check ──────────────────────────────────────────
+    if (!user.isActive) {
+      return res.status(403).json({
+        success: false,
+        error: "Your account is inactive. Please contact support.",
+      });
+    }
+
+    // ── 5. Count successful referrals (ACTIVE + COMPLETED) ───────────────
+    const referralsCount = await Referral.countDocuments({
+      referrer: userId,
+      status: { $in: ["ACTIVE", "COMPLETED"] },
     });
 
-    const config = await ReferralRewardConfig.findOne({});
-    let nextMilestone = null;
+    // ── 6. Fetch reward config ───────────────────────────────────────────
+    const config = await ReferralRewardConfig.findOne({}).lean();
+
+    let milestoneProgress = [];
     let currentMilestone = null;
-    
-    if (config && config.milestones && config.milestones.length > 0) {
-      // Sort milestones by referralsNeeded
-      const sortedMilestones = config.milestones.slice().sort((a, b) => a.referralsNeeded - b.referralsNeeded);
-      
-      // Find current milestone (highest one reached)
-      const reachedMilestones = sortedMilestones.filter(ms => referralsCount >= ms.referralsNeeded);
-      if (reachedMilestones.length > 0) {
-        currentMilestone = reachedMilestones[reachedMilestones.length - 1];
+    let nextMilestone = null;
+
+    if (config && Array.isArray(config.milestones) && config.milestones.length > 0) {
+      // Sort ascending by referralsNeeded
+      const sortedMilestones = [...config.milestones].sort(
+        (a, b) => a.referralsNeeded - b.referralsNeeded
+      );
+
+      // Build milestoneProgress with achieved flag
+      milestoneProgress = sortedMilestones.map((ms) => ({
+        referralsNeeded: ms.referralsNeeded,
+        badgeName: ms.badgeName || "",
+        rewardAmount: ms.rewardAmount || 0,
+        rewardType: ms.rewardType || "CASH",
+        achieved: referralsCount >= ms.referralsNeeded,
+        achievedAt: null, // filled below from reward history
+      }));
+
+      // Current milestone = highest reached
+      const reached = sortedMilestones.filter(
+        (ms) => referralsCount >= ms.referralsNeeded
+      );
+      if (reached.length > 0) {
+        currentMilestone = reached[reached.length - 1];
       }
 
-      // Find the first milestone that hasn't been reached yet
-      nextMilestone = sortedMilestones.find(ms => ms.referralsNeeded > referralsCount);
+      // Next milestone = first not yet reached
+      nextMilestone = sortedMilestones.find(
+        (ms) => ms.referralsNeeded > referralsCount
+      ) || null;
     }
 
-    return res.json({
+    // ── 7. Fetch full reward history for this user ───────────────────────
+    const rewardHistory = await ReferralRewardHistory.find({
+      user: userId,
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Patch achievedAt onto milestoneProgress
+    for (const ms of milestoneProgress) {
+      const histEntry = rewardHistory.find(
+        (h) =>
+          h.rewardType === "MILESTONE" &&
+          h.milestoneAchieved === ms.referralsNeeded
+      );
+      if (histEntry) {
+        ms.achievedAt = histEntry.createdAt || null;
+      }
+    }
+
+    // ── 8. Build grouped badge summary from user.badges ──────────────────
+    //  user.badges = [{ name, achievedAt, milestone, rewardType }]
+    //
+    //  Group key = badgeName + rewardType   (so "Gold MILESTONE" ≠ "Gold CHAIN")
+    //  For each group we also pull the cash reward amount from rewardHistory.
+
+    const rawBadges = Array.isArray(user.badges) ? user.badges : [];
+
+    // Build a map: milestoneNumber → rewardAmount  (from config)
+    const milestoneRewardMap = {};
+    if (config && Array.isArray(config.milestones)) {
+      config.milestones.forEach((ms) => {
+        milestoneRewardMap[ms.referralsNeeded] = ms.rewardAmount || 0;
+      });
+    }
+
+    // Build a lookup of rewardHistory entries by (rewardType, milestoneAchieved)
+    // to attach actual cash amounts to each badge instance.
+    // We walk history in chronological order so each badge instance can consume one entry.
+    const historyByMilestone = {};
+    rewardHistory.forEach((h) => {
+      const key = `${h.rewardType}__${h.milestoneAchieved ?? "null"}__${h.badgeName ?? ""}`;
+      if (!historyByMilestone[key]) historyByMilestone[key] = [];
+      historyByMilestone[key].push(h);
+    });
+    // Reverse so oldest first (we'll shift off for each badge instance)
+    Object.values(historyByMilestone).forEach((arr) => arr.reverse());
+
+    // Build allBadges list (newest first) with reward amounts
+    const allBadges = rawBadges
+      .slice() // avoid mutating original
+      .sort((a, b) => new Date(b.achievedAt) - new Date(a.achievedAt))
+      .map((badge) => {
+        const rType = badge.rewardType || "MILESTONE";
+        const key = `${rType}__${badge.milestone ?? "null"}__${badge.name ?? ""}`;
+        // Consume earliest matching history entry for amount
+        let rewardAmount = 0;
+        if (historyByMilestone[key] && historyByMilestone[key].length > 0) {
+          const entry = historyByMilestone[key].shift();
+          rewardAmount = entry?.amount || 0;
+        } else {
+          // Fallback: look up from config
+          rewardAmount = badge.milestone ? (milestoneRewardMap[badge.milestone] || 0) : 0;
+        }
+        return {
+          name: badge.name || "",
+          achievedAt: badge.achievedAt || null,
+          milestone: badge.milestone || null,
+          rewardType: rType,
+          rewardAmount,
+        };
+      });
+
+    // Build grouped summary
+    // Group key = `${badgeName}||${rewardType}`
+    const groupMap = {};
+    allBadges.forEach((badge) => {
+      const key = `${badge.name}||${badge.rewardType}`;
+      if (!groupMap[key]) {
+        groupMap[key] = {
+          badgeName: badge.name,
+          rewardType: badge.rewardType,
+          count: 0,
+          totalReward: 0,
+          lastAchievedAt: null,
+          milestone: badge.milestone,
+          instances: [],
+        };
+      }
+      const grp = groupMap[key];
+      grp.count += 1;
+      grp.totalReward += badge.rewardAmount;
+      if (
+        !grp.lastAchievedAt ||
+        new Date(badge.achievedAt) > new Date(grp.lastAchievedAt)
+      ) {
+        grp.lastAchievedAt = badge.achievedAt;
+      }
+      grp.instances.push({
+        achievedAt: badge.achievedAt,
+        milestone: badge.milestone,
+        rewardType: badge.rewardType,
+        rewardAmount: badge.rewardAmount,
+      });
+    });
+
+    // Sort groups: MILESTONE first, then CHAIN, then MANUAL; within same type sort by count desc
+    const REWARD_TYPE_ORDER = { MILESTONE: 0, CHAIN: 1, MANUAL: 2 };
+    const badgeGroups = Object.values(groupMap).sort((a, b) => {
+      const typeOrder =
+        (REWARD_TYPE_ORDER[a.rewardType] ?? 99) -
+        (REWARD_TYPE_ORDER[b.rewardType] ?? 99);
+      if (typeOrder !== 0) return typeOrder;
+      return b.count - a.count;
+    });
+
+    // ── 9. Total cash reward earned ──────────────────────────────────────
+    const totalRewardEarned = rewardHistory.reduce(
+      (sum, h) => sum + (h.amount || 0),
+      0
+    );
+
+    // ── 10. Build final response ─────────────────────────────────────────
+    return res.status(200).json({
       success: true,
       data: {
         userName: user.name,
-        currentBadge: user.title || 'No Badge',
-        referralsCount: referralsCount,
-        currentMilestone: currentMilestone ? {
-          badgeName: currentMilestone.badgeName,
-          referralsNeeded: currentMilestone.referralsNeeded
-        } : null,
-        nextBadge: nextMilestone ? {
-          badgeName: nextMilestone.badgeName,
-          referralsNeeded: nextMilestone.referralsNeeded,
-          remaining: nextMilestone.referralsNeeded - referralsCount,
-          progressPercentage: Math.min(100, Math.round((referralsCount / nextMilestone.referralsNeeded) * 100))
-        } : null,
-        allAchievedBadges: user.badges || []
+        userRole: user.role,
+        referralCode: user.referralCode || null,
+        referralsCount,
+
+        // Current badge title on user profile
+        currentBadge: user.title || "No Badge",
+
+        currentMilestone: currentMilestone
+          ? {
+              badgeName: currentMilestone.badgeName || "",
+              referralsNeeded: currentMilestone.referralsNeeded,
+              rewardAmount: currentMilestone.rewardAmount || 0,
+            }
+          : null,
+
+        nextBadge: nextMilestone
+          ? {
+              badgeName: nextMilestone.badgeName || "",
+              referralsNeeded: nextMilestone.referralsNeeded,
+              rewardAmount: nextMilestone.rewardAmount || 0,
+              remaining: nextMilestone.referralsNeeded - referralsCount,
+              progressPercentage: Math.min(
+                100,
+                Math.round((referralsCount / nextMilestone.referralsNeeded) * 100)
+              ),
+            }
+          : null,
+
+        // Grouped badge summary — e.g. "Gold × 2", "Silver × 4"
+        badgeGroups,
+
+        // Full chronological badge list (newest first)
+        allBadges,
+
+        // Total cash credited from referral rewards
+        totalRewardEarned: Math.round(totalRewardEarned * 100) / 100,
+
+        // All configured milestones with achieved status
+        milestoneProgress,
       },
-      message: "User referral badge and progress retrieved successfully"
+      message: "Referral badge and progress fetched successfully.",
     });
   } catch (error) {
-    console.error("Error in getMyReferralBadge:", error);
-    return res.status(500).json({ 
-      success: false, 
-      error: "Internal server error while fetching referral badge progress: " + error.message 
+    console.error("[getMyReferralBadge] Unexpected error:", error);
+
+    // Mongoose CastError (bad ObjectId, etc.)
+    if (error.name === "CastError") {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid ID format in request.",
+      });
+    }
+
+    // Mongoose validation error
+    if (error.name === "ValidationError") {
+      return res.status(422).json({
+        success: false,
+        error: "Validation error: " + error.message,
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error while fetching referral badge progress.",
+      // Only expose details in non-production
+      ...(process.env.NODE_ENV !== "production" && { details: error.message }),
     });
   }
 };
