@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const User = require("../models/User");
 const Referral = require("../models/Referral");
 const ReferralRewardHistory = require("../models/ReferralRewardHistory");
+const ReferralRewardConfig = require("../models/ReferralRewardConfig");
 const DailyCommission = require("../models/DailyCommission");
 const CommissionWithdrawal = require("../models/CommissionWithdrawal");
 const Order = require("../models/Order");
