@@ -1072,9 +1072,20 @@ exports.getMyRewardHistory = async (req, res) => {
 
     const total = await ReferralRewardHistory.countDocuments({ user: userId });
 
+    const formattedHistory = history.map(item => {
+      const doc = item.toObject ? item.toObject() : item;
+      
+      // If triggerUser is populated but null (deleted user), provide a fallback
+      if (doc.triggerUser === null && doc.rewardType === 'CHAIN') {
+        doc.triggerUser = { name: 'Deleted User' };
+      }
+      
+      return doc;
+    });
+
     res.json({
       success: true,
-      data: history,
+      data: formattedHistory,
       pagination: {
         total,
         page,

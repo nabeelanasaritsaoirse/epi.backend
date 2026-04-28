@@ -89,6 +89,11 @@ exports.checkAndIssueRewards = async (referrerId, triggerUserId) => {
                       rewardType: 'CHAIN',
                       milestoneAchieved: ms.referralsNeeded,
                       amount: chainAmount,
+                      percentage: config.chainRewardType === 'PERCENTAGE' ? config.chainRewardValue : null,
+                      sourceReward: {
+                        type: 'MILESTONE',
+                        amount: ms.rewardAmount
+                      },
                       rewardTypeConfig: ms.rewardType, // Mirror the original milestone reward type (CASH/BADGE/BOTH)
                       badgeName: ms.badgeName,
                       notes: `Chain reward: Your referral ${referrerUser.name || 'User'} reached milestone ${ms.referralsNeeded}.`
@@ -117,7 +122,7 @@ exports.checkAndIssueRewards = async (referrerId, triggerUserId) => {
   }
 };
 
-exports.giveReward = async ({ userId, triggerUserId, rewardType, milestoneAchieved, amount, rewardTypeConfig, badgeName, notes, createdBy }) => {
+exports.giveReward = async ({ userId, triggerUserId, rewardType, milestoneAchieved, amount, percentage, sourceReward, rewardTypeConfig, badgeName, notes, createdBy }) => {
   try {
      const isCash = (rewardTypeConfig === 'CASH' || rewardTypeConfig === 'BOTH');
      const isBadge = (rewardTypeConfig === 'BADGE' || rewardTypeConfig === 'BOTH');
@@ -131,6 +136,8 @@ exports.giveReward = async ({ userId, triggerUserId, rewardType, milestoneAchiev
        rewardType,
        milestoneAchieved,
        amount: finalAmount,
+       percentage,
+       sourceReward,
        badgeName: finalBadge,
        notes,
        createdBy
