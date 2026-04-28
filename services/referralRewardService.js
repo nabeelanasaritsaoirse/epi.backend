@@ -73,13 +73,13 @@ exports.checkAndIssueRewards = async (referrerId, triggerUserId) => {
                   chainAmount = (ms.rewardAmount * config.chainRewardValue) / 100;
                 }
 
-                if (chainAmount > 0) {
+                if (chainAmount > 0 || ms.badgeName) {
                   // Double check User A hasn't already received a chain reward triggered by User B's same milestone
                   const alreadyGotChain = await ReferralRewardHistory.findOne({
                     user: referrerUser.referredBy,
                     triggerUser: referrerId,
                     rewardType: 'CHAIN',
-                    notes: new RegExp(`milestone ${ms.referralsNeeded}`, 'i')
+                    milestoneAchieved: ms.referralsNeeded
                   });
 
                   if (!alreadyGotChain) {
@@ -87,9 +87,9 @@ exports.checkAndIssueRewards = async (referrerId, triggerUserId) => {
                       userId: referrerUser.referredBy,
                       triggerUserId: referrerId,
                       rewardType: 'CHAIN',
-                      milestoneAchieved: null,
+                      milestoneAchieved: ms.referralsNeeded,
                       amount: chainAmount,
-                      rewardTypeConfig: 'BOTH', // Now BOTH so they get the badge too
+                      rewardTypeConfig: ms.rewardType, // Mirror the original milestone reward type (CASH/BADGE/BOTH)
                       badgeName: ms.badgeName,
                       notes: `Chain reward: Your referral ${referrerUser.name || 'User'} reached milestone ${ms.referralsNeeded}.`
                     });
@@ -119,7 +119,7 @@ exports.checkAndIssueRewards = async (referrerId, triggerUserId) => {
 
 exports.giveReward = async ({ userId, triggerUserId, rewardType, milestoneAchieved, amount, rewardTypeConfig, badgeName, notes, createdBy }) => {
   try {
-     const isCash = (rewardTypeConfig === 'CASH' || rewardTypeConfig === 'BOTH' || rewardType === 'CHAIN');
+     const isCash = (rewardTypeConfig === 'CASH' || rewardTypeConfig === 'BOTH');
      const isBadge = (rewardTypeConfig === 'BADGE' || rewardTypeConfig === 'BOTH');
      
      const finalAmount = isCash ? amount : 0;
