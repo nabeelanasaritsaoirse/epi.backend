@@ -6,6 +6,11 @@ const referralRewardHistorySchema = new mongoose.Schema({
   rewardType: { type: String, enum: ['MILESTONE', 'CHAIN', 'MANUAL'], required: true },
   milestoneAchieved: { type: Number },
   amount: { type: Number, default: 0 },
+  percentage: { type: Number },
+  sourceReward: {
+    type: { type: String },
+    amount: { type: Number }
+  },
   badgeName: { type: String, default: '' },
   notes: { type: String, default: '' },
   createdAt: { type: Date, default: Date.now },
