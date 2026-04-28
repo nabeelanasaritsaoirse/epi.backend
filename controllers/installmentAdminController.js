@@ -34,7 +34,7 @@ const {
  * }
  */
 const getCompletedOrders = asyncHandler(async (req, res) => {
-  const { deliveryStatus, limit = 10, page = 1, search } = req.query;
+  const { deliveryStatus, limit = 10, page = 1, search, fromDate, toDate } = req.query;
 
   const actualLimit = Math.min(parseInt(limit), 100);
   const actualPage = parseInt(page);
@@ -45,6 +45,8 @@ const getCompletedOrders = asyncHandler(async (req, res) => {
     limit: actualLimit,
     skip,
     search: search ? search.trim() : undefined,
+    fromDate,
+    toDate,
   });
 
   successResponse(
@@ -1031,6 +1033,8 @@ const getOrdersWithMetadata = asyncHandler(async (req, res) => {
     sortBy = "createdAt",
     sortOrder = "desc",
     search,
+    fromDate,
+    toDate,
   } = req.query;
 
   const actualLimit = Math.min(parseInt(limit), 100);
@@ -1042,7 +1046,23 @@ const getOrdersWithMetadata = asyncHandler(async (req, res) => {
 
   // Stage 1: Filter by status at DB level
   if (status) {
-    pipeline.push({ $match: { status } });
+    if (status === "SOON") {
+      pipeline.push({ $match: { status: "ACTIVE" } });
+    } else {
+      pipeline.push({ $match: { status } });
+    }
+  }
+
+  // Date filtering for createdAt (except when SOON, which filters on lastDueDate later)
+  if (status !== "SOON" && (fromDate || toDate)) {
+    const dateQuery = {};
+    if (fromDate) dateQuery.$gte = new Date(fromDate);
+    if (toDate) {
+      const t = new Date(toDate);
+      t.setHours(23, 59, 59, 999);
+      dateQuery.$lte = t;
+    }
+    pipeline.push({ $match: { createdAt: dateQuery } });
   }
 
   // Stage 2: Lookup user (needed for search and output)
@@ -1208,6 +1228,18 @@ const getOrdersWithMetadata = asyncHandler(async (req, res) => {
   // Stage 5: Filter by completionBucket at DB level (now that it's computed)
   if (completionBucket) {
     pipeline.push({ $match: { _completionBucket: completionBucket } });
+  }
+
+  // Stage 5b: Filter by _lastDueDate for SOON
+  if (status === "SOON" && (fromDate || toDate)) {
+    const dateQuery = {};
+    if (fromDate) dateQuery.$gte = new Date(fromDate);
+    if (toDate) {
+      const t = new Date(toDate);
+      t.setHours(23, 59, 59, 999);
+      dateQuery.$lte = t;
+    }
+    pipeline.push({ $match: { _lastDueDate: dateQuery } });
   }
 
   // Stage 6: Sort — map sortBy aliases to computed field names
