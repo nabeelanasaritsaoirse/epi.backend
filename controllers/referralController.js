@@ -505,7 +505,35 @@ exports.getReferralList = async (referrerId) => {
 };
 
 /* ---------- getReferredUserDetails (Screen 2) ---------- */
+/**
+ * @route   GET /api/referrals/my-referrals
+ * @desc    Get list of all referrals for the logged-in user
+ * @access  Private
+ */
+exports.getMyReferrals = async (req, res) => {
+  try {
+    const userId = req.user._id || req.user.id || req.user.userId;
+    
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: "User not authenticated or ID missing"
+      });
+    }
+
+    const result = await exports.getReferralList(userId);
+    res.json(result);
+  } catch (error) {
+    console.error("Error in getMyReferrals:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
 exports.getReferredUserDetails = async (referredUserId, referrerId = null) => {
+
   try {
     const InstallmentOrder = require('../models/InstallmentOrder');
 
