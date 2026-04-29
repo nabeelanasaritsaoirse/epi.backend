@@ -35,8 +35,7 @@ async function getWalletBalance(userId) {
     totalBalance: (user.wallet.balance || 0) + (user.wallet.holdBalance || 0),
     availableBalance: user.wallet.balance || 0,
     lockedBalance: user.wallet.holdBalance || 0,
-    referralBonus: user.wallet.referralBonus || 0,
-    investedAmount: user.wallet.investedAmount || 0
+    referralBonus: user.wallet.referralBonus || 0
   };
 }
 

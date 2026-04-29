@@ -1,17 +1,33 @@
 const InstallmentOrder = require("../models/InstallmentOrder");
 
-exports.getCompletedOrders = async (page = 1, limit = 10) => {
+exports.getCompletedOrders = async (page = 1, limit = 10, fromDate, toDate) => {
   const skip = (page - 1) * limit;
 
+  const query = { status: "COMPLETED" };
+
+  if (fromDate || toDate) {
+    query.completedAt = {};
+    if (fromDate) {
+      const f = new Date(fromDate);
+      f.setHours(0, 0, 0, 0);
+      query.completedAt.$gte = f;
+    }
+    if (toDate) {
+      const t = new Date(toDate);
+      t.setHours(23, 59, 59, 999);
+      query.completedAt.$lte = t;
+    }
+  }
+
   const [orders, total] = await Promise.all([
-    InstallmentOrder.find({ status: "COMPLETED" })
+    InstallmentOrder.find(query)
       .populate("user", "name phoneNumber")
       .populate("product", "name")
       .sort({ completedAt: -1 })
       .skip(skip)
       .limit(limit),
 
-    InstallmentOrder.countDocuments({ status: "COMPLETED" })
+    InstallmentOrder.countDocuments(query)
   ]);
 
   return {
@@ -24,15 +40,19 @@ exports.getCompletedOrders = async (page = 1, limit = 10) => {
   };
 };
 
-exports.getOrdersCompletingSoon = async (page = 1, limit = 10) => {
+exports.getOrdersCompletingSoon = async (page = 1, limit = 10, fromDate, toDate) => {
   const now = new Date();
-  const threeDays = new Date();
-  threeDays.setDate(now.getDate() + 3);
+  
+  // Default 'completing soon' logic: next 3 days
+  const defaultFutureDate = new Date();
+  defaultFutureDate.setDate(now.getDate() + 3);
 
-  const activeOrders = await InstallmentOrder.find({
+  const query = {
     status: "ACTIVE",
     "paymentSchedule.status": "PENDING"
-  })
+  };
+
+  const activeOrders = await InstallmentOrder.find(query)
     .populate("user", "name phoneNumber")
     .populate("product", "name");
 
@@ -44,17 +64,36 @@ exports.getOrdersCompletingSoon = async (page = 1, limit = 10) => {
 
     const lastPending = pending[pending.length - 1];
 
-    if (lastPending.dueDate <= threeDays) {
-      filtered.push({
-        orderId: order.orderId,
-        user: order.user,
-        productName: order.productName,
-        remainingInstallments: pending.length,
-        lastDueDate: lastPending.dueDate,
-        remainingAmount: order.remainingAmount,
-        deliveryAddress: order.deliveryAddress
-      });
+    // Apply date filter if provided, otherwise use default 3-day logic
+    if (fromDate || toDate) {
+      const dueDate = new Date(lastPending.dueDate);
+      let match = true;
+      if (fromDate) {
+        const f = new Date(fromDate);
+        f.setHours(0, 0, 0, 0);
+        if (dueDate < f) match = false;
+      }
+      if (toDate) {
+        const t = new Date(toDate);
+        t.setHours(23, 59, 59, 999);
+        if (dueDate > t) match = false;
+      }
+      
+      if (!match) continue;
+    } else {
+      // Default logic: completing within next 3 days
+      if (lastPending.dueDate > defaultFutureDate) continue;
     }
+
+    filtered.push({
+      orderId: order.orderId,
+      user: order.user,
+      productName: order.productName,
+      remainingInstallments: pending.length,
+      lastDueDate: lastPending.dueDate,
+      remainingAmount: order.remainingAmount,
+      deliveryAddress: order.deliveryAddress
+    });
   }
 
   const total = filtered.length;

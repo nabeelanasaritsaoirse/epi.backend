@@ -20,41 +20,25 @@ const { OrderNotFoundError } = require("../utils/customErrors");
 const createOrder = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
-  console.log('🔍 DEBUG: Controller - createOrder called');
-  console.log('🔍 DEBUG: User ID:', userId);
-  console.log('🔍 DEBUG: Request body:', JSON.stringify(req.body, null, 2));
-
   const orderData = {
     userId,
     ...req.body,
   };
 
-  console.log('🔍 DEBUG: Calling orderService.createOrder...');
   const result = await orderService.createOrder(orderData);
-  console.log('🔍 DEBUG: Service returned successfully!');
-  console.log('🔍 DEBUG: Result structure:', {
-    hasOrder: !!result.order,
-    hasFirstPayment: !!result.firstPayment,
-    hasRazorpayOrder: !!result.razorpayOrder,
-    orderId: result.order?.orderId,
-    paymentId: result.firstPayment?.paymentId
-  });
 
   const message =
     req.body.paymentMethod === "WALLET"
       ? "Order created successfully. First payment completed via wallet."
       : "Order created successfully. Please complete payment via Razorpay.";
 
-  // Format response with all fields properly structured
   const responseData = {
     order: result.order,
     firstPayment: result.firstPayment,
     razorpayOrder: result.razorpayOrder,
   };
 
-  console.log('🔍 DEBUG: Sending response to client...');
   successResponse(res, responseData, message, 201);
-  console.log('✅ Response sent successfully!\n');
 });
 
 /**

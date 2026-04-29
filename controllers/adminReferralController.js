@@ -135,6 +135,8 @@ exports.getUserReferralDetails = async (req, res) => {
           phoneNumber: user.phoneNumber,
           profilePicture: user.profilePicture,
           referralCode: user.referralCode,
+          title: user.title || "",
+          badges: user.badges || [],
           createdAt: user.createdAt,
         },
         referralStats: {
@@ -350,6 +352,8 @@ exports.getUserReferralDetailsById = async (req, res) => {
           phoneNumber: user.phoneNumber,
           profilePicture: user.profilePicture,
           referralCode: user.referralCode,
+          title: user.title || "",
+          badges: user.badges || [],
           createdAt: user.createdAt,
         },
         referralStats: {
@@ -529,6 +533,139 @@ exports.updateUserReferrer = async (req, res) => {
       success: false,
       error: error.message || "Failed to update referral relationship",
     });
+  }
+};
+
+
+/**
+ * @desc    Get reward configuration
+ * @route   GET /api/admin/referrals/reward-config
+ * @access  Admin
+ */
+exports.getRewardConfig = async (req, res) => {
+  try {
+    let config = await ReferralRewardConfig.findOne({});
+    if (!config) {
+      config = new ReferralRewardConfig({ milestones: [] });
+      await config.save();
+    }
+    res.json({ success: true, data: config });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * @desc    Update reward configuration
+ * @route   PUT /api/admin/referrals/reward-config
+ * @access  Admin
+ */
+exports.updateRewardConfig = async (req, res) => {
+  try {
+    let config = await ReferralRewardConfig.findOne({});
+    if (!config) {
+      config = new ReferralRewardConfig({});
+    }
+
+    const { milestones, chainRewardEnabled, chainRewardType, chainRewardValue } = req.body;
+    
+    if (milestones) config.milestones = milestones;
+    if (chainRewardEnabled !== undefined) config.chainRewardEnabled = chainRewardEnabled;
+    if (chainRewardType) config.chainRewardType = chainRewardType;
+    if (chainRewardValue !== undefined) config.chainRewardValue = chainRewardValue;
+    
+    config.updatedAt = Date.now();
+    config.updatedBy = req.user && req.user._id ? req.user._id : null;
+
+    await config.save();
+    res.json({ success: true, data: config });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * @desc    Get reward history
+ * @route   GET /api/admin/referrals/reward-history
+ * @access  Admin
+ */
+exports.getRewardHistory = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+
+    const history = await ReferralRewardHistory.find({})
+      .populate('user', 'name email phoneNumber')
+      .populate('triggerUser', 'name email')
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(); // Use lean for better performance and plain objects
+      
+    const total = await ReferralRewardHistory.countDocuments({});
+
+    // Filter out entries with no user and format the rest
+    const formattedHistory = history
+      .filter(item => item.user !== null)
+      .map(doc => {
+        if (doc.rewardType === 'CHAIN') {
+          // Ensure triggerUser is never null for the UI
+          if (!doc.triggerUser) {
+            doc.triggerUser = { name: 'Unknown User', email: 'N/A' };
+          }
+          // Explicitly ensure these fields exist for the frontend
+          doc.percentage = doc.percentage !== undefined ? doc.percentage : null;
+          doc.sourceReward = doc.sourceReward || { type: null, amount: 0 };
+        }
+        
+        return doc;
+      });
+      
+    res.json({
+       success: true,
+       data: formattedHistory,
+       pagination: { 
+         total, 
+         page, 
+         pages: Math.ceil(total / limit),
+         count: formattedHistory.length
+       }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * @desc    Manually give reward
+ * @route   POST /api/admin/referrals/manual-reward
+ * @access  Admin
+ */
+exports.manualReward = async (req, res) => {
+  try {
+    const { userId, amount, title, notes } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, error: "Missing required field: userId" });
+    }
+    
+    const adminId = (req.user && req.user._id) ? req.user._id : null;
+
+    const history = await referralRewardService.giveReward({
+       userId,
+       triggerUserId: null,
+       rewardType: 'MANUAL',
+       milestoneAchieved: null,
+       amount: amount || 0,
+       rewardTypeConfig: title ? ((amount > 0) ? 'BOTH' : 'BADGE') : 'CASH',
+       badgeName: title || '',
+       notes: notes || 'Manual reward from admin',
+       createdBy: adminId
+    });
+    
+    res.json({ success: true, message: "Reward given successfully", data: history });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 

@@ -48,6 +48,8 @@ const notificationSchema = new Schema({
       'WALLET_DEBIT',
       'COMMISSION_EARNED',
       'REFERRAL_JOINED',
+      'REFERRAL_REWARD',
+      'CHAIN_REWARD',
       'KYC_APPROVED',
       'KYC_REJECTED',
       'GENERAL'

@@ -1,7 +1,10 @@
 const Product = require("../models/Product");
+const { escapeRegex } = require('../utils/helpers');
 const Category = require("../models/Category");
 const User = require("../models/User");
 const mongoose = require("mongoose");
+
+
 const {
   uploadMultipleFilesToS3,
   deleteImageFromS3,
@@ -519,10 +522,11 @@ exports.getAllProducts = async (req, res) => {
     // Search
     // ===============================
     if (search) {
+      const safeSearch = escapeRegex(search);
       filter.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { description: { $regex: search, $options: "i" } },
-        { "regionalSeo.metaTitle": { $regex: search, $options: "i" } },
+        { name: { $regex: safeSearch, $options: "i" } },
+        { description: { $regex: safeSearch, $options: "i" } },
+        { "regionalSeo.metaTitle": { $regex: safeSearch, $options: "i" } },
       ];
     }
 
@@ -1269,11 +1273,12 @@ exports.getProductsByRegion = async (req, res) => {
     };
 
     if (search) {
+      const safeSearch = escapeRegex(search);
       filter.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { "description.short": { $regex: search, $options: "i" } },
-        { "description.long": { $regex: search, $options: "i" } },
-        { "regionalSeo.metaTitle": { $regex: search, $options: "i" } },
+        { name: { $regex: safeSearch, $options: "i" } },
+        { "description.short": { $regex: safeSearch, $options: "i" } },
+        { "description.long": { $regex: safeSearch, $options: "i" } },
+        { "regionalSeo.metaTitle": { $regex: safeSearch, $options: "i" } },
       ];
     }
 
@@ -1901,15 +1906,14 @@ exports.searchProductsAdvanced = async (req, res) => {
     };
 
     if (searchQuery) {
+      const safeSearch = escapeRegex(searchQuery);
       filter.$or = [
-        { name: { $regex: searchQuery, $options: "i" } },
-        { "description.short": { $regex: searchQuery, $options: "i" } },
-        { "description.long": { $regex: searchQuery, $options: "i" } },
-        { "regionalSeo.metaTitle": { $regex: searchQuery, $options: "i" } },
-        {
-          "regionalSeo.metaDescription": { $regex: searchQuery, $options: "i" },
-        },
-        { "regionalSeo.keywords": { $in: [new RegExp(searchQuery, "i")] } },
+        { name: { $regex: safeSearch, $options: "i" } },
+        { "description.short": { $regex: safeSearch, $options: "i" } },
+        { "description.long": { $regex: safeSearch, $options: "i" } },
+        { "regionalSeo.metaTitle": { $regex: safeSearch, $options: "i" } },
+        { "regionalSeo.metaDescription": { $regex: safeSearch, $options: "i" } },
+        { "regionalSeo.keywords": { $in: [new RegExp(safeSearch, "i")] } },
       ];
     }
 
@@ -2301,10 +2305,11 @@ exports.getAllProductsForAdmin = async (req, res) => {
 
     // Search
     if (search) {
+      const safeSearch = escapeRegex(search);
       filter.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { description: { $regex: search, $options: "i" } },
-        { "regionalSeo.metaTitle": { $regex: search, $options: "i" } },
+        { name: { $regex: safeSearch, $options: "i" } },
+        { description: { $regex: safeSearch, $options: "i" } },
+        { "regionalSeo.metaTitle": { $regex: safeSearch, $options: "i" } },
       ];
     }
 
@@ -2763,9 +2768,10 @@ exports.exportProducts = async (req, res) => {
     }
 
     if (search) {
+      const safeSearch = escapeRegex(search);
       filter.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { description: { $regex: search, $options: "i" } },
+        { name: { $regex: safeSearch, $options: "i" } },
+        { description: { $regex: safeSearch, $options: "i" } },
       ];
     }
 

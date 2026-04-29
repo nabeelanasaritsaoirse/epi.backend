@@ -123,14 +123,6 @@ const userSchema = new Schema({
       type: Number,
       default: 0
     },
-    investedAmount: {
-      type: Number,
-      default: 0
-    },
-    requiredInvestment: {
-      type: Number,
-      default: 0
-    },
     // Commission tracking for 10% in-app usage rule
     commissionEarned: {
       type: Number,
@@ -532,6 +524,18 @@ const userSchema = new Schema({
       type: String
     }
   },
+
+  // Referral Reward Fields
+  title: {
+    type: String,
+    default: ''
+  },
+  badges: [{
+    name: String,
+    achievedAt: { type: Date, default: Date.now },
+    milestone: Number,
+    rewardType: { type: String, enum: ['MILESTONE', 'CHAIN', 'MANUAL'], default: 'MILESTONE' }
+  }],
 
   createdAt: {
     type: Date,
