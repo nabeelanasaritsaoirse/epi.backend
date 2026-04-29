@@ -695,35 +695,37 @@ exports.getRewardHistory = async (req, res) => {
       .populate('triggerUser', 'name email')
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
-      .limit(limit);
+      .limit(limit)
+      .lean(); // Use lean for better performance and plain objects
       
     const total = await ReferralRewardHistory.countDocuments({});
 
-    // Process history to ensure 'user' is never null (in case of deleted users)
-    // and make sure Mongoose documents are converted to plain objects
-    const formattedHistory = history.map(item => {
-      const doc = item.toObject ? item.toObject() : item;
-      
-      if (!doc.user) {
-        doc.user = { name: 'Deleted User', email: 'N/A', phoneNumber: 'N/A' };
-      }
-      
-      if (doc.rewardType === 'CHAIN') {
-        if (!doc.triggerUser) {
-          doc.triggerUser = { name: 'Deleted User', email: 'N/A' };
+    // Filter out entries with no user and format the rest
+    const formattedHistory = history
+      .filter(item => item.user !== null)
+      .map(doc => {
+        if (doc.rewardType === 'CHAIN') {
+          // Ensure triggerUser is never null for the UI
+          if (!doc.triggerUser) {
+            doc.triggerUser = { name: 'Unknown User', email: 'N/A' };
+          }
+          // Explicitly ensure these fields exist for the frontend
+          doc.percentage = doc.percentage !== undefined ? doc.percentage : null;
+          doc.sourceReward = doc.sourceReward || { type: null, amount: 0 };
         }
-        // Explicitly surface these fields even if null
-        doc.percentage = doc.percentage || null;
-        doc.sourceReward = doc.sourceReward || null;
-      }
-      
-      return doc;
-    });
+        
+        return doc;
+      });
       
     res.json({
        success: true,
        data: formattedHistory,
-       pagination: { total, page, pages: Math.ceil(total / limit) }
+       pagination: { 
+         total, 
+         page, 
+         pages: Math.ceil(total / limit),
+         count: formattedHistory.length
+       }
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });

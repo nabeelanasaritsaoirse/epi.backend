@@ -135,6 +135,22 @@ const getAllOrders = asyncHandler(async (req, res) => {
   if (status) query.status = status;
   if (deliveryStatus) query.deliveryStatus = deliveryStatus;
 
+  // Add date filtering on createdAt
+  const { fromDate, toDate } = req.query;
+  if (fromDate || toDate) {
+    query.createdAt = {};
+    if (fromDate) {
+      const f = new Date(fromDate);
+      f.setHours(0, 0, 0, 0);
+      query.createdAt.$gte = f;
+    }
+    if (toDate) {
+      const t = new Date(toDate);
+      t.setHours(23, 59, 59, 999);
+      query.createdAt.$lte = t;
+    }
+  }
+
   const orders = await InstallmentOrder.find(query)
     .sort({ createdAt: -1 })
     .limit(Math.min(limit, 100))
@@ -1056,7 +1072,11 @@ const getOrdersWithMetadata = asyncHandler(async (req, res) => {
   // Date filtering for createdAt (except when SOON, which filters on lastDueDate later)
   if (status !== "SOON" && (fromDate || toDate)) {
     const dateQuery = {};
-    if (fromDate) dateQuery.$gte = new Date(fromDate);
+    if (fromDate) {
+      const f = new Date(fromDate);
+      f.setHours(0, 0, 0, 0);
+      dateQuery.$gte = f;
+    }
     if (toDate) {
       const t = new Date(toDate);
       t.setHours(23, 59, 59, 999);
@@ -1233,7 +1253,11 @@ const getOrdersWithMetadata = asyncHandler(async (req, res) => {
   // Stage 5b: Filter by _lastDueDate for SOON
   if (status === "SOON" && (fromDate || toDate)) {
     const dateQuery = {};
-    if (fromDate) dateQuery.$gte = new Date(fromDate);
+    if (fromDate) {
+      const f = new Date(fromDate);
+      f.setHours(0, 0, 0, 0);
+      dateQuery.$gte = f;
+    }
     if (toDate) {
       const t = new Date(toDate);
       t.setHours(23, 59, 59, 999);

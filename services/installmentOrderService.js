@@ -747,7 +747,11 @@ async function getCompletedOrders(options = {}) {
 
   if (fromDate || toDate) {
     const dateQuery = {};
-    if (fromDate) dateQuery.$gte = new Date(fromDate);
+    if (fromDate) {
+      const f = new Date(fromDate);
+      f.setHours(0, 0, 0, 0);
+      dateQuery.$gte = f;
+    }
     if (toDate) {
       const t = new Date(toDate);
       t.setHours(23, 59, 59, 999);
