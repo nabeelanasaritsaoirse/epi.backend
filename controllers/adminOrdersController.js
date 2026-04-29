@@ -2,10 +2,14 @@ const adminOrdersService = require("../services/adminOrdersService")
 
 exports.getCompletedOrders = async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const { page = 1, limit = 10, fromDate, toDate } = req.query;
 
-    const result = await adminOrdersService.getCompletedOrders(page, limit);
+    const result = await adminOrdersService.getCompletedOrders(
+      parseInt(page),
+      parseInt(limit),
+      fromDate,
+      toDate
+    );
 
     res.json({
       success: true,
@@ -19,10 +23,14 @@ exports.getCompletedOrders = async (req, res) => {
 
 exports.getOrdersCompletingSoon = async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const { page = 1, limit = 10, fromDate, toDate } = req.query;
 
-    const result = await adminOrdersService.getOrdersCompletingSoon(page, limit);
+    const result = await adminOrdersService.getOrdersCompletingSoon(
+      parseInt(page),
+      parseInt(limit),
+      fromDate,
+      toDate
+    );
 
     res.json({
       success: true,
