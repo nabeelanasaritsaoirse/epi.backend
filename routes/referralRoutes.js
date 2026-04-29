@@ -397,7 +397,7 @@ router.get("/my-rewards", auth.verifyToken, referralController.getMyRewardHistor
 router.get("/my-badge", auth.verifyToken, referralController.getMyReferralBadge);
 
 /* ---------- My Referred Users (Leaderboard style) ---------- */
-router.get("/my-referrals", auth.verifyToken, async (req, res) => {
+router.get("/myteam", auth.verifyToken, async (req, res) => {
   try {
     const referrerId = req.user._id;
 
