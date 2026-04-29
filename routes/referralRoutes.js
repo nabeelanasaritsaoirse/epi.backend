@@ -1,4 +1,5 @@
 const express = require("express");
+const mongoose = require("mongoose");
 const router = express.Router();
 const referralController = require("../controllers/referralController");
 const auth = require("../middlewares/auth");
