@@ -27,6 +27,7 @@ const {
 } = require("../utils/installmentHelpers");
 const { creditCommissionToWallet } = require("./installmentWalletService");
 const StreakConfig = require("../models/StreakConfig");
+const referralRewardService = require("./referralRewardService");
 
 /**
  * Build query to find order by ID (handles both ObjectId and string orderId)
@@ -1085,6 +1086,19 @@ async function processAutopayPayment(order, user) {
     });
 
     await order.save();
+
+    // Trigger referral milestone & chain rewards on autopay order completion
+    if (order.status === "COMPLETED" && order.referrer) {
+      try {
+        await referralRewardService.checkAndIssueRewards(
+          order.referrer._id || order.referrer,
+          order.user
+        );
+        console.log(`[Autopay] ✅ Referral rewards checked for referrer ${order.referrer} (order ${order.orderId})`);
+      } catch (rewardErr) {
+        console.error("[Autopay] ⚠️ Referral reward check failed (non-fatal):", rewardErr.message);
+      }
+    }
 
     // Process commission if referrer exists
     if (order.referrer) {
