@@ -1085,6 +1085,98 @@ exports.getLeaderboard = async (req, res) => {
   }
 };
 
+/* ---------- getMyTeam ---------- */
+exports.getMyTeam = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+
+    // 1. Find all users referred by current user
+    const referredUsers = await User.find({ referredBy: userId })
+      .select('_id name profilePicture title')
+      .lean();
+
+    if (referredUsers.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          leaderboard: [],
+          pagination: { total: 0, page, pages: 0 }
+        }
+      });
+    }
+
+    const referredUserIds = referredUsers.map(u => u._id);
+
+    // 2. Get stats for these users (how many they referred and what they earned)
+    const stats = await Referral.aggregate([
+      { 
+        $match: { 
+          referrer: { $in: referredUserIds },
+          status: { $in: ['ACTIVE', 'COMPLETED'] } 
+        } 
+      },
+      { 
+        $group: { 
+          _id: "$referrer", 
+          referralsCount: { $sum: 1 },
+          totalCommissionEarned: { $sum: "$commissionEarned" } 
+        } 
+      }
+    ]);
+
+    // Create a map for quick lookup
+    const statsMap = {};
+    stats.forEach(s => {
+      statsMap[s._id.toString()] = s;
+    });
+
+    // 3. Merge users with their stats
+    let teamList = referredUsers.map(u => {
+      const userStats = statsMap[u._id.toString()] || { referralsCount: 0, totalCommissionEarned: 0 };
+      return {
+        _id: u._id,
+        referralsCount: userStats.referralsCount,
+        totalCommissionEarned: userStats.totalCommissionEarned,
+        user: {
+          name: u.name,
+          profilePicture: u.profilePicture || '',
+          title: u.title || ''
+        }
+      };
+    });
+
+    // 4. Sort (same as leaderboard: referralsCount desc, then commission desc)
+    teamList.sort((a, b) => {
+      if (b.referralsCount !== a.referralsCount) {
+        return b.referralsCount - a.referralsCount;
+      }
+      return b.totalCommissionEarned - a.totalCommissionEarned;
+    });
+
+    // 5. Pagination
+    const total = teamList.length;
+    const paginatedList = teamList.slice((page - 1) * limit, page * limit);
+
+    res.json({
+      success: true,
+      data: {
+        leaderboard: paginatedList,
+        pagination: {
+          total,
+          page,
+          pages: Math.ceil(total / limit)
+        }
+      }
+    });
+  } catch (error) {
+    console.error("Error in getMyTeam:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+
 /* ---------- getMyRewardHistory ---------- */
 exports.getMyRewardHistory = async (req, res) => {
   try {
