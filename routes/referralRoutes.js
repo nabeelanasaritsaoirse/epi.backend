@@ -370,6 +370,8 @@ router.get("/details/:referralId", async (req, res) => {
 
 // Get logged-in user's referrer info
 router.get("/referrer-info", auth.verifyToken, referralController.getReferrerInfo);
+router.get("/my-referrals", auth.verifyAnyToken, referralController.getMyReferrals);
+
 
 // Get comprehensive referral statistics for authenticated user
 // Supports both JWT and Firebase tokens
@@ -393,6 +395,95 @@ router.get("/my-rewards", auth.verifyToken, referralController.getMyRewardHistor
  * @access  Private
  */
 router.get("/my-badge", auth.verifyToken, referralController.getMyReferralBadge);
+
+/* ---------- My Referred Users (Leaderboard style) ---------- */
+router.get("/my-referrals", auth.verifyToken, async (req, res) => {
+  try {
+    const referrerId = req.user._id;
+
+    // Sirf wahi users jo mere referral code se aaye
+    const referredUsers = await User.find({ referredBy: referrerId })
+      .select("name email profilePicture title createdAt")
+      .sort({ createdAt: -1 });
+
+    if (referredUsers.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          myReferrals: [],
+          totalCount: 0
+        }
+      });
+    }
+
+    // Har user ke liye stats nikalo
+    const myReferrals = await Promise.all(
+      referredUsers.map(async (user) => {
+        // Us user ki referrals count (agar wo bhi kisi ko refer karta hai)
+        const referralsCount = await Referral.countDocuments({
+          referrer: user._id,
+          status: { $in: ['ACTIVE', 'COMPLETED'] }
+        });
+
+        // Commission earned by referrer (me) for this specific user
+        const commissionData = await DailyCommission.aggregate([
+          {
+            $lookup: {
+              from: 'referrals',
+              localField: 'referral',
+              foreignField: '_id',
+              as: 'referralDoc'
+            }
+          },
+          { $unwind: '$referralDoc' },
+          {
+            $match: {
+              'referralDoc.referrer': new mongoose.Types.ObjectId(referrerId.toString()),
+              'referralDoc.referredUser': new mongoose.Types.ObjectId(user._id.toString())
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              totalCommissionEarned: { $sum: '$amount' }
+            }
+          }
+        ]);
+
+        const totalCommissionEarned = commissionData.length > 0
+          ? Math.round(commissionData[0].totalCommissionEarned * 100) / 100
+          : 0;
+
+        return {
+          _id: user._id,
+          referralsCount,      // same as leaderboard
+          totalCommissionEarned, // same as leaderboard
+          user: {
+            name: user.name,
+            profilePicture: user.profilePicture || '',
+            title: user.title || ''
+          },
+          joinedAt: user.createdAt
+        };
+      })
+    );
+
+    // Sort by joinedAt newest first (ya commission se sort karna ho toh change karo)
+    myReferrals.sort((a, b) => new Date(b.joinedAt) - new Date(a.joinedAt));
+
+    res.json({
+      success: true,
+      data: {
+        myReferrals,
+        totalCount: myReferrals.length
+      }
+    });
+
+  } catch (error) {
+    console.error("Error in my-referrals:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 module.exports = router;
 
