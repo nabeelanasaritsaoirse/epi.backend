@@ -1,4 +1,5 @@
 const express = require("express");
+const mongoose = require("mongoose");
 const router = express.Router();
 const referralController = require("../controllers/referralController");
 const auth = require("../middlewares/auth");
@@ -6,6 +7,7 @@ const User = require("../models/User");
 const CommissionWithdrawal = require("../models/CommissionWithdrawal");
 const Referral = require("../models/Referral");
 const DailyCommission = require("../models/DailyCommission");
+const InstallmentOrder = require("../models/InstallmentOrder");
 
 /* ============================================================
    SAFE PRODUCTION ROUTES ONLY
@@ -370,10 +372,33 @@ router.get("/details/:referralId", async (req, res) => {
 
 // Get logged-in user's referrer info
 router.get("/referrer-info", auth.verifyToken, referralController.getReferrerInfo);
+router.get("/my-referrals", auth.verifyAnyToken, referralController.getMyReferrals);
+
 
 // Get comprehensive referral statistics for authenticated user
 // Supports both JWT and Firebase tokens
 // Optional query param: ?detailed=true to include referred users list
 router.get("/stats", auth.verifyAnyToken, referralController.getComprehensiveReferralStats);
+
+
+/**
+ * @route   GET /api/referrals/leaderboard
+ */
+router.get("/leaderboard", auth.verifyToken, referralController.getLeaderboard);
+
+/**
+ * @route   GET /api/referrals/my-rewards
+ */
+router.get("/my-rewards", auth.verifyToken, referralController.getMyRewardHistory);
+
+/**
+ * @route   GET /api/referrals/my-badge
+ * @desc    Get user's current referral badge/title and progress to next milestone
+ * @access  Private
+ */
+router.get("/my-badge", auth.verifyToken, referralController.getMyReferralBadge);
+
+/* ---------- My Referred Users (Leaderboard style) ---------- */
+router.get("/myteam", auth.verifyToken, referralController.getMyTeam);
 
 module.exports = router;

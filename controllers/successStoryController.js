@@ -1,5 +1,8 @@
 const SuccessStory = require('../models/SuccessStory');
+const { escapeRegex } = require('../utils/helpers');
 const { deleteImageFromS3 } = require('../services/awsUploadService');
+
+
 
 /**
  * Create a new success story with image upload
@@ -134,14 +137,15 @@ exports.getAllSuccessStories = async (req, res) => {
     }
 
     if (search) {
+      const safeSearch = escapeRegex(search);
       query.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } }
+        { title: { $regex: safeSearch, $options: 'i' } },
+        { description: { $regex: safeSearch, $options: 'i' } }
       ];
     }
 
-    const pageNum = parseInt(page) || 1;
-    const limitNum = parseInt(limit) || 20;
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20));
     const skip = (pageNum - 1) * limitNum;
 
     const sortObj = {};
@@ -416,7 +420,7 @@ exports.permanentlyDeleteSuccessStory = async (req, res) => {
     }
 
     // Delete from database
-    await SuccessStory.findByIdAndRemove(id);
+    await SuccessStory.findByIdAndDelete(id);
 
     res.json({
       success: true,
@@ -524,7 +528,7 @@ exports.reorderSuccessStories = async (req, res) => {
 /**
  * Get success story statistics
  */
-exports.getSuccessStoryStats = async (req, res) => {
+exports.getSuccessStoryStats = async (_req, res) => {
   try {
     const stats = {
       total: await SuccessStory.countDocuments({ isDeleted: false }),

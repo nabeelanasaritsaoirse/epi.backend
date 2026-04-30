@@ -18,7 +18,6 @@ const userRoutes = require("./routes/users");
 const walletRoutes = require("./routes/wallet");
 const adminWalletRoutes = require("./routes/adminWallet");
 const faqRoutes = require("./routes/faqRoutes");
-const referralCommissionRoutes = require("./routes/referralCommission");
 const paymentRoutes = require("./routes/payments");
 const orderRoutes = require("./routes/orders");
 const adminRoutes = require("./routes/admin");
@@ -165,8 +164,8 @@ app.use("/api/kyc", require("./routes/kycRoutes"));
 app.use("/api/wallet", walletRoutes);
 app.use("/api/admin/wallet", adminWalletRoutes);
 
-app.use("/api/referral-commission", referralCommissionRoutes);
 app.use("/api/referral", referralRoutes);
+app.use("/api/referrals", referralRoutes);
 
 app.use("/api/payments", paymentRoutes);
 app.use("/api/orders", orderRoutes);

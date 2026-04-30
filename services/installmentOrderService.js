@@ -740,10 +740,25 @@ async function getUserOrders(userId, options = {}) {
  * @returns {Promise<{ orders: Array, totalCount: number }>}
  */
 async function getCompletedOrders(options = {}) {
-  const { deliveryStatus, limit = 10, skip = 0, search } = options;
+  const { deliveryStatus, limit = 10, skip = 0, search, fromDate, toDate } = options;
 
   const matchStage = { status: "COMPLETED" };
   if (deliveryStatus) matchStage.deliveryStatus = deliveryStatus;
+
+  if (fromDate || toDate) {
+    const dateQuery = {};
+    if (fromDate) {
+      const f = new Date(fromDate);
+      f.setHours(0, 0, 0, 0);
+      dateQuery.$gte = f;
+    }
+    if (toDate) {
+      const t = new Date(toDate);
+      t.setHours(23, 59, 59, 999);
+      dateQuery.$lte = t;
+    }
+    matchStage.completedAt = dateQuery;
+  }
 
   if (!search) {
     // No search — efficient path: find + countDocuments in parallel

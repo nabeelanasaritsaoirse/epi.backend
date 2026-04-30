@@ -41,6 +41,7 @@ const {
   checkMilestoneReached,
   applyMilestoneFreeDaysToSchedule,
 } = require("../utils/installmentHelpers");
+const referralRewardService = require("./referralRewardService");
 
 /**
  * Verify Razorpay payment signature
@@ -348,7 +349,22 @@ async function processPayment(paymentData) {
     await order.save(); // session disabled for local development
 
     // ========================================
-    // 9. Calculate and Credit Commission (if referrer exists)
+    // 9. Trigger Referral Milestone & Chain Rewards on Order Completion
+    // ========================================
+    if (order.status === "COMPLETED" && order.referrer) {
+      try {
+        await referralRewardService.checkAndIssueRewards(
+          order.referrer._id || order.referrer,
+          order.user
+        );
+        console.log(`✅ Referral rewards checked for referrer ${order.referrer._id || order.referrer} (order ${order.orderId})`);
+      } catch (rewardErr) {
+        console.error("⚠️ Referral reward check failed (non-fatal):", rewardErr.message);
+      }
+    }
+
+    // ========================================
+    // 10. Calculate and Credit Commission (if referrer exists)
     // ========================================
     let commissionResult = null;
 
@@ -1011,6 +1027,19 @@ async function processSelectedDailyPayments(data) {
 
       await order.save(); // session disabled for local development
 
+      // Trigger referral milestone & chain rewards on order completion
+      if (order.status === "COMPLETED" && order.referrer) {
+        try {
+          await referralRewardService.checkAndIssueRewards(
+            order.referrer._id || order.referrer,
+            order.user
+          );
+          console.log(`✅ Referral rewards checked for referrer ${order.referrer._id || order.referrer} (combined, order ${order.orderId})`);
+        } catch (rewardErr) {
+          console.error("⚠️ Referral reward check failed (non-fatal):", rewardErr.message);
+        }
+      }
+
       // Calculate commission
       const commissionResult =
         await commissionService.calculateAndCreditCommission({
@@ -1159,6 +1188,19 @@ async function markPaymentAsCompleted(paymentId, adminData) {
     await order.save({ session });
 
     await session.commitTransaction();
+
+    // Trigger referral milestone & chain rewards on admin-marked completion (outside transaction)
+    if (order.status === 'COMPLETED' && order.referrer) {
+      try {
+        await referralRewardService.checkAndIssueRewards(
+          order.referrer._id || order.referrer,
+          order.user
+        );
+        console.log(`[Admin] ✅ Referral rewards checked for referrer ${order.referrer} (order ${order.orderId})`);
+      } catch (rewardErr) {
+        console.error('[Admin] ⚠️ Referral reward check failed (non-fatal):', rewardErr.message);
+      }
+    }
     console.log(`[Admin] Payment ${payment.paymentId} marked as completed successfully`);
 
     return payment;
