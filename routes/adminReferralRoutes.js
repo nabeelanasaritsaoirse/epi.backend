@@ -66,4 +66,24 @@ router.put(
   adminReferralController.updateUserReferrer
 );
 
+/**
+ * @route   GET /api/admin/referrals/reward-config
+ */
+router.get("/reward-config", verifyToken, isAdmin, adminReferralController.getRewardConfig);
+
+/**
+ * @route   PUT /api/admin/referrals/reward-config
+ */
+router.put("/reward-config", verifyToken, isAdmin, adminReferralController.updateRewardConfig);
+
+/**
+ * @route   GET /api/admin/referrals/reward-history
+ */
+router.get("/reward-history", verifyToken, isAdmin, adminReferralController.getRewardHistory);
+
+/**
+ * @route   POST /api/admin/referrals/manual-reward
+ */
+router.post("/manual-reward", verifyToken, isAdmin, adminReferralController.manualReward);
+
 module.exports = router;
